@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "whitelist": { "users": [], "groups": [] },
+  "blacklist": { "users": [], "groups": [] },
+  "plugins": {
+    "sick": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
+  },
+  "commands": {
+    "sick": {
+      "get": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
+    }
+  }
+}

@@ -1,26 +1,31 @@
+from __future__ import annotations
+
 from datetime import datetime
 from typing import Optional
 
 import httpx
-from nonebot import on_regex, logger, get_driver
+from nonebot import logger
 from nonebot.matcher import Matcher
 from nonebot.params import RegexGroup
 from nonebot.adapters.onebot.v11 import MessageEvent
 
-from ...config import Config
-from ...perm import permission_for
+from ...registry import Plugin
+from ...config import register_plugin_config
 
 
-driver = get_driver()
-global_config = driver.config
-plugin_config = Config.parse_obj(global_config.dict())
+# Plugin-local configuration
+DEFAULT_CFG = {
+    "qq_reg_time_api_key": None,
+}
+CFG = register_plugin_config("reg_time", DEFAULT_CFG)
+P = Plugin()
 
 
-_REG = on_regex(
+_REG = P.on_regex(
     r"^#*注册时间\s*(\d*)$",
+    name="query",
     priority=13,
     block=True,
-    permission=permission_for("reg_time"),
 )
 
 
@@ -40,7 +45,8 @@ def _extract_qq(e: MessageEvent, matched: str) -> Optional[str]:
 
 async def _query_registration(qq: str) -> Optional[str]:
     api_url = "https://api.s01s.cn/API/zcsj/"
-    api_key = plugin_config.entertain_qq_reg_time_api_key or "B9FB02FC6AC1AF34F7D2B5390B468EAC"
+    cfg = CFG.load()
+    api_key = (cfg.get("qq_reg_time_api_key") or "B9FB02FC6AC1AF34F7D2B5390B468EAC")
     params = {"qq": qq, "key": api_key}
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.get(api_url, params=params)

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import asyncio
 import subprocess
@@ -21,8 +21,8 @@ from nonebot.adapters.onebot.v11 import (
     PokeNotifyEvent,
 )
 
-from ...perm import permission_for_cmd
-from ...utils import data_dir
+from ...registry import Plugin
+from ...utils import plugin_data_dir
 from .config import load_cfg, face_list, random_local_image, POKE_DIR, RES_DF_DIR
 
 
@@ -31,16 +31,27 @@ _cfg = load_cfg()
 _updating_gallery = False
 from . import update_gallery as _df_update_gallery  # register update commands
 
+# Permissions wrapper
+P = Plugin()
+# Ensure default command entries exist for notice-based actions
+from ...config import upsert_command_defaults as _up_def
+_up_def('df', 'poke')
+for _c in ('pictures_face','pictures_list','contact','reply'):
+    try:
+        _up_def('df', _c)
+    except Exception:
+        pass
+
 
 # ---------- Helpers ----------
 
 def _api_handlers() -> List[Tuple[str, Any]]:
     handlers: List[Tuple[str, Any]] = []
 
-    handlers.append((r"jk(?:制服)?", lambda: MessageSegment.image("https://api.suyanw.cn/api/jk.php")))
+    pend((r"jk(?:图)?", lambda: MessageSegment.image("https://api.suyanw.cn/api/jk.php")))
 
     async def _hs():
-        return Message(MessageSegment.text("唉嗨害，黑丝来咯") + MessageSegment.image("https://api.suyanw.cn/api/hs.php"))
+        return Message(MessageSegment.text("黑丝来啦") + MessageSegment.image("https://api.suyanw.cn/api/hs.php"))
 
     handlers.append((r"黑丝", _hs))
 
@@ -49,7 +60,7 @@ def _api_handlers() -> List[Tuple[str, Any]]:
             r = await client.get("https://v2.api-m.com/api/baisi")
             r.raise_for_status()
             link = r.text.replace("\\", "/")
-        return Message(MessageSegment.text("白丝来咯~") + MessageSegment.image(link))
+        return Message(MessageSegment.text("白丝来啦~") + MessageSegment.image(link))
 
     handlers.append((r"白丝", _bs))
 
@@ -57,7 +68,7 @@ def _api_handlers() -> List[Tuple[str, Any]]:
         async with httpx.AsyncClient(timeout=15) as client:
             r = await client.get("https://api.suyanw.cn/api/cos.php?type=json")
             link = r.text.replace("\\", "/")
-        return Message(MessageSegment.text("cos来咯~") + MessageSegment.image(link))
+        return Message(MessageSegment.text("COS 来啦~") + MessageSegment.image(link))
 
     handlers.append((r"cos", _cos))
 
@@ -66,9 +77,9 @@ def _api_handlers() -> List[Tuple[str, Any]]:
             r = await client.get("https://api.suyanw.cn/api/meitui.php")
             m = re.search(r"https?://[^ ]+", r.text)
             link = m.group(0) if m else ""
-        return Message(MessageSegment.text("看吧涩批~") + (MessageSegment.image(link) if link else MessageSegment.text("")))
+        return Message(MessageSegment.text("美腿来啦~") + (MessageSegment.image(link) if link else MessageSegment.text("")))
 
-    handlers.append((r"腿子?", _leg))
+    handlers.append((r"腿", _leg))
 
     return handlers
 
@@ -99,11 +110,11 @@ async def _hitokoto(api: str) -> Optional[str]:
 
 # ---------- Random pictures ----------
 
-_PIC = on_regex(
+_PIC = P.on_regex(
     _build_picture_regex(),
+    name="pictures_api",
     priority=13,
     block=True,
-    permission=permission_for_cmd("df", "pictures_api"),
 )
 
 
@@ -128,11 +139,11 @@ async def _(matcher: Matcher, event: MessageEvent):
 
 
 # Use a generic matcher and validate face names at runtime
-_FACE = on_regex(
+_FACE = P.on_regex(
     r"^#?(?:来张|看看|随机)(\S+)$",
     priority=13,
     block=False,
-    permission=permission_for_cmd("df", "pictures_face"),
+    name="pictures_face",
 )
 
 
@@ -148,24 +159,24 @@ async def _(matcher: Matcher, event: MessageEvent):
         await matcher.finish(Message(_pick_face_image(name)))
 
 
-_LIST = on_regex(
+_LIST = P.on_regex(
     r"^#?DF(?:随机)?表情包列表$",
     priority=13,
     block=True,
-    permission=permission_for_cmd("df", "pictures_list"),
+    name="pictures_list",
 )
 
 
 @_LIST.handle()
 async def _(matcher: Matcher):
     faces = face_list()
-    text = "表情包列表：\n" + ("、".join(faces) or "(无)") + "\n\n使用 #随机+表情名称"
+    text = "表情包列表：\n" + ("、".join(faces) or "(无)") + "\n\n使用 #随机<表情包名>"
     await matcher.finish(text)
 
 
-# ---------- Poke (戳一戳) ----------
+# ---------- Poke (鎴充竴鎴? ----------
 
-_POKE = on_notice(priority=12, block=False, permission=permission_for_cmd("df", "poke"))
+_POKE = on_notice(priority=12, block=False, permission=P.permission_cmd("poke"))
 
 
 @_POKE.handle()
@@ -214,7 +225,7 @@ async def _(bot: Bot, event: PokeNotifyEvent):  # type: ignore[override]
 
 # ---------- 联系主人 ----------
 
-CONTACT_FILE = data_dir("df") / "contact_index.json"
+CONTACT_FILE = plugin_data_dir("df") / "contact_index.json"
 
 
 def _load_contact() -> Dict[str, Any]:
@@ -231,11 +242,11 @@ def _save_contact(data: Dict[str, Any]) -> None:
         pass
 
 
-_CONTACT = on_regex(
-    r"^#联系主人",
+_CONTACT = P.on_regex(
+    r"^#?联系主人",
     priority=12,
     block=True,
-    permission=permission_for_cmd("df", "contact"),
+    name="contact",
 )
 
 
@@ -292,16 +303,16 @@ async def _(matcher: Matcher, bot: Bot, event: MessageEvent):
             logger.warning(f"Failed to send to superuser {uid}: {e}")
 
     if ok:
-        await matcher.finish(_cfg.get("send_master", {}).get("success", "已将消息转发给主人。"))
+        await matcher.finish(_cfg.get("send_master", {}).get("success", "已将消息转发给主人"))
     else:
-        await matcher.finish(_cfg.get("send_master", {}).get("failed", "发送失败，请稍后重试。"))
+        await matcher.finish(_cfg.get("send_master", {}).get("failed", "发送失败，请稍后重试"))
 
 
-_REPLY = on_regex(
+_REPLY = P.on_regex(
     r"^#?回复(\S+)\s+([\s\S]+)$",
     priority=12,
     block=True,
-    permission=permission_for_cmd("df", "reply"),
+    name="reply",
 )
 
 
@@ -314,7 +325,7 @@ async def _(matcher: Matcher, bot: Bot, event: PrivateMessageEvent):
     data = _load_contact()
     rec = data.get(rid)
     if not rec:
-        await matcher.finish("消息已失效或不存在")
+        await matcher.finish("消息已过期或不存在")
     try:
         gid = rec.get("group_id")
         uid = rec.get("user_id")
@@ -326,3 +337,5 @@ async def _(matcher: Matcher, bot: Bot, event: PrivateMessageEvent):
     except Exception as e:
         logger.error(f"回复消息时发生错误: {e}")
         await matcher.finish("发生错误，请查看控制台日志")
+
+

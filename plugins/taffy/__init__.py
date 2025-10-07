@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from typing import Any, Dict, Optional
@@ -9,37 +9,22 @@ from nonebot.matcher import Matcher
 from nonebot.adapters.onebot.v11 import MessageEvent
 from nonebot.params import RegexGroup
 
-from ...perm import permission_for_cmd
-from ...utils import config_dir
+from ...registry import Plugin
+from ...config import register_plugin_config
 
 
-CFG_PATH = config_dir() / "taffy.json"
+DEFAULT_CFG: Dict[str, Any] = {
+    "api_url": "http://127.0.0.1:8899/stats/api",
+    "username": "",
+    "password": "",
+    "timeout": 20,
+}
 
-
-def _default_cfg() -> Dict[str, Any]:
-    return {
-        "api_url": "http://127.0.0.1:8899/stats/api",
-        "username": "",
-        "password": "",
-        "timeout": 20,
-    }
+REG = register_plugin_config("taffy", DEFAULT_CFG)
 
 
 def _load_cfg() -> Dict[str, Any]:
-    try:
-        if CFG_PATH.exists():
-            data = json.loads(CFG_PATH.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                base = _default_cfg()
-                base.update({k: v for k, v in data.items() if v is not None})
-                return base
-    except Exception:
-        pass
-    try:
-        CFG_PATH.write_text(json.dumps(_default_cfg(), ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        pass
-    return _default_cfg()
+    return REG.load()
 
 
 def _fmt_bytes(b: Optional[int]) -> str:
@@ -61,7 +46,8 @@ def _fmt_bytes(b: Optional[int]) -> str:
         return str(b)
 
 
-taffy_cmd = on_regex(r"^#?查询流量\s*(.*)$", block=True, priority=100, permission=permission_for_cmd("taffy", "query"))
+P = Plugin()
+taffy_cmd = P.on_regex(r"^#?查询流量\s*(.*)$", name="query", block=True, priority=100)
 
 
 @taffy_cmd.handle()
@@ -69,7 +55,7 @@ async def _(matcher: Matcher, event: MessageEvent, groups: tuple = RegexGroup())
     cfg = _load_cfg()
     api_url = str(cfg.get("api_url") or "").strip()
     if not api_url:
-        await matcher.finish("未配置 Taffy API 地址，请在 config/taffy.json 中设置 api_url")
+        await matcher.finish("未配置 Taffy API 地址，请在 config/taffy/config.json 中设置 api_url")
 
     # query user if provided
     try:
@@ -120,7 +106,7 @@ async def _(matcher: Matcher, event: MessageEvent, groups: tuple = RegexGroup())
             lines.append("下行流量: {}".format(_fmt_bytes(down)))
             lines.append("总计费流量: {}".format(_fmt_bytes(total)))
         else:
-            lines.append("未找到用户 [{}] 的统计信息。".format(query_user))
+            lines.append("未找到用户[{}] 的统计信息".format(query_user))
     else:
         lines.append("[所有用户总览]")
         users = data.get("all_users") or []
@@ -130,7 +116,7 @@ async def _(matcher: Matcher, event: MessageEvent, groups: tuple = RegexGroup())
                     up = u.get("upstream_bytes")
                     down = u.get("downstream_bytes")
                     total = (up or 0) + (down or 0)
-                    lines.append("[{}] 总流量: {}".format(u.get("username", ""), _fmt_bytes(total)))
+                    lines.append("[{}] 总流量 {}".format(u.get("username", ""), _fmt_bytes(total)))
                 except Exception:
                     continue
         else:
@@ -146,4 +132,5 @@ async def _(matcher: Matcher, event: MessageEvent, groups: tuple = RegexGroup())
     lines.append("累计拉黑IP次数: {}".format(data.get("global_blacklist_events", "")))
 
     await matcher.finish("\n".join([str(x) for x in lines if x is not None]))
+
 

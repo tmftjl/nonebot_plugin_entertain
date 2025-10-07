@@ -1,0 +1,15 @@
+{
+  "enabled": true,
+  "whitelist": { "users": [], "groups": [] },
+  "blacklist": { "users": [], "groups": [] },
+  "plugins": {
+    "panel": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
+  },
+  "commands": {
+    "panel": {
+      "upload": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+      "list": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] },	"blacklist": { "users": [], "groups": [] } },
+      "refresh": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
+    }
+  }
+}

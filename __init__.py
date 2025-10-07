@@ -1,14 +1,12 @@
-from importlib import import_module
+from __future__ import annotations
 
-from nonebot import get_driver
+from pathlib import Path
+
+from nonebot import get_driver, load_plugins
 from nonebot.plugin import PluginMetadata
-
-from .config import Config
 
 
 driver = get_driver()
-global_config = driver.config
-plugin_config = Config.parse_obj(global_config.dict())
 
 
 __plugin_meta__ = PluginMetadata(
@@ -26,53 +24,38 @@ __plugin_meta__ = PluginMetadata(
     ),
     type="application",
     homepage="",
-    config=Config,
     supported_adapters={"~onebot.v11"},
 )
 
 
-def _conditional_import(module: str) -> None:
-    try:
-        # Use package-relative import so it works under plugin dirs
-        import_module(module, __name__)
-    except Exception as e:
-        # Import errors should not crash whole bot; log via driver logger if available
+# Bootstrap unified configs and permission files on startup
+try:
+    from .config import bootstrap_configs
+
+    @driver.on_startup
+    async def _entertain_bootstrap_configs():
         try:
-            from nonebot import logger
-            logger.opt(exception=e).error(f"Failed to import subplugin: {module}")
+            bootstrap_configs()
         except Exception:
             pass
+except Exception:
+    pass
 
 
-# Conditionally register sub-plugins (converted from JS)
-if plugin_config.entertain_enable_reg_time:
-    _conditional_import(".plugins.reg_time")
+def _load_subplugins_via_nonebot() -> None:
+    """Load sub-plugins using NoneBot's built-in loader.
 
-if plugin_config.entertain_enable_doro:
-    _conditional_import(".plugins.doro")
+    This scans the internal `plugins/` directory and loads any valid plugins,
+    letting NoneBot handle registration rather than manual import.
+    """
+    try:
+        base = Path(__file__).parent / "plugins"
+        if base.exists():
+            # NoneBot will handle recursive discovery of plugin packages in this path
+            load_plugins(str(base))
+    except Exception:
+        # Avoid breaking plugin load on failure
+        pass
 
-if plugin_config.entertain_enable_sick:
-    _conditional_import(".plugins.sick")
 
-# Conditionally register existing Python plugins (now unified under plugins/*)
-if plugin_config.entertain_enable_musicshare:
-    _conditional_import(".plugins.musicshare")
-
-if plugin_config.entertain_enable_fortune:
-    _conditional_import(".plugins.fortune")
-
-if plugin_config.entertain_enable_box:
-    _conditional_import(".plugins.box")
-
-if plugin_config.entertain_enable_welcome:
-    _conditional_import(".plugins.welcome")
-
-if getattr(plugin_config, "entertain_enable_taffy", True):
-    _conditional_import(".plugins.taffy")
-
-if getattr(plugin_config, "entertain_enable_panel", True):
-    _conditional_import(".plugins.panel")
-
-# DF-Plugin (ported) integration
-if getattr(plugin_config, "entertain_enable_df", True):
-    _conditional_import(".plugins.df")
+_load_subplugins_via_nonebot()

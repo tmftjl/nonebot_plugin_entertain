@@ -1,18 +1,19 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
-from ...utils import config_dir, resource_dir, data_dir
+from ...utils import config_dir, plugin_resource_dir, plugin_data_dir
+from ...config import register_plugin_config
 
 
 CFG_DIR = config_dir("df")
 CFG_PATH = CFG_DIR / "config.json"
-RES_DF_DIR = resource_dir() / "df"
+RES_DF_DIR = plugin_resource_dir("df")
 POKE_DIR = RES_DF_DIR / "poke"
-DATA_DF_DIR = data_dir("df")
+DATA_DF_DIR = plugin_data_dir("df")
 
 
 DEFAULT_CFG: Dict[str, Any] = {
@@ -31,11 +32,14 @@ DEFAULT_CFG: Dict[str, Any] = {
     "send_master": {
         "open": True,
         "cd": 0,  # seconds; 0 to disable
-        "success": "已将消息转发给主人。",
-        "failed": "发送失败，请稍后重试。",
+        "success": "已将消息转发给主人",
+        "failed": "发送失败，请稍后重试",
         "reply_prefix": "主人回复：",
     },
 }
+
+# Register unified config and ensure default file exists
+REG = register_plugin_config("df", DEFAULT_CFG)
 
 
 def ensure_dirs() -> None:
@@ -46,34 +50,12 @@ def ensure_dirs() -> None:
 
 def load_cfg() -> Dict[str, Any]:
     ensure_dirs()
-    if not CFG_PATH.exists():
-        try:
-            CFG_PATH.write_text(json.dumps(DEFAULT_CFG, ensure_ascii=False, indent=2), encoding="utf-8")
-        except Exception:
-            pass
-        return json.loads(json.dumps(DEFAULT_CFG))
-    try:
-        data = json.loads(CFG_PATH.read_text(encoding="utf-8"))
-        if isinstance(data, dict):
-            # shallow merge defaults for missing keys
-            merged = json.loads(json.dumps(DEFAULT_CFG))
-            for k, v in data.items():
-                if isinstance(v, dict) and isinstance(merged.get(k), dict):
-                    merged[k].update(v)
-                else:
-                    merged[k] = v
-            return merged
-    except Exception:
-        pass
-    return json.loads(json.dumps(DEFAULT_CFG))
+    return REG.load()
 
 
 def save_cfg(cfg: Dict[str, Any]) -> None:
     ensure_dirs()
-    try:
-        CFG_PATH.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        pass
+    REG.save(cfg)
 
 
 def face_list() -> List[str]:
@@ -104,3 +86,4 @@ def random_local_image(face: str) -> Optional[Path]:
         return random.choice(files)
     except Exception:
         return None
+

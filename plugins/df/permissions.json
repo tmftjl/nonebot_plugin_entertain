@@ -1,0 +1,19 @@
+{
+  "enabled": true,
+  "whitelist": { "users": [], "groups": [] },
+  "blacklist": { "users": [], "groups": [] },
+  "plugins": {
+    "df": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
+  },
+  "commands": {
+    "df": {
+      "pictures_api": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+      "pictures_face": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+      "pictures_list": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+      "poke": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+      "contact": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+      "reply": { "enabled": true, "level": "superuser", "scene": "private", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+      "update_gallery": { "enabled": true, "level": "superuser", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
+    }
+  }
+}

@@ -1,15 +1,15 @@
 import httpx
-from nonebot import on_regex
 from nonebot.matcher import Matcher
 from nonebot.adapters.onebot.v11 import Message, MessageSegment, MessageEvent
-from ...perm import permission_for
+from ...registry import Plugin
 
 
-_DORO = on_regex(
+P = Plugin()
+_DORO = P.on_regex(
     r"^#?(?:抽取|随机)?(?:今日)?doro结局$",
+    name="draw",
     priority=13,
     block=True,
-    permission=permission_for("doro"),
 )
 
 

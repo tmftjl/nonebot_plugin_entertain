@@ -33,3 +33,17 @@ def config_dir(name: Optional[str] = None) -> Path:
         p.mkdir(parents=True, exist_ok=True)
         return p
     return base
+
+
+def plugin_resource_dir(name: str) -> Path:
+    """Return plugins/<name>/resource/, creating it if missing."""
+    base = _root() / "plugins" / name / "resource"
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+
+def plugin_data_dir(name: str) -> Path:
+    """Return plugins/<name>/data/, creating it if missing."""
+    base = _root() / "plugins" / name / "data"
+    base.mkdir(parents=True, exist_ok=True)
+    return base

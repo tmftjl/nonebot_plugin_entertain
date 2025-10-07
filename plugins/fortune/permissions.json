@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "whitelist": { "users": [], "groups": [] },
+  "blacklist": { "users": [], "groups": [] },
+  "plugins": {
+    "fortune": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
+  },
+  "commands": {
+    "fortune": {
+      "today": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
+    }
+  }
+}

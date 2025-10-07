@@ -4,27 +4,27 @@ import base64
 import io
 import json
 import math
-import os
 import random
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import aiofiles
 import httpx
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
-from nonebot import get_driver, on_regex
+from nonebot import get_driver
 from nonebot.adapters.onebot.v11 import Message, MessageEvent, MessageSegment
 from nonebot.matcher import Matcher
 from nonebot.plugin import PluginMetadata
-from ...perm import permission_for
+
+from ...registry import Plugin
+from ...utils import plugin_data_dir, plugin_resource_dir
 
 
 __plugin_meta__ = PluginMetadata(
     name="今日运势",
-    description="生成每日运势图片，通过本地/纯色背景与 Pillow 绘制",
-    usage="发送 指令：今日运势 或 运势",
+    description="生成每日运势图片（支持 #/ 前缀）",
+    usage="命令：今日运势 / 抽签",
     type="application",
     homepage="",
     supported_adapters={"~onebot.v11"},
@@ -32,10 +32,7 @@ __plugin_meta__ = PluginMetadata(
 
 
 # ---------- Paths & Globals ----------
-from ...utils import data_dir, resource_dir
-
-DATA_DIR = data_dir("fortune")
-
+DATA_DIR = plugin_data_dir("fortune")
 JRYS_DEFS_FILE = DATA_DIR / "jrys_data.json"
 USER_DATA_FILE = DATA_DIR / "user_fortunes.json"
 
@@ -43,13 +40,16 @@ _JRYS_DATA: List[Dict[str, Any]] = []
 _USER_FORTUNES: Dict[str, Dict[str, Any]] = {}
 
 
+P = Plugin()
+
+
 # ---------- Fonts ----------
 def _load_fonts():
     def _load(size: int) -> ImageFont.FreeTypeFont:
         try:
-            res = resource_dir() / "font.ttf"
-            if res.is_file():
-                return ImageFont.truetype(str(res), size)
+            pres = plugin_resource_dir("fortune") / "font.ttf"
+            if pres.is_file():
+                return ImageFont.truetype(str(pres), size)
         except Exception:
             pass
         return ImageFont.load_default()
@@ -74,7 +74,6 @@ async def _load_fortune_defs() -> None:
                 text = await f.read()
                 _JRYS_DATA = json.loads(text)
         except Exception:
-            # Keep empty on failure; handler will report missing data
             _JRYS_DATA = []
 
 
@@ -113,19 +112,16 @@ async def _on_shutdown():
 
 # ---------- Utils ----------
 def _num_to_chinese(num: int) -> str:
-    num_map = {"0": "零", "1": "一", "2": "二", "3": "三", "4": "四", "5": "五", "6": "六", "7": "七", "8": "八", "9": "九"}
-    tens_map = {1: "十", 2: "二十", 3: "三十"}
+    digits = "零一二三四五六七八九"
     if 1 <= num <= 9:
-        return num_map[str(num)]
-    if 10 <= num <= 31:
-        if num == 10:
-            return "十"
-        if num % 10 == 0:
-            return tens_map[num // 10]
-        if num < 20:
-            return "十" + num_map[str(num % 10)]
-        return tens_map[num // 10] + num_map[str(num % 10)]
-    return str(num)
+        return digits[num]
+    if num == 10:
+        return "十"
+    if 10 < num < 20:
+        return "十" + digits[num % 10]
+    if num % 10 == 0:
+        return digits[num // 10] + "十"
+    return digits[num // 10] + "十" + digits[num % 10]
 
 
 async def _get_background_image() -> Image.Image | None:
@@ -140,10 +136,14 @@ async def _get_background_image() -> Image.Image | None:
         return None
 
 
-def _draw_wrapped_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, max_chars: int) -> str:
-    # Simple wrapping by character count; keeps alignment predictable
+def _sanitize_stars(s: str) -> str:
+    # Keep only typical star characters
+    return "".join(ch for ch in (s or "") if ch in {"★", "☆"})
+
+
+def _draw_wrapped_text(text: str, max_chars: int) -> str:
     text = (text or "").replace("\r\n", "\n").replace("\r", "\n")
-    lines = []
+    lines: List[str] = []
     for paragraph in text.split("\n"):
         buf = ""
         for ch in paragraph:
@@ -168,12 +168,12 @@ def _draw_star_rating(
     stroke_color=(0, 0, 0, 220),
     stroke_width: int = 2,
 ):
-    rating_string = rating_string or ""
-    n = len(rating_string)
+    s = _sanitize_stars(rating_string)
+    n = len(s)
     total_width = n * star_size + (n - 1) * spacing if n > 0 else 0
     start_x = center_x - total_width / 2
     current_x = start_x
-    for ch in rating_string:
+    for ch in s:
         cx = current_x + star_size / 2
         vertices = []
         for i in range(10):
@@ -182,7 +182,7 @@ def _draw_star_rating(
             vertices.append((cx + radius * math.cos(ang), y + radius * math.sin(ang)))
         if ch == "★":
             draw.polygon(vertices, fill=fill_color)
-        else:  # treat others (e.g. ☆) as hollow
+        else:  # ☆ hollow
             draw.polygon(vertices, outline=stroke_color, width=stroke_width)
         current_x += star_size + spacing
 
@@ -207,7 +207,7 @@ def _generate_fortune_canvas(
     color = (0, 0, 0, 220)
 
     day_str = _num_to_chinese(datetime.now().day)
-    title = f"{nickname} 的 {day_str} 号运势"
+    title = f"{nickname} 的{day_str}日运势"
     draw.text((cx, y), title, font=FONT_TINY, fill=color, anchor="mm")
     y += 80
 
@@ -229,10 +229,10 @@ def _generate_fortune_canvas(
     y += 60
 
     unsign_text = fortune.get("unsignText", "")
-    wrapped = _draw_wrapped_text(draw, unsign_text, FONT_SMALL, 22)
+    wrapped = _draw_wrapped_text(unsign_text, 22)
     draw.multiline_text((cx, y), wrapped, font=FONT_SMALL, fill=color, anchor="ma", spacing=15, align="center")
 
-    footer = "| 相信科学，请勿迷信 |"
+    footer = "| 仅供参考，切勿拘泥 |"
     draw.text((cx, CANVAS_HEIGHT - 50), footer, font=FONT_TINY, fill=(0, 0, 0, 150), anchor="mm")
 
     return bg
@@ -245,22 +245,25 @@ def _pil_to_base64_image(pil_img: Image.Image) -> str:
     return f"base64://{b64}"
 
 
-# Removed composition helpers; handled directly in generator
-
-
 def _get_or_create_today_fortune(user_id: str) -> Tuple[Dict[str, Any], bool]:
     today = datetime.now().strftime("%Y-%m-%d")
     rec = _USER_FORTUNES.get(user_id)
     if rec and rec.get("time") == today:
         return rec, False
     if not _JRYS_DATA:
-        raise ValueError("运势定义数据为空，无法抽签")
+        raise ValueError("运势库为空，无法生成")
     new_data = {"fortune": random.choice(_JRYS_DATA), "time": today}
     _USER_FORTUNES[user_id] = new_data
     return new_data, True
 
 
-fortune_cmd = on_regex(r"^(/|#)?今日运势$", priority=5, block=True, permission=permission_for("fortune"),)
+fortune_cmd = P.on_regex(
+    r"^(?:[/#])?(?:今日运势|运势|抽签)$",
+    name="today",
+    priority=5,
+    block=True,
+)
+
 
 @fortune_cmd.handle()
 async def _(matcher: Matcher, event: MessageEvent):
@@ -271,7 +274,10 @@ async def _(matcher: Matcher, event: MessageEvent):
         or f"用户{user_id}"
     )
 
-    data, is_new = _get_or_create_today_fortune(user_id)
+    try:
+        data, _ = _get_or_create_today_fortune(user_id)
+    except Exception as e:
+        await matcher.finish(f"生成失败：{e}")
 
     # Try to fetch background image
     bg_img = await _get_background_image()

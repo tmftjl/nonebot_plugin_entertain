@@ -6,14 +6,14 @@ from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 import emoji
 
-from ...utils import resource_dir
+from ...utils import plugin_resource_dir
 
-_RES: Path = resource_dir()
+_RES_PLUGIN: Path = plugin_resource_dir("box")
 
 
 def _load_font(name: str, size: int) -> ImageFont.FreeTypeFont:
     try:
-        res = _RES.joinpath(name)
+        res = _RES_PLUGIN.joinpath(name)
         if res.is_file():
             return ImageFont.truetype(str(res), size)
     except Exception:
@@ -23,14 +23,14 @@ def _load_font(name: str, size: int) -> ImageFont.FreeTypeFont:
 
 def _pick_cute_font_name() -> str:
     # Prefer general font.ttf for readability (Chinese coverage)
-    if _RES.joinpath("font.ttf").is_file():
+    if _RES_PLUGIN.joinpath("font.ttf").is_file():
         return "font.ttf"
     # Then try 可爱字体.ttf
-    if _RES.joinpath("可爱字体.ttf").is_file():
+    if _RES_PLUGIN.joinpath("可爱字体.ttf").is_file():
         return "可爱字体.ttf"
     # Else pick any other ttf except emoji
     try:
-        for p in _RES.iterdir():
+        for p in list(_RES_PLUGIN.iterdir()):
             try:
                 if p.suffix.lower() != ".ttf":
                     continue

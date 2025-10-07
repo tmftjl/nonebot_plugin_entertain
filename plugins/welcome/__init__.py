@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from typing import Any, Dict, Optional, List
@@ -16,12 +16,13 @@ from nonebot.adapters.onebot.v11 import (
 import base64
 import httpx
 
-from ...perm import permission_for_cmd
-from ...utils import data_dir
+from ...utils import plugin_data_dir
+from ...registry import Plugin
 
 
-WELCOME_DIR = data_dir("welcome")
+WELCOME_DIR = plugin_data_dir("welcome")
 WELCOME_FILE = WELCOME_DIR / "welcome.json"
+P = Plugin()
 
 
 def _load_store() -> Dict[str, Dict[str, Any]]:
@@ -29,7 +30,7 @@ def _load_store() -> Dict[str, Dict[str, Any]]:
         if WELCOME_FILE.exists():
             data = json.loads(WELCOME_FILE.read_text(encoding="utf-8"))
             if isinstance(data, dict):
-                return data  # { group_id: {"enabled": bool, "content": str} }
+                return data
     except Exception:
         pass
     return {}
@@ -47,21 +48,12 @@ def _get_group_key(event: MessageEvent | GroupIncreaseNoticeEvent) -> Optional[s
     return str(gid) if gid is not None else None
 
 
-# Placeholders are no longer required; we always prepend @新成员 when sending.
-
-
 async def _image_to_base64_uri(bot: Bot, seg: MessageSegment) -> Optional[str]:
-    """Convert an image MessageSegment to base64 URI if it isn't already.
-
-    Preference order: existing base64 -> url download -> get_image(file)->read.
-    Returns a 'base64://...' string or None on failure.
-    """
     try:
         data = getattr(seg, "data", {}) or {}
         file_val = str(data.get("file") or "")
         if file_val.startswith("base64://"):
             return file_val
-        # Try url first
         url = data.get("url")
         if isinstance(url, str) and url.startswith("http"):
             async with httpx.AsyncClient(timeout=20) as client:
@@ -69,7 +61,6 @@ async def _image_to_base64_uri(bot: Bot, seg: MessageSegment) -> Optional[str]:
                 resp.raise_for_status()
                 b = resp.content
                 return "base64://" + base64.b64encode(b).decode()
-        # Try OneBot get_image with file id
         if file_val:
             try:
                 info = await bot.call_api("get_image", file=file_val)
@@ -86,7 +77,6 @@ async def _image_to_base64_uri(bot: Bot, seg: MessageSegment) -> Optional[str]:
 
 
 async def _sanitize_message_to_cq(bot: Bot, msg: Message) -> str:
-    """Return CQ string with images converted to base64 URIs to avoid expired links."""
     out: List[MessageSegment] = []
     for seg in msg:
         try:
@@ -95,7 +85,6 @@ async def _sanitize_message_to_cq(bot: Bot, msg: Message) -> str:
                 if b64:
                     out.append(MessageSegment.image(b64))
                 else:
-                    # keep original as fallback
                     out.append(seg)
             else:
                 out.append(seg)
@@ -104,57 +93,51 @@ async def _sanitize_message_to_cq(bot: Bot, msg: Message) -> str:
     return str(Message(out))
 
 
-# Commands: allow optional # prefix
-set_welcome = on_regex(r"^(?:#)?设置欢迎(?:\s*(.+))?$", block=True, priority=13, permission=permission_for_cmd("welcome", "set"))
+set_welcome = P.on_regex(r"^(?:#)?设置欢迎(?:\s*(.+))?$", name="set", block=True, priority=13)
 
 
 @set_welcome.handle()
 async def _(matcher: Matcher, bot: Bot, event: MessageEvent, groups: tuple = RegexGroup()):
     key = _get_group_key(event)
     if not key:
-        await matcher.finish("仅群聊可设置欢迎")
-
-    # Prefer using the regex captured remainder, then sanitize message
+        await matcher.finish("请在群聊中使用该命令")
     try:
         raw = (groups[0] or "").strip() if groups else ""
     except Exception:
         raw = ""
     if not raw:
-        await matcher.finish("请在指令后跟上欢迎内容，支持任意格式")
-
-    # Build Message from matched CQ string then convert images to base64
+        await matcher.finish("请提供欢迎内容，支持任意格式")
     cq_content = await _sanitize_message_to_cq(bot, Message(raw))
-
     store = _load_store()
     store[key] = {"enabled": True, "content": cq_content}
     _save_store(store)
     await matcher.finish("已更新本群欢迎语")
 
 
-show_welcome = on_regex(r"^(?:#)?查看欢迎$", block=True, priority=13, permission=permission_for_cmd("welcome", "show"))
+show_welcome = P.on_regex(r"^(?:#)?查看欢迎$", name="show", block=True, priority=13)
 
 
 @show_welcome.handle()
 async def _(matcher: Matcher, event: MessageEvent):
     key = _get_group_key(event)
     if not key:
-        await matcher.finish("仅群聊可用")
+        await matcher.finish("请在群聊中使用该命令")
     store = _load_store()
     rec = store.get(key)
     if not rec:
         await matcher.finish("当前未设置欢迎语")
     status = "开启" if rec.get("enabled", True) else "关闭"
-    await matcher.finish(Message("当前欢迎（{0}）：\n".format(status)) + Message(rec.get("content", "")))
+    await matcher.finish(Message(f"当前欢迎已{status}\n") + Message(rec.get("content", "")))
 
 
-enable_welcome = on_regex(r"^(?:#)?开启欢迎$", block=True, priority=13, permission=permission_for_cmd("welcome", "enable"))
+enable_welcome = P.on_regex(r"^(?:#)?开启欢迎$", name="enable", block=True, priority=13)
 
 
 @enable_welcome.handle()
 async def _(matcher: Matcher, event: MessageEvent):
     key = _get_group_key(event)
     if not key:
-        await matcher.finish("仅群聊可用")
+        await matcher.finish("请在群聊中使用该命令")
     store = _load_store()
     rec = store.get(key) or {}
     rec["enabled"] = True
@@ -163,14 +146,14 @@ async def _(matcher: Matcher, event: MessageEvent):
     await matcher.finish("已开启本群欢迎")
 
 
-disable_welcome = on_regex(r"^(?:#)?关闭欢迎$", block=True, priority=13, permission=permission_for_cmd("welcome", "disable"))
+disable_welcome = P.on_regex(r"^(?:#)?关闭欢迎$", name="disable", block=True, priority=13)
 
 
 @disable_welcome.handle()
 async def _(matcher: Matcher, event: MessageEvent):
     key = _get_group_key(event)
     if not key:
-        await matcher.finish("仅群聊可用")
+        await matcher.finish("请在群聊中使用该命令")
     store = _load_store()
     rec = store.get(key) or {}
     rec["enabled"] = False
@@ -179,7 +162,7 @@ async def _(matcher: Matcher, event: MessageEvent):
     await matcher.finish("已关闭本群欢迎")
 
 
-welcome_notice = on_notice(priority=50)
+welcome_notice = on_notice(priority=50, permission=P.permission())
 
 
 @welcome_notice.handle()
@@ -198,3 +181,4 @@ async def _(event: GroupIncreaseNoticeEvent):
         return
     at = MessageSegment.at(event.user_id)
     await welcome_notice.finish(at + Message(" ") + Message(content_str))
+

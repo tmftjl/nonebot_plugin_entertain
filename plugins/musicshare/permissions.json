@@ -1,0 +1,14 @@
+{
+  "enabled": true,
+  "whitelist": { "users": [], "groups": [] },
+  "blacklist": { "users": [], "groups": [] },
+  "plugins": {
+    "musicshare": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
+  },
+  "commands": {
+    "musicshare": {
+      "search": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+      "select": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
+    }
+  }
+}

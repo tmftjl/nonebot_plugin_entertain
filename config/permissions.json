@@ -2,34 +2,18 @@
   "enabled": true,
   "whitelist": { "users": [], "groups": [] },
   "blacklist": { "users": [], "groups": [] },
-  "plugins": {
-    "reg_time": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
-    "doro": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
-    "sick": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
-    "musicshare": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
-    "fortune": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
-    "box": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
-    "welcome": { "enabled": true, "level": "admin", "scene": "group", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
-    "taffy": { "enabled": true, "level": "superuser", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
-    "panel": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
-    "df": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
-  },
-  "commands": {
-    "welcome": {
+  "welcome": {
+    "top": { "enabled": true, "level": "admin", "scene": "group", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+    "commands": {
       "show": { "enabled": true, "level": "admin", "scene": "group", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
       "set": { "enabled": true, "level": "admin", "scene": "group", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
       "enable": { "enabled": true, "level": "admin", "scene": "group", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
       "disable": { "enabled": true, "level": "admin", "scene": "group", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
-    },
-    "taffy": {
-      "query": { "enabled": true, "level": "superuser", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
-    },
-    "panel": {
-      "upload": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
-      "list": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
-      "refresh": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
-    },
-      "df": {
+    }
+  },
+  "df": {
+    "top": { "enabled": true, "level": "admin", "scene": "group", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+    "commands": {
         "pictures_api": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
         "pictures_face": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
         "pictures_list": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
@@ -38,91 +22,5 @@
         "reply": { "enabled": true, "level": "superuser", "scene": "private", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
         "update_gallery": { "enabled": true, "level": "superuser", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
       }
-  },
-  "features": {
-    "reg_time": {
-      "enabled": true,
-      "level": "all",
-      "scene": "all",
-      "whitelist": { "users": [], "groups": [] },
-      "blacklist": { "users": [], "groups": [] }
-    },
-    "doro": {
-      "enabled": true,
-      "level": "all",
-      "scene": "all",
-      "whitelist": { "users": [], "groups": [] },
-      "blacklist": { "users": [], "groups": [] }
-    },
-    "sick": {
-      "enabled": true,
-      "level": "all",
-      "scene": "all",
-      "whitelist": { "users": [], "groups": [] },
-      "blacklist": { "users": [], "groups": [] }
-    },
-    "musicshare": {
-      "enabled": true,
-      "level": "all",
-      "scene": "all",
-      "whitelist": { "users": [], "groups": [] },
-      "blacklist": { "users": [], "groups": [] }
-    },
-    "fortune": {
-      "enabled": true,
-      "level": "all",
-      "scene": "all",
-      "whitelist": { "users": [], "groups": [] },
-      "blacklist": { "users": [], "groups": [] }
-    },
-    "box": {
-      "enabled": true,
-      "level": "all",
-      "scene": "all",
-      "whitelist": { "users": [], "groups": [] },
-      "blacklist": { "users": [], "groups": [] }
-    },
-    "welcome": {
-      "enabled": true,
-      "level": "admin",
-      "scene": "group",
-      "whitelist": { "users": [], "groups": [] },
-      "blacklist": { "users": [], "groups": [] }
-    },
-    "welcome_set": {
-      "enabled": true,
-      "level": "admin",
-      "scene": "group",
-      "whitelist": { "users": [], "groups": [] },
-      "blacklist": { "users": [], "groups": [] }
-    },
-    "welcome_clear": {
-      "enabled": true,
-      "level": "admin",
-      "scene": "group",
-      "whitelist": { "users": [], "groups": [] },
-      "blacklist": { "users": [], "groups": [] }
-    },
-    "taffy": {
-      "enabled": true,
-      "level": "superuser",
-      "scene": "all",
-      "whitelist": { "users": [], "groups": [] },
-      "blacklist": { "users": [], "groups": [] }
-    },
-    "panel": {
-      "enabled": true,
-      "level": "all",
-      "scene": "all",
-      "whitelist": { "users": [], "groups": [] },
-      "blacklist": { "users": [], "groups": [] }
-    },
-    "df": {
-      "enabled": true,
-      "level": "all",
-      "scene": "all",
-      "whitelist": { "users": [], "groups": [] },
-      "blacklist": { "users": [], "groups": [] }
-    }
   }
 }
