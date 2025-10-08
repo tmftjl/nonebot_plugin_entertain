@@ -178,22 +178,8 @@ def _checker_factory(feature: str):
 
     async def _checker(bot, event) -> bool:  # type: ignore[override]
         cfg = _load_cfg()
-        # Global layer (top-level fields in target schema)
-        g_cfg = cfg
-        g_enabled = bool(g_cfg.get("enabled", True))
-        if not g_enabled and not _is_superuser(_uid(event)):
-            return False
-        force = _is_allowed_by_lists(event, g_cfg.get("whitelist"), g_cfg.get("blacklist"))
-        if force is True:
-            return True
-        if force is False:
-            return False
-        if not _check_scene(str(g_cfg.get("scene", "all")), event):
-            return False
-        if not _check_level(str(g_cfg.get("level", "all")), event):
-            return False
 
-        # Plugin and command layers
+        # Plugin and command layers only (no global layer)
         plugin_name, cmd_name = _get_plugin_command(feature)
         plug = cfg.get(plugin_name) or {}
         p_cfg = plug.get("top")

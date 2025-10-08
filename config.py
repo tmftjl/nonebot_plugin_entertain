@@ -150,13 +150,10 @@ def _perm_entry_default(level: str = "all", scene: str = "all") -> Dict[str, Any
 
 
 def _permissions_default() -> Dict[str, Any]:
-    # New target schema:
-    # { enabled, whitelist, blacklist, <plugin>: { top: Entry, commands: { name: Entry } }, ... }
-    return {
-        "enabled": True,
-        "whitelist": {"users": [], "groups": []},
-        "blacklist": {"users": [], "groups": []},
-    }
+    # Target schema (strict):
+    # { "<plugin>": { "top": Entry, "commands": { name: Entry } }, ... }
+    # No global-level fields.
+    return {}
 
 
 def permissions_path() -> Path:
@@ -312,16 +309,12 @@ def reload_plugin_config(
 
 
 def aggregate_permissions() -> None:
-    """Ensure permissions.json exists and migrate from any legacy schema.
+    """Ensure permissions.json exists and migrate to strict per-plugin schema.
 
-    Target schema (current):
-    {
-      "enabled": bool,
-      "whitelist": {users, groups},
-      "blacklist": {users, groups},
-      "<plugin>": { "top": Entry, "commands": { name: Entry } },
-      ...
-    }
+    Target schema:
+    { "<plugin>": { "top": Entry, "commands": { name: Entry } }, ... }
+    No global-level keys. Remove any legacy keys and the pseudo-plugin
+    "nonebot_plugin_entertain" if present.
     """
     p = permissions_path()
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -334,28 +327,22 @@ def aggregate_permissions() -> None:
         save_permissions(_permissions_default())
         return
 
-    # If already in target shape (has enabled/whitelist/blacklist, no 'global' key), keep
-    if isinstance(data, dict) and "global" not in data and "enabled" in data:
-        save_permissions(data)
+    # Build new dict, dropping any global-level keys
+    if not isinstance(data, dict):
+        save_permissions(_permissions_default())
         return
 
-    # Try migrate from schema with 'global'/'plugins'
-    try:
-        new_data = _permissions_default()
-        if isinstance(data, dict):
-            # migrate global
-            g = data.get("global") or {}
-            if isinstance(g.get("enabled"), bool):
-                new_data["enabled"] = g.get("enabled")
-            if isinstance(g.get("whitelist"), dict):
-                new_data["whitelist"] = g.get("whitelist")
-            if isinstance(g.get("blacklist"), dict):
-                new_data["blacklist"] = g.get("blacklist")
-            # migrate nested plugins
+    new_data: Dict[str, Any] = {}
+
+    # Legacy with 'global'/'plugins'
+    if "plugins" in data or "global" in data:
+        try:
             pmap = data.get("plugins") or {}
             if isinstance(pmap, dict):
                 for pn, node in pmap.items():
                     if not isinstance(node, dict):
+                        continue
+                    if pn == "nonebot_plugin_entertain":
                         continue
                     dst = new_data.setdefault(pn, {})
                     if isinstance(node.get("default"), dict):
@@ -366,9 +353,99 @@ def aggregate_permissions() -> None:
                         for cn, centry in cmds.items():
                             if isinstance(centry, dict):
                                 dst_cmds.setdefault(cn, centry)
-        save_permissions(new_data)
+        except Exception:
+            new_data = {}
+    else:
+        # Current mixed schema: contains global keys and plugin maps at root
+        for k, v in data.items():
+            if k in {"enabled", "whitelist", "blacklist", "scene", "level"}:
+                continue
+            if k == "nonebot_plugin_entertain":
+                continue
+            if isinstance(v, dict):
+                node = new_data.setdefault(k, {})
+                top = v.get("top") if isinstance(v.get("top"), dict) else None
+                cmds = v.get("commands") if isinstance(v.get("commands"), dict) else None
+                if top:
+                    node["top"] = top
+                if cmds:
+                    node["commands"] = cmds
+
+    # Ensure every plugin node has required keys
+    for pn, node in list(new_data.items()):
+        if not isinstance(node, dict):
+            new_data[pn] = {"top": _perm_entry_default(), "commands": {}}
+            continue
+        node.setdefault("top", _perm_entry_default())
+        node.setdefault("commands", {})
+
+    # Populate from current plugins' source to auto-generate entries
+    try:
+        base = Path(__file__).parent / "plugins"
+        if base.exists():
+            for pdir in base.iterdir():
+                try:
+                    if not pdir.is_dir():
+                        continue
+                    if not (pdir / "__init__.py").exists():
+                        continue
+                    plugin_name = pdir.name
+                    node = new_data.setdefault(plugin_name, {"top": _perm_entry_default(), "commands": {}})
+                    node.setdefault("top", _perm_entry_default())
+                    cmds = node.setdefault("commands", {})
+
+                    # scan files for P.on_regex(..., name="...") and permission_cmd("...")
+                    import ast as _ast
+
+                    for f in pdir.rglob("*.py"):
+                        try:
+                            text = f.read_text(encoding="utf-8", errors="ignore")
+                        except Exception:
+                            continue
+                        try:
+                            tree = _ast.parse(text.lstrip("\ufeff"))
+                        except Exception:
+                            continue
+
+                        # alias collection for upsert_command_defaults
+                        up_names = {"upsert_command_defaults"}
+                        for node in _ast.walk(tree):
+                            if isinstance(node, _ast.ImportFrom):
+                                try:
+                                    for alias in node.names:
+                                        if alias.name == "upsert_command_defaults" and alias.asname:
+                                            up_names.add(alias.asname)
+                                except Exception:
+                                    pass
+
+                        for node in _ast.walk(tree):
+                            try:
+                                if isinstance(node, _ast.Call):
+                                    fn = node.func
+                                    # P.on_regex(..., name="...")
+                                    if isinstance(fn, _ast.Attribute) and isinstance(fn.value, _ast.Name) and fn.value.id == "P" and fn.attr == "on_regex":
+                                        for kw in node.keywords or []:
+                                            if kw.arg == "name" and isinstance(kw.value, _ast.Constant) and isinstance(kw.value.value, str):
+                                                cmds.setdefault(str(kw.value.value), _perm_entry_default())
+                                    # P.permission_cmd("...")
+                                    if isinstance(fn, _ast.Attribute) and isinstance(fn.value, _ast.Name) and fn.value.id == "P" and fn.attr == "permission_cmd":
+                                        if node.args and isinstance(node.args[0], _ast.Constant) and isinstance(node.args[0].value, str):
+                                            cmds.setdefault(str(node.args[0].value), _perm_entry_default())
+                                    # upsert_command_defaults or alias
+                                    if isinstance(fn, _ast.Name) and fn.id in up_names:
+                                        if len(node.args) >= 2 and all(isinstance(a, _ast.Constant) and isinstance(a.value, str) for a in node.args[:2]):
+                                            pn = str(node.args[0].value)
+                                            cn = str(node.args[1].value)
+                                            if pn == plugin_name and cn:
+                                                cmds.setdefault(cn, _perm_entry_default())
+                            except Exception:
+                                continue
+                except Exception:
+                    continue
     except Exception:
-        save_permissions(_permissions_default())
+        pass
+
+    save_permissions(new_data)
 
 
 def _migrate_legacy_plugin_configs() -> None:
