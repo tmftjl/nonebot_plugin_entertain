@@ -28,7 +28,6 @@ def _infer_plugin_name() -> str:
     mod_file = str(g.get("__file__", ""))
     if "plugins" in mod_file:
         try:
-            import os
 
             parts = mod_file.replace("\\", "/").split("/")
             idx = len(parts) - 1 - parts[::-1].index("plugins")

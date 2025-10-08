@@ -15,7 +15,6 @@ from nonebot.adapters.onebot.v11 import (
     Bot,
     GroupIncreaseNoticeEvent,
     GroupMessageEvent,
-    Message,
     MessageEvent,
     MessageSegment,
 )
@@ -26,9 +25,9 @@ from .draw import create_image
 
 
 __plugin_meta__ = PluginMetadata(
-    name="开箱（NoneBot2）",
+    name="开盒（NoneBot2）",
     description="获取 QQ 用户/群成员资料并生成图片",
-    usage="命令：箱 [@某人] 或 <QQ>（支持前缀 #/）",
+    usage="命令：盒 [@某人] 或 <QQ>（支持前缀 #/）",
     type="application",
     homepage="https://github.com/Zhalslar/astrbot_plugin_box",
 )
@@ -40,9 +39,9 @@ def _b64_image(img_bytes: bytes) -> MessageSegment:
 
 P = Plugin()
 
-# 触发：箱 [@某人]|<QQ>
+# 触发：盒 [@某人]|<QQ>
 box_cmd = P.on_regex(
-    r"^(?:[/#])?箱\s*(.*)?$",
+    r"^(?:[/#])?盒\s*(.*)?$",
     name="open",
     block=True,
     priority=5,
@@ -72,7 +71,7 @@ async def _(bot: Bot, event: MessageEvent, groups: tuple = RegexGroup()):
     if not target_id:
         target_id = str(getattr(event, "user_id", ""))
 
-    # 仅群管理可为他人开箱（当配置 only_admin 启用时）
+    # 仅群管理可为他人开盒（当配置 only_admin 启用时）
     is_self = str(target_id) == str(getattr(event, "user_id", ""))
     if plugin_config.only_admin and not is_self:
         is_admin = False
@@ -80,7 +79,7 @@ async def _(bot: Bot, event: MessageEvent, groups: tuple = RegexGroup()):
             role = getattr(event.sender, "role", None)
             is_admin = role in {"admin", "owner"}
         if not is_admin:
-            await box_cmd.finish("仅群管理可为他人开箱")
+            await box_cmd.finish("仅群管理可为他人开盒")
 
     # 拉取资料
     try:

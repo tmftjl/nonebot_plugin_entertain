@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, Optional, List
 
-from nonebot import on_regex, on_notice
+from nonebot import on_notice
 from nonebot.matcher import Matcher
 from nonebot.params import RegexGroup
 from nonebot.adapters.onebot.v11 import (
@@ -181,4 +181,3 @@ async def _(event: GroupIncreaseNoticeEvent):
         return
     at = MessageSegment.at(event.user_id)
     await welcome_notice.finish(at + Message(" ") + Message(content_str))
-

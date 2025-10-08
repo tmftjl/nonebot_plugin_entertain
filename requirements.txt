@@ -1,0 +1,9 @@
+httpx>=0.24
+aiohttp>=3.8
+aiofiles>=23.0
+Pillow>=9.2
+emoji>=2.0
+pydantic<2.0
+
+# Optional: project tooling
+# nb-cli>=1.0

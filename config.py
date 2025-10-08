@@ -276,16 +276,56 @@ def aggregate_permissions() -> None:
         save_permissions(_permissions_default())
 
 
+def _migrate_legacy_plugin_configs() -> None:
+    """Migrate legacy flat config files to new per-plugin layout.
+
+    - box: config/config.json -> config/box/config.json
+    - taffy: config/taffy.json -> config/taffy/config.json
+    """
+    # box
+    try:
+        legacy_box = config_dir() / "config.json"
+        if legacy_box.exists():
+            box_proxy = register_plugin_config("box")
+            if not box_proxy.path.exists():
+                # write legacy as new if target missing
+                box_proxy.path.parent.mkdir(parents=True, exist_ok=True)
+                box_proxy.path.write_text(legacy_box.read_text(encoding="utf-8"), encoding="utf-8")
+            # remove legacy file
+            try:
+                legacy_box.unlink()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # taffy
+    try:
+        legacy_taffy = config_dir() / "taffy.json"
+        if legacy_taffy.exists():
+            taffy_proxy = register_plugin_config("taffy")
+            if not taffy_proxy.path.exists():
+                taffy_proxy.path.parent.mkdir(parents=True, exist_ok=True)
+                taffy_proxy.path.write_text(legacy_taffy.read_text(encoding="utf-8"), encoding="utf-8")
+            try:
+                legacy_taffy.unlink()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 def bootstrap_configs() -> None:
     try:
         config_dir().mkdir(parents=True, exist_ok=True)
     except Exception:
         pass
+    # Ensure global permissions file exists
     try:
-        # Lazy import to avoid cycles
-        from .perm import ensure_permissions_bootstrap  # type: ignore
-
-        ensure_permissions_bootstrap()
+        ensure_permissions_file()
     except Exception:
         pass
+    # Migrate any legacy config layout
+    _migrate_legacy_plugin_configs()
+    # Normalize permissions data shape if coming from older schema
     aggregate_permissions()

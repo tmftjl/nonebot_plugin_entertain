@@ -1,10 +1,8 @@
 ﻿from __future__ import annotations
 
-import json
 from typing import Any, Dict, Optional
 
 import httpx
-from nonebot import on_regex
 from nonebot.matcher import Matcher
 from nonebot.adapters.onebot.v11 import MessageEvent
 from nonebot.params import RegexGroup

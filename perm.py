@@ -1,31 +1,17 @@
 from __future__ import annotations
 
-import json
 from typing import Any, Dict, Optional
 
 from nonebot.permission import Permission
 from nonebot.adapters.onebot.v11 import GroupMessageEvent, PrivateMessageEvent
 
-from .config import permissions_path, _permissions_default
+from .config import _permissions_default
 
 
 # ----- Config loading -----
-_PERM_FILE = permissions_path()
-
-
 def _default_config() -> Dict[str, Any]:
     # New schema
     return _permissions_default()
-
-
-def _ensure_perm_file() -> None:
-    p = _PERM_FILE
-    p.parent.mkdir(parents=True, exist_ok=True)
-    if not p.exists():
-        try:
-            p.write_text(json.dumps(_default_config(), ensure_ascii=False, indent=2), encoding="utf-8")
-        except Exception:
-            pass
 
 
 def _load_cfg() -> Dict[str, Any]:
@@ -38,11 +24,6 @@ def _load_cfg() -> Dict[str, Any]:
     except Exception:
         pass
     return _default_config()
-
-
-def ensure_permissions_bootstrap() -> None:
-    _ensure_perm_file()
-
 
 # ----- Helpers -----
 def _uid(event) -> Optional[str]:

@@ -1,16 +1,14 @@
 ﻿from __future__ import annotations
 
 import asyncio
-import subprocess
 import json
 import re
 import secrets
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
-from nonebot import get_driver, logger, on_notice, on_regex
+from nonebot import get_driver, logger, on_notice
 from nonebot.matcher import Matcher
-from nonebot.permission import SUPERUSER
 from nonebot.adapters.onebot.v11 import (
     Bot,
     Message,
@@ -23,13 +21,13 @@ from nonebot.adapters.onebot.v11 import (
 
 from ...registry import Plugin
 from ...utils import plugin_data_dir
-from .config import load_cfg, face_list, random_local_image, POKE_DIR, RES_DF_DIR
+from .config import load_cfg, face_list, random_local_image
 
 
 driver = get_driver()
 _cfg = load_cfg()
 _updating_gallery = False
-from . import update_gallery as _df_update_gallery  # register update commands
+from . import update_gallery as update_gallery  # register update commands
 
 # Permissions wrapper
 P = Plugin()
