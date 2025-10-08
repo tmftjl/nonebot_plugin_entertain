@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
 from typing import List, Tuple
@@ -15,6 +15,8 @@ class Config(BaseModel):
     """
 
     auto_box: bool = False
+    increase_box: bool = False
+    decrease_box: bool = False
     only_admin: bool = False
     auto_box_groups: List[str] = Field(default_factory=list)
     box_blacklist: List[str] = Field(default_factory=list)

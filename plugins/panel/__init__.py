@@ -8,7 +8,7 @@ from ...registry import Plugin
 
 P = Plugin()
 panel_upload = P.on_regex(r"^ww上传.*面板图", name="upload", block=True, priority=12)
-panel_list = P.on_regex(r"^ww.*面板图.*", name="list", block=True, priority=12)
+panel_list = P.on_regex(r"^ww.*面板图列表", name="list", block=True, priority=12)
 panel_refresh = P.on_regex(r"^ww(?:刷新|更新)?面板(?:刷新)?$", name="refresh", block=True, priority=12)
 
 

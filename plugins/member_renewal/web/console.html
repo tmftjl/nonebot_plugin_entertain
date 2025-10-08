@@ -1,0 +1,88 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Member Renewal Console</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/member_renewal/static/console.css" />
+  <style>
+    /* Fallback if CSS not loaded */
+    body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans", "PingFang SC", "Microsoft YaHei", sans-serif; }
+  </style>
+  
+</head>
+<body>
+  <div id="toast"></div>
+  <div id="loading" class="hidden"><div class="spinner"></div></div>
+  <header>
+    <h1>Member Renewal Console</h1>
+    <div class="controls">
+      <input id="token" placeholder="Authorization Token (Bearer)" />
+      <button id="saveToken">保存</button>
+    </div>
+  </header>
+
+  <section class="summary">
+    <div class="card">
+      <div>群总数</div><div id="sumTotal" class="number">-</div>
+    </div>
+    <div class="card">
+      <div>有效</div><div id="sumActive" class="number ok">-</div>
+    </div>
+    <div class="card">
+      <div>将到期</div><div id="sumSoon" class="number warn">-</div>
+    </div>
+    <div class="card">
+      <div>已到期</div><div id="sumExpired" class="number danger">-</div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>群列表</h2>
+    <div class="toolbar">
+      <input id="search" placeholder="搜索 group_id" />
+      <select id="filter">
+        <option value="all">全部</option>
+        <option value="active">有效</option>
+        <option value="soon">将到期</option>
+        <option value="today">今天到期</option>
+        <option value="expired">已到期</option>
+      </select>
+      <label class="inline">批量延期</label>
+      <input id="bulkLen" type="number" value="7" min="1" />
+      <select id="bulkUnit"><option>天</option><option>月</option><option>年</option></select>
+      <button id="bulkExtend">延期</button>
+      <button id="bulkRemind">提醒</button>
+      <button id="bulkLeave" class="danger">退群</button>
+      <button id="refreshBtn" class="secondary">刷新</button>
+    </div>
+    <div class="table-wrap">
+      <table id="groups">
+        <thead>
+          <tr>
+            <th><input type="checkbox" id="checkAll" /></th>
+            <th data-sort="group">群号</th>
+            <th data-sort="status">状态</th>
+            <th data-sort="expiry">到期时间</th>
+            <th data-sort="days">剩余天数</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel" id="codesPanel">
+    <h2>待使用的续费码</h2>
+    <div class="row">
+      <input id="len" type="number" value="5" min="1" />
+      <select id="unit"><option>天</option><option>月</option><option>年</option></select>
+      <button id="gen">生成续费码</button>
+    </div>
+    <div id="codes" class="codes"></div>
+  </section>
+
+  <script src="/member_renewal/static/console.js?v=20251005"></script>
+</body>
+</html>

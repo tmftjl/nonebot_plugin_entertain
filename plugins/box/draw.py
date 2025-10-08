@@ -8,7 +8,7 @@ import emoji
 
 
 RESOURCE_DIR: Path = Path(__file__).resolve().parent / "resource"
-FONT_PATH: Path = RESOURCE_DIR / "可爱字体.ttf"
+FONT_PATH: Path = RESOURCE_DIR / "�ɰ�����.ttf"
 EMOJI_FONT_PATH: Path = RESOURCE_DIR / "NotoColorEmoji.ttf"
 
 FONT_SIZE = 35  # 字体大小
@@ -39,8 +39,7 @@ def create_image(avatar: bytes, reply: list) -> bytes:
         int(text_bbox[3] - text_bbox[1]),
     )
     img_height = text_height + 2 * TEXT_PADDING
-    # 调整头像为与文本高度相同的大小，得到图片的宽度
-    avatar_img = Image.open(BytesIO(avatar))
+    # 调整头像为与文本高度相同的大小，得到图片的宽�?    avatar_img = Image.open(BytesIO(avatar))
     avatar_size = AVATAR_SIZE if AVATAR_SIZE else text_height
     avatar_img = avatar_img.resize((avatar_size, avatar_size))
     img_width = avatar_img.width + text_width + 2 * TEXT_PADDING
@@ -53,8 +52,7 @@ def create_image(avatar: bytes, reply: list) -> bytes:
     )
     avatar_img.putalpha(mask)
     img.paste(avatar_img, (0, (img_height - avatar_size) // 2), mask)
-    # 绘制文本到图片右侧
-    _draw_multi(img, reply_str, avatar_img.width + TEXT_PADDING, TEXT_PADDING)
+    # 绘制文本到图片右�?    _draw_multi(img, reply_str, avatar_img.width + TEXT_PADDING, TEXT_PADDING)
     # 绘制一个随机颜色的边框
     border_color = (
         random.randint(*BORDER_COLOR_RANGE),
@@ -77,15 +75,12 @@ def create_image(avatar: bytes, reply: list) -> bytes:
 
 def _draw_multi(img, text, text_x=10, text_y=10):
     """
-    在图片上绘制多语言文本（支持中英文、Emoji、符号和换行符）。
-    如果emoji库不可用，则跳过emoji的特殊处理。
-    """
+    在图片上绘制多语言文本（支持中英文、Emoji、符号和换行符）�?    如果emoji库不可用，则跳过emoji的特殊处理�?    """
     lines = text.split("\n")  # 按换行符分割文本
     current_y = text_y
     draw = ImageDraw.Draw(img)
 
-    # 遍历每一行文本
-    for line in lines:
+    # 遍历每一行文�?    for line in lines:
         line_color = (
             random.randint(0, 128),
             random.randint(0, 128),

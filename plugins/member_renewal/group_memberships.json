@@ -1,0 +1,18 @@
+{
+  "generatedCodes": {
+    "ww续费5天-95bd29": {
+      "length": 5,
+      "unit": "天",
+      "generated_time": "2025-10-05T14:48:10.340467+00:00"
+    }
+  },
+  "1021973406": {
+    "group_id": "1021973406",
+    "expiry": "2026-04-24T15:07:13.665198+00:00",
+    "last_renewed_by": "3226795632",
+    "renewal_code_used": "ww续费5天-0cf76d",
+    "managed_by_bot": "3901888192",
+    "status": "active",
+    "last_reminder_on": "2025-10-05"
+  }
+}
