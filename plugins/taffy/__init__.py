@@ -18,7 +18,21 @@ DEFAULT_CFG: Dict[str, Any] = {
     "timeout": 20,
 }
 
-REG = register_plugin_config("taffy", DEFAULT_CFG)
+def _validate_cfg(cfg: Dict[str, Any]) -> None:
+    if "api_url" in cfg and not isinstance(cfg["api_url"], str):
+        raise ValueError("api_url must be str")
+    for k in ("username", "password"):
+        if k in cfg and not isinstance(cfg[k], str):
+            raise ValueError(f"{k} must be str")
+    if "timeout" in cfg:
+        try:
+            t = int(cfg["timeout"])  # accept int-like
+            if t <= 0:
+                raise ValueError
+        except Exception:
+            raise ValueError("timeout must be positive int")
+
+REG = register_plugin_config("taffy", DEFAULT_CFG, validator=_validate_cfg)
 
 
 def _load_cfg() -> Dict[str, Any]:

@@ -113,7 +113,7 @@ async def _(bot: Bot, event: MessageEvent, groups: tuple = RegexGroup()):
     await box_cmd.finish(_b64_image(img_bytes))
 
 
-group_increase = on_notice(priority=50)
+group_increase = on_notice(priority=50, permission=P.permission())
 
 
 @group_increase.handle()

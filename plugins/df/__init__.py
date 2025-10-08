@@ -46,7 +46,7 @@ for _c in ('pictures_face','pictures_list','contact','reply'):
 def _api_handlers() -> List[Tuple[str, Any]]:
     handlers: List[Tuple[str, Any]] = []
 
-    pend((r"jk(?:图)?", lambda: MessageSegment.image("https://api.suyanw.cn/api/jk.php")))
+    handlers.append((r"jk(?:图)?", lambda: MessageSegment.image("https://api.suyanw.cn/api/jk.php")))
 
     async def _hs():
         return Message(MessageSegment.text("黑丝来啦") + MessageSegment.image("https://api.suyanw.cn/api/hs.php"))

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Callable, Tuple
 
 from .utils import config_dir
 
@@ -32,6 +32,10 @@ class ConfigProxy:
     plugin: str
     filename: str
     defaults: Dict[str, Any]
+    validator: Optional[Callable[[Dict[str, Any]], None]] = None
+    _cache: Dict[str, Any] = None  # type: ignore[assignment]
+    _mtime: float = 0.0
+    _loaded: bool = False
 
     @property
     def path(self) -> Path:
@@ -43,25 +47,91 @@ class ConfigProxy:
         if not p.exists():
             try:
                 p.write_text(json.dumps(self.defaults, ensure_ascii=False, indent=2), encoding="utf-8")
+                self._cache = json.loads(json.dumps(self.defaults))
+                try:
+                    self._mtime = p.stat().st_mtime
+                except Exception:
+                    self._mtime = 0.0
+                self._loaded = True
             except Exception:
                 pass
 
-    def load(self) -> Dict[str, Any]:
-        self.ensure()
+    def _reload(self) -> None:
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
+            text = self.path.read_text(encoding="utf-8")
+            data = json.loads(text)
             if isinstance(data, dict):
-                return _deep_merge(self.defaults, data)
+                self._cache = data
+                try:
+                    self._mtime = self.path.stat().st_mtime
+                except Exception:
+                    self._mtime = 0.0
+                self._loaded = True
+                return
         except Exception:
             pass
-        return json.loads(json.dumps(self.defaults))
+        # fallback
+        self._cache = json.loads(json.dumps(self.defaults))
+        self._loaded = True
+
+    def ensure_loaded(self) -> None:
+        if not self._loaded:
+            self._reload()
+            return
+        try:
+            m = self.path.stat().st_mtime
+        except Exception:
+            m = 0.0
+        if m != self._mtime:
+            self._reload()
+
+    def load(self) -> Dict[str, Any]:
+        """Load config without merging defaults, using in-memory cache."""
+        self.ensure()
+        self.ensure_loaded()
+        return json.loads(json.dumps(self._cache or {}))
 
     def save(self, cfg: Dict[str, Any]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         try:
             self.path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+            self._cache = json.loads(json.dumps(cfg))
+            try:
+                self._mtime = self.path.stat().st_mtime
+            except Exception:
+                self._mtime = 0.0
+            self._loaded = True
         except Exception:
             pass
+
+    def reload_and_validate(self) -> Tuple[bool, Dict[str, Any], Optional[str]]:
+        """Reload config from disk and optionally validate.
+
+        Returns (ok, cfg, error_message). If no validator is set, ok is True
+        when the JSON is a dict; otherwise the validator may raise and ok
+        becomes False with the error captured.
+        """
+        self.ensure()
+        try:
+            raw_text = self.path.read_text(encoding="utf-8")
+            raw = json.loads(raw_text)
+            if not isinstance(raw, dict):
+                return False, json.loads(json.dumps(self.defaults)), "config is not a JSON object"
+            if self.validator is not None:
+                try:
+                    self.validator(raw)
+                except Exception as e:
+                    return False, raw, f"validation failed: {e}"
+            # update cache
+            self._cache = raw
+            try:
+                self._mtime = self.path.stat().st_mtime
+            except Exception:
+                self._mtime = 0.0
+            self._loaded = True
+            return True, raw, None
+        except Exception as e:
+            return False, json.loads(json.dumps(self.defaults)), f"reload failed: {e}"
 
     
 
@@ -196,15 +266,25 @@ def upsert_command_defaults(
     save_permissions(data)
 
 
+_CONFIG_REGISTRY: Dict[tuple[str, str], ConfigProxy] = {}
+
+
 def register_plugin_config(
     plugin: str,
     defaults: Optional[Dict[str, Any]] = None,
     *,
     filename: str = "config.json",
+    validator: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> ConfigProxy:
-    """Register per-plugin config file (no per-plugin permissions)."""
-    cfg_proxy = ConfigProxy(plugin=plugin, filename=filename, defaults=defaults or {})
+    """Register per-plugin config file (no per-plugin permissions).
+
+    - Writes defaults if file missing
+    - No default-merge on load
+    - Optional validator used by reload helper
+    """
+    cfg_proxy = ConfigProxy(plugin=plugin, filename=filename, defaults=defaults or {}, validator=validator)
     cfg_proxy.ensure()
+    _CONFIG_REGISTRY[(plugin, filename)] = cfg_proxy
     return cfg_proxy
 
 
@@ -214,6 +294,21 @@ def get_plugin_config(plugin: str, *, filename: str = "config.json", defaults: O
 
 def save_plugin_config(plugin: str, cfg: Dict[str, Any], *, filename: str = "config.json") -> None:
     register_plugin_config(plugin, {}, filename=filename).save(cfg)
+
+
+def reload_plugin_config(
+    plugin: str,
+    *,
+    filename: str = "config.json",
+    validator: Optional[Callable[[Dict[str, Any]], None]] = None,
+) -> Tuple[bool, Dict[str, Any], Optional[str]]:
+    """Reload one plugin's config and validate.
+
+    Returns (ok, cfg, err). If validator provided, it is used to validate
+    the config; otherwise only JSON-object shape is checked.
+    """
+    proxy = _CONFIG_REGISTRY.get((plugin, filename)) or register_plugin_config(plugin, {}, filename=filename, validator=validator)
+    return proxy.reload_and_validate()
 
 
 def aggregate_permissions() -> None:
@@ -282,16 +377,19 @@ def _migrate_legacy_plugin_configs() -> None:
     - box: config/config.json -> config/box/config.json
     - taffy: config/taffy.json -> config/taffy/config.json
     """
-    # box
+    # box (very old flat file)
     try:
         legacy_box = config_dir() / "config.json"
         if legacy_box.exists():
-            box_proxy = register_plugin_config("box")
-            if not box_proxy.path.exists():
-                # write legacy as new if target missing
-                box_proxy.path.parent.mkdir(parents=True, exist_ok=True)
-                box_proxy.path.write_text(legacy_box.read_text(encoding="utf-8"), encoding="utf-8")
-            # remove legacy file
+            try:
+                data = json.loads(legacy_box.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    dst = config_dir("box") / "config.json"
+                    if not dst.exists():
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        dst.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            except Exception:
+                pass
             try:
                 legacy_box.unlink()
             except Exception:
@@ -299,14 +397,19 @@ def _migrate_legacy_plugin_configs() -> None:
     except Exception:
         pass
 
-    # taffy
+    # taffy (very old flat file)
     try:
         legacy_taffy = config_dir() / "taffy.json"
         if legacy_taffy.exists():
-            taffy_proxy = register_plugin_config("taffy")
-            if not taffy_proxy.path.exists():
-                taffy_proxy.path.parent.mkdir(parents=True, exist_ok=True)
-                taffy_proxy.path.write_text(legacy_taffy.read_text(encoding="utf-8"), encoding="utf-8")
+            try:
+                data = json.loads(legacy_taffy.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    dst = config_dir("taffy") / "config.json"
+                    if not dst.exists():
+                        dst.parent.mkdir(parents=True, exist_ok=True)
+                        dst.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            except Exception:
+                pass
             try:
                 legacy_taffy.unlink()
             except Exception:
@@ -329,3 +432,25 @@ def bootstrap_configs() -> None:
     _migrate_legacy_plugin_configs()
     # Normalize permissions data shape if coming from older schema
     aggregate_permissions()
+
+def reload_all_configs() -> Tuple[bool, Dict[str, Any]]:
+    """Reload all registered plugin configs and permissions.
+
+    Returns (ok, details) where details contains per-plugin results and permissions status.
+    """
+    results: Dict[str, Any] = {"plugins": {}}
+    ok_all = True
+    for (plugin, filename), proxy in list(_CONFIG_REGISTRY.items()):
+        ok, _cfg, err = proxy.reload_and_validate()
+        prev = results["plugins"].get(plugin, {})
+        results["plugins"][plugin] = {"ok": ok and prev.get("ok", True), "error": err or prev.get("error")}
+        ok_all = ok_all and ok
+    try:
+        from .perm import reload_permissions
+
+        reload_permissions()
+        p_ok = True
+    except Exception:
+        p_ok = False
+    results["permissions"] = {"ok": p_ok}
+    return (ok_all and p_ok), results

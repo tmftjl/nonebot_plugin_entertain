@@ -2,25 +2,99 @@
   "enabled": true,
   "whitelist": { "users": [], "groups": [] },
   "blacklist": { "users": [], "groups": [] },
+
   "welcome": {
-    "top": { "enabled": true, "level": "admin", "scene": "group", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+    "top": {
+      "enabled": true,
+      "level": "admin",
+      "scene": "group",
+      "whitelist": { "users": [], "groups": [] },
+      "blacklist": { "users": [], "groups": [] }
+    },
     "commands": {
-      "show": { "enabled": true, "level": "admin", "scene": "group", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
-      "set": { "enabled": true, "level": "admin", "scene": "group", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
-      "enable": { "enabled": true, "level": "admin", "scene": "group", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
-      "disable": { "enabled": true, "level": "admin", "scene": "group", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
+      "set":      { "enabled": true, "level": "admin", "scene": "group", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+      "show":     { "enabled": true, "level": "admin", "scene": "group", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+      "enable":   { "enabled": true, "level": "admin", "scene": "group", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+      "disable":  { "enabled": true, "level": "admin", "scene": "group", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
     }
   },
+
   "df": {
-    "top": { "enabled": true, "level": "admin", "scene": "group", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+    "top": {
+      "enabled": true,
+      "level": "admin",
+      "scene": "group",
+      "whitelist": { "users": [], "groups": [] },
+      "blacklist": { "users": [], "groups": [] }
+    },
     "commands": {
-        "pictures_api": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
-        "pictures_face": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
-        "pictures_list": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
-        "poke": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
-        "contact": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
-        "reply": { "enabled": true, "level": "superuser", "scene": "private", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
-        "update_gallery": { "enabled": true, "level": "superuser", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
-      }
+      "pictures_api":  { "enabled": true, "level": "all",       "scene": "all",     "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+      "pictures_face": { "enabled": true, "level": "all",       "scene": "all",     "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+      "pictures_list": { "enabled": true, "level": "all",       "scene": "all",     "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+      "poke":          { "enabled": true, "level": "all",       "scene": "all",     "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+      "contact":       { "enabled": true, "level": "all",       "scene": "all",     "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+      "reply":         { "enabled": true, "level": "superuser", "scene": "private", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+      "update_gallery":{ "enabled": true, "level": "superuser", "scene": "all",     "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
+    }
+  },
+
+  "fortune": {
+    "top": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+    "commands": {
+      "today": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
+    }
+  },
+
+  "reg_time": {
+    "top": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+    "commands": {
+      "query": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
+    }
+  },
+
+  "taffy": {
+    "top": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+    "commands": {
+      "query": { "enabled": true, "level": "superuser", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
+    }
+  },
+
+  "box": {
+    "top": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+    "commands": {
+      "open": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
+    }
+  },
+
+  "panel": {
+    "top": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+    "commands": {
+      "upload":  { "enabled": true, "level": "all", "scene": "group",   "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+      "list":    { "enabled": true, "level": "all", "scene": "private", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+      "refresh": { "enabled": true, "level": "all", "scene": "all",     "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
+    }
+  },
+
+  "musicshare": {
+    "top": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+    "commands": {
+      "search": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+      "select": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
+    }
+  },
+
+  "doro": {
+    "top": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+    "commands": {
+      "draw": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
+    }
+  },
+
+  "sick": {
+    "top": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } },
+    "commands": {
+      "get": { "enabled": true, "level": "all", "scene": "all", "whitelist": { "users": [], "groups": [] }, "blacklist": { "users": [], "groups": [] } }
+    }
   }
 }
+

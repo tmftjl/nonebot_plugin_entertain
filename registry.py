@@ -6,34 +6,36 @@ from typing import Any, Optional
 from nonebot import on_regex
 from nonebot.matcher import Matcher
 
-from .config import register_plugin_config, upsert_plugin_defaults, upsert_command_defaults
+from .config import upsert_plugin_defaults, upsert_command_defaults
 from .perm import permission_for_cmd, permission_for_plugin
 
 
 def _infer_plugin_name() -> str:
-    # Try to derive plugin name from caller module path: nonebot_plugin_entertain.plugins.<name>.
+    # Try to derive plugin name from call stack: prefer modules under
+    # nonebot_plugin_entertain.plugins.<name>, falling back to file path scan.
     try:
-        frm = inspect.stack()[2]  # caller of wrapper method
+        stack = inspect.stack()
     except Exception:
-        frm = inspect.stack()[1]
-    g = getattr(frm, "frame", None).f_globals if getattr(frm, "frame", None) else {}
-    mod_name = str(g.get("__name__", ""))
-    if ".plugins." in mod_name:
-        try:
-            suffix = mod_name.split(".plugins.", 1)[1]
-            return suffix.split(".", 1)[0]
-        except Exception:
-            pass
-    # Fallback: try __file__
-    mod_file = str(g.get("__file__", ""))
-    if "plugins" in mod_file:
-        try:
+        stack = []
 
-            parts = mod_file.replace("\\", "/").split("/")
-            idx = len(parts) - 1 - parts[::-1].index("plugins")
-            return parts[idx + 1]
+    # Scan several frames upward to find the plugin module context
+    for depth in range(1, min(len(stack), 8)):
+        try:
+            frm = stack[depth]
+            g = getattr(frm, "frame", None).f_globals if getattr(frm, "frame", None) else {}
+            mod_name = str(g.get("__name__", ""))
+            if ".plugins." in mod_name:
+                suffix = mod_name.split(".plugins.", 1)[1]
+                return suffix.split(".", 1)[0]
+            # Fallback for this frame: try __file__ path-based inference
+            mod_file = str(g.get("__file__", ""))
+            if "plugins" in mod_file:
+                parts = mod_file.replace("\\", "/").split("/")
+                idx = len(parts) - 1 - parts[::-1].index("plugins")
+                return parts[idx + 1]
         except Exception:
-            pass
+            continue
+
     return "unknown"
 
 
@@ -81,8 +83,7 @@ class Plugin:
         bl_groups: Optional[list[str]] = None,
     ) -> None:
         self.name = name or _infer_plugin_name()
-        # Ensure plugin config file exists
-        self._cfg = register_plugin_config(self.name)
+        # No per-plugin config auto-creation here; plugins handle their own configs
         # Always create a plugin-level default entry; if fields provided, validate and set them
         if any(x is not None for x in (enabled, level, scene, wl_users, wl_groups, bl_users, bl_groups)):
             _validate_entry(enabled=enabled, level=level, scene=scene, wl_users=wl_users, wl_groups=wl_groups, bl_users=bl_users, bl_groups=bl_groups)
