@@ -11,14 +11,14 @@ from nonebot.adapters.onebot.v11 import MessageSegment
 from ...registry import Plugin
 
 # Reuse core logic from bundled nonebot_plugin_help package
-from plugins.help.config import (
+from .config import (
     load_help_config,
     resolve_help_config,
     help_config_filename,
     CFG_DIR,
 )
 try:
-    from plugins.help.renderer import render_help_image  # type: ignore
+    from .renderer import render_help_image  # type: ignore
 except Exception:  # pragma: no cover
     render_help_image = None  # type: ignore
 
