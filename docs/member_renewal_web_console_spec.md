@@ -108,11 +108,7 @@
 
 ### 4.1 认证与安全
 
-- `Authorization: Bearer <token>` 或 `?token=...`（后者仅用于无 Header 环境；优先使用 Bearer）。
-- Token 角色：`viewer | operator | admin`；按角色限制接口权限。
-- 可选 IP 白名单拦截（`member_renewal_console_ip_allowlist`）。
-- 频控：按 Token + IP 维度，`window_sec/max` 可配置；超限返回 `429`。
-- 审计：所有写操作与关键读操作记录审计日志（见 8 章）。
+发送今汐登录，随机生成token，返回登录连接，设置一定时间有效期
 
 ### 4.2 接口列表
 

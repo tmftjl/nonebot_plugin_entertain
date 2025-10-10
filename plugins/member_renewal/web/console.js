@@ -82,8 +82,7 @@
 
   function applyFilterSort() {
     let arr = state.list.slice();
-    if (state.filter === 'valid') arr = arr.filter(x => x.status !== 'expired');
-    else if (state.filter !== 'all') arr = arr.filter(x => x.status === state.filter);
+    if (state.filter !== 'all') arr = arr.filter(x => x.status === state.filter || (state.filter === 'valid' && x.status !== 'expired'));
     if (state.keyword) arr = arr.filter(x => x.group.includes(state.keyword));
     const dir = state.sortDir === 'asc' ? 1 : -1;
     arr.sort((a,b) => {
@@ -107,8 +106,9 @@
     const total = arr.length;
     const expired = arr.filter(x => x.status === 'expired').length;
     const today = arr.filter(x => x.status === 'today').length;
-    const soon = arr.filter(x => x.status === 'soon').length + today;
-    const active = total - expired - today - arr.filter(x => x.status === 'soon').length;
+    const soonOnly = arr.filter(x => x.status === 'soon').length;
+    const soon = soonOnly + today;
+    const active = total - expired - soonOnly - today;
     setText('sumTotal', total);
     setText('sumActive', active);
     setText('sumSoon', soon);
@@ -127,18 +127,18 @@
     if (!tbody) return;
     tbody.innerHTML = '';
     const arr = applyFilterSort();
-    for (const x of arr) {
+    for (const r of arr) {
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td><input type="checkbox" data-gid="${x.group}"></td>
-        <td>${x.group}</td>
-        <td>${labelStatus(x.status)}</td>
-        <td>${fmtDate(x.expiry)}</td>
-        <td>${x.days}</td>
+        <td><input type="checkbox" data-id="${r.group}" /></td>
+        <td>${r.group}</td>
+        <td>${labelStatus(r.status)}</td>
+        <td>${r.expiry ? fmtDate(r.expiry) : '-'}</td>
+        <td>${r.days}</td>
         <td>
-          <button class="btn secondary" data-act="remind" data-gid="${x.group}">提醒</button>
-          <button class="btn" data-act="extend7" data-gid="${x.group}">+7天</button>
-          <button class="btn danger" data-act="leave" data-gid="${x.group}">退群</button>
+          <button class="btn secondary" data-act="remind" data-gid="${r.group}">提醒</button>
+          <button class="btn" data-act="extend7" data-gid="${r.group}">+7天</button>
+          <button class="btn danger" data-act="leave" data-gid="${r.group}">退群</button>
         </td>
       `;
       tbody.appendChild(tr);
@@ -146,48 +146,49 @@
   }
 
   function renderCodes() {
-    const box = document.getElementById('codes');
+    const box = $('#codes');
     if (!box) return;
+    const raw = state.raw || {};
+    const codes = raw.generatedCodes || {};
+    const entries = Object.entries(codes).sort((a,b) => (a[1]?.generated_time || '').localeCompare(b[1]?.generated_time || ''));
     box.innerHTML = '';
-    const map = (state.raw && state.raw.generatedCodes) || {};
-    const entries = Object.entries(map);
-    const panel = document.getElementById('codesPanel');
-    if (panel) panel.classList.toggle('hidden', entries.length === 0);
     for (const [code, meta] of entries) {
-      const item = document.createElement('div');
-      item.className = 'code-item';
-      item.innerHTML = `
+      const div = document.createElement('div');
+      div.className = 'code-item';
+      const expire = meta.expire_at ? `，有效期至 ${fmtDate(meta.expire_at)}` : '';
+      const info = `${meta.length}${meta.unit}，可用 ${meta.max_use ?? 1} 次${expire}`;
+      div.innerHTML = `
         <div>
           <div class="mask">${maskCode(code)}</div>
-          <div class="meta">${meta.length}${meta.unit} · 生成于 ${fmtDate(meta.generated_time)}</div>
+          <div class="meta">${info}</div>
         </div>
         <div>
           <button class="btn secondary" data-copy="${code}">复制</button>
         </div>
       `;
-      box.appendChild(item);
+      box.appendChild(div);
     }
   }
 
   function getSelected() {
-    return $$('#groups tbody input[type="checkbox"]:checked').map(x => x.getAttribute('data-gid'));
+    return $$('#groups tbody input[type="checkbox"]:checked').map(cb => cb.getAttribute('data-id'));
   }
 
-  async function doRemind(gid) {
-    await api('/remind', { method: 'POST', body: JSON.stringify({ group_id: gid }) });
+  async function doExtend(group_id, length, unit) {
+    return api('/extend', { method: 'POST', body: JSON.stringify({ group_id, length, unit }) });
   }
-  async function doLeave(gid) {
-    await api('/leave', { method: 'POST', body: JSON.stringify({ group_id: gid }) });
+  async function doRemind(group_id) {
+    return api('/remind', { method: 'POST', body: JSON.stringify({ group_id: parseInt(group_id, 10) }) });
   }
-  async function doExtend(gid, length, unit) {
-    await api('/extend', { method: 'POST', body: JSON.stringify({ group_id: gid, length, unit }) });
+  async function doLeave(group_id) {
+    return api('/leave', { method: 'POST', body: JSON.stringify({ group_id: parseInt(group_id, 10) }) });
   }
   async function doGenerate(length, unit) {
     return api('/generate', { method: 'POST', body: JSON.stringify({ length, unit }) });
   }
 
   async function copyText(text) {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
+    if (navigator.clipboard && window.isSecureContext) {
       return navigator.clipboard.writeText(text);
     }
     const ta = document.createElement('textarea');
@@ -278,7 +279,7 @@
         const unit = $('#unit')?.value || '天';
         const r = await doGenerate(length, unit);
         await copyText(r.code);
-        showToast('已生成并复制：' + r.code.slice(0, 8) + '…');
+        showToast('已生成并复制：' + r.code.slice(0, 12) + '…');
         reload();
       } catch (e) { showToast(e.message || e, true); }
     });
@@ -298,13 +299,6 @@
     const t = localStorage.getItem('mr_token') || getQueryToken();
     const tok = document.getElementById('token');
     if (tok) tok.value = t;
-    // 优化筛选项：仅展示 全部/有效/已过期
-    const sf = document.getElementById('filter');
-    if (sf) {
-      sf.innerHTML = '<option value="all">全部</option>' +
-                     '<option value="valid">有效</option>' +
-                     '<option value="expired">已过期</option>';
-    }
     bindEvents();
     reload();
   }

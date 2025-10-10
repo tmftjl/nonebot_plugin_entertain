@@ -4,6 +4,8 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+import math
+import shutil
 
 from nonebot import get_bots
 from nonebot.adapters.onebot.v11 import Bot
@@ -12,6 +14,7 @@ import secrets
 from zoneinfo import ZoneInfo
 
 from .config import config
+from ...utils import config_dir
 
 # Valid membership time units
 UNITS = ("天", "月", "年")
@@ -56,19 +59,46 @@ def _days_remaining(expiry: datetime) -> int:
 # ----- Simple JSON storage (local file only) -----
 
 _PLUGIN_DIR = Path(__file__).parent
-DATA_FILE = _PLUGIN_DIR / "group_memberships.json"
+_OLD_DATA_FILE = _PLUGIN_DIR / "group_memberships.json"
+_NEW_DATA_FILE = config_dir("member_renewal") / "memberships.json"
 
 
 def _ensure_file() -> None:
-    DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
-    if not DATA_FILE.exists() or not DATA_FILE.read_text(encoding="utf-8").strip():
-        DATA_FILE.write_text('{"generatedCodes": {}}', encoding="utf-8")
+    # Ensure new path exists and migrate from legacy path once
+    try:
+        _NEW_DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    if not _NEW_DATA_FILE.exists():
+        if _OLD_DATA_FILE.exists():
+            try:
+                text = _OLD_DATA_FILE.read_text(encoding="utf-8")
+            except Exception:
+                text = '{"generatedCodes": {}}'
+            try:
+                _NEW_DATA_FILE.write_text(text, encoding="utf-8")
+            except Exception:
+                try:
+                    _NEW_DATA_FILE.write_text('{"generatedCodes": {}}', encoding="utf-8")
+                except Exception:
+                    pass
+            # backup legacy file
+            try:
+                bak = _OLD_DATA_FILE.with_suffix(_OLD_DATA_FILE.suffix + ".bak")
+                shutil.move(str(_OLD_DATA_FILE), str(bak))
+            except Exception:
+                pass
+        else:
+            try:
+                _NEW_DATA_FILE.write_text('{"generatedCodes": {}}', encoding="utf-8")
+            except Exception:
+                pass
 
 
 def _read_data() -> Dict[str, Any]:
     _ensure_file()
     try:
-        raw = DATA_FILE.read_text(encoding="utf-8")
+        raw = _NEW_DATA_FILE.read_text(encoding="utf-8")
         obj: Dict[str, Any] = json.loads(raw or "{}")
     except Exception:
         obj = {"generatedCodes": {}}
@@ -79,7 +109,10 @@ def _read_data() -> Dict[str, Any]:
 
 def _write_data(obj: Dict[str, Any]) -> None:
     _ensure_file()
-    DATA_FILE.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
+    # atomic write
+    tmp = _NEW_DATA_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(_NEW_DATA_FILE)
 
 
 def _add_duration(start: datetime, length: int, unit: str) -> datetime:
@@ -112,3 +145,25 @@ def _choose_bots(preferred_id: Optional[str]) -> List[Bot]:
         bots.append(bots_map[preferred_id])
     bots.extend([b for sid, b in bots_map.items() if sid != preferred_id])
     return bots
+
+# ---- overrides to fix mojibake & enhance helpers ----
+
+# Ensure readable CN units for external callers
+UNITS = ("天", "月", "年")
+
+def _add_duration(start: datetime, length: int, unit: str) -> datetime:  # type: ignore[override]
+    if unit == "天":
+        return start + timedelta(days=length)
+    if unit == "月":
+        return start + timedelta(days=30 * length)
+    if unit == "年":
+        return start + timedelta(days=365 * length)
+    return start
+
+def generate_unique_code(length: int, unit: str) -> str:  # type: ignore[override]
+    prefix = str(getattr(config, "member_renewal_code_prefix", "ww续费") or "ww续费")
+    n = int(getattr(config, "member_renewal_code_random_len", 6) or 6)
+    n = max(2, n)
+    b = math.ceil(n / 2)
+    rand = secrets.token_hex(b)[:n]
+    return f"{prefix}{length}{unit}-{rand}"

@@ -1,5 +1,6 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
@@ -24,7 +25,57 @@ from .common import (
 )
 from nonebot.adapters.onebot.v11 import Message
 
-CONTACT_SUFFIX = " 购买/续费请加群 757463664 联系。"
+
+# UI strings
+CONTACT_SUFFIX = getattr(config, "member_renewal_contact_suffix", " 咨询/加入交流群 757463664 联系群管")
+
+
+# In-memory rate-limit bucket {(ip, window): count}
+_RL_BUCKET: Dict[tuple[str, int], int] = {}
+
+
+def _rate_limited(ip: str) -> bool:
+    try:
+        limit = getattr(config, "member_renewal_rate_limit", {"window_sec": 15, "max": 120})
+        w = int(limit.get("window_sec", 15))
+        m = int(limit.get("max", 120))
+    except Exception:
+        w, m = 15, 120
+    from time import time
+
+    now = int(time())
+    win = now // max(1, w)
+    key = (ip or "", win)
+    cnt = _RL_BUCKET.get(key, 0) + 1
+    _RL_BUCKET[key] = cnt
+    # best-effort cleanup
+    for k in list(_RL_BUCKET.keys()):
+        if isinstance(k, tuple) and len(k) == 2 and k[1] != win:
+            _RL_BUCKET.pop(k, None)
+    return cnt > max(1, m)
+
+
+def _audit(action: str, request: Request, token_tail: str, role: str, ok: bool, params: dict | None = None, error: str | None = None) -> None:
+    try:
+        from ...utils import config_dir as _cfgd
+
+        path = _cfgd("member_renewal") / "audit.log"
+        data = {
+            "time": _now_utc().isoformat(),
+            "ip": request.client.host if request and request.client else "",
+            "token_tail": token_tail,
+            "role": role,
+            "action": action,
+            "ok": ok,
+            "params": {k: v for k, v in (params or {}).items() if k not in {"token", "Authorization"}},
+            "error": error or "",
+        }
+        text = json.dumps(data, ensure_ascii=False)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(text + "\n")
+    except Exception:
+        pass
+
 
 def setup_web_console() -> None:
     """Mount optional FastAPI console and APIs if enabled in config."""
@@ -35,61 +86,85 @@ def setup_web_console() -> None:
         app = get_app()
         router = APIRouter(prefix="/member_renewal", tags=["member_renewal"])
 
-        # 认证拦截器：从 Authorization Bearer 或 query 参数 token 中获取令牌
-        # 校验失败返回 401 未授权
-        def _auth(request: Request) -> None:
+        # 简易鉴权：Header Bearer 或 query.token；支持多 Token 角色
+        def _auth(request: Request) -> dict:
             token = ""
             auth = request.headers.get("Authorization", "")
             if auth.startswith("Bearer "):
                 token = auth[7:]
             if not token:
-                token = request.query_params.get("token", "")
-            if not config.member_renewal_console_token or token != config.member_renewal_console_token:
-                raise HTTPException(status_code=401, detail="未授权或令牌无效")
+                token = request.query_params.get("token", "") or ""
+            ip = request.client.host if request and request.client else ""
 
-        # 接口：获取全部数据
-        # 方法：GET /member_renewal/data
-        # 认证：需要有效令牌（Bearer 或 ?token=）
-        # 请求：无
-        # 返回：整个数据存储字典
-        # 错误：401 未授权
+            # IP allowlist check (if configured)
+            allow = getattr(config, "member_renewal_console_ip_allowlist", []) or []
+            if allow and ip and ip not in set(allow):
+                raise HTTPException(status_code=403, detail="IP 不在允许列表内")
+
+            # rl
+            if _rate_limited(ip or ""):
+                raise HTTPException(status_code=429, detail="请求过于频繁")
+
+            # accept legacy single token
+            if getattr(config, "member_renewal_console_token", "") and token == config.member_renewal_console_token:
+                return {"role": "admin", "token_tail": token[-4:], "ip": ip}
+
+            # multi token
+            for t in getattr(config, "member_renewal_console_tokens", []) or []:
+                if not isinstance(t, dict) or t.get("disabled"):
+                    continue
+                if token and t.get("token") == token:
+                    return {"role": str(t.get("role") or "viewer"), "token_tail": token[-4:], "ip": ip}
+            raise HTTPException(status_code=401, detail="未授权或令牌无效")
+
+        # 数据：读取完整 memberships
         @router.get("/data")
-        async def get_all(_: None = Depends(_auth)):
+        async def get_all(ctx: dict = Depends(_auth)):
+            _audit("data", ctx.get("request") if False else None, ctx.get("token_tail", ""), ctx.get("role", ""), True, {})  # noqa
             return _read_data()
 
-        # 接口：生成一个新的兑换码
-        # 方法：POST /member_renewal/generate
-        # 认证：需要有效令牌
-        # 请求体：{"length": int, "unit": str(必须为 UNITS 之一)}
-        # 返回：{"code": str}
-        # 错误：400 参数无效，401 未授权
+        # 生成续费码
         @router.post("/generate")
-        async def api_generate(payload: Dict[str, Any], _: None = Depends(_auth)):
+        async def api_generate(payload: Dict[str, Any], request: Request, ctx: dict = Depends(_auth)):
             try:
                 length = int(payload.get("length"))
                 unit = str(payload.get("unit"))
                 if unit not in UNITS:
                     raise ValueError("单位无效")
             except Exception as e:
-                raise HTTPException(400, f"参数无效：{e}")
+                raise HTTPException(400, f"参数无效: {e}")
             data = _ensure_generated_codes(_read_data())
             code = generate_unique_code(length, unit)
-            data["generatedCodes"][code] = {
+            rec = {
                 "length": length,
                 "unit": unit,
                 "generated_time": _now_utc().isoformat(),
             }
+            # optional: expiry & max_use
+            try:
+                max_use = int(payload.get("max_use", 0) or 0)
+            except Exception:
+                max_use = 0
+            if max_use <= 0:
+                max_use = int(getattr(config, "member_renewal_code_max_use", 1) or 1)
+            rec["max_use"] = max_use
+            rec["used_count"] = 0
+            try:
+                expire_days = int(payload.get("expire_days", 0) or 0)
+            except Exception:
+                expire_days = 0
+            if expire_days <= 0:
+                expire_days = int(getattr(config, "member_renewal_code_expire_days", 0) or 0)
+            if expire_days > 0:
+                rec["expire_at"] = _add_duration(_now_utc(), expire_days, "天").isoformat()
+            data["generatedCodes"][code] = rec
             _write_data(data)
+            _audit("generate", request, ctx.get("token_tail", ""), ctx.get("role", ""), True, {"length": length, "unit": unit})
             return {"code": code}
 
-        # 接口：按时长续期（在当前或到期时间基础上增加时长）
-        # 方法：POST /member_renewal/extend
-        # 认证：需要有效令牌
-        # 请求体：{"group_id": str, "length": int, "unit": str}
-        # 返回：{"group_id": str, "expiry": ISO8601 str}
-        # 错误：400 参数无效，401 未授权
+        # 延长到期时间（基于当前或 now）
         @router.post("/extend")
-        async def api_extend(payload: Dict[str, Any], _: None = Depends(_auth)):
+        async def api_extend(payload: Dict[str, Any], request: Request, ctx: dict = Depends(_auth)):
             try:
                 gid = str(payload.get("group_id"))
                 length = int(payload.get("length"))
@@ -97,7 +172,7 @@ def setup_web_console() -> None:
                 if unit not in UNITS:
                     raise ValueError("单位无效")
             except Exception as e:
-                raise HTTPException(400, f"参数无效：{e}")
+                raise HTTPException(400, f"参数无效: {e}")
             now = _now_utc()
             data = _read_data()
             current = now
@@ -122,42 +197,34 @@ def setup_web_console() -> None:
             )
             data[gid] = rec
             _write_data(data)
+            _audit("extend", request, ctx.get("token_tail", ""), ctx.get("role", ""), True, {"group_id": gid, "length": length, "unit": unit})
             return {"group_id": gid, "expiry": new_expiry.isoformat()}
 
-        # 接口：设置绝对到期时间（覆盖原到期时间）
-        # 方法：POST /member_renewal/set_expiry
-        # 认证：需要有效令牌
-        # 请求体：{"group_id": str, "expiry": ISO8601 str（可无 tz，默认 UTC）}
-        # 返回：{"group_id": str, "expiry": ISO8601 str}
-        # 错误：400 参数无效，401 未授权
+        # 设置到期时间（覆盖）
         @router.post("/set_expiry")
-        async def api_set_expiry(payload: Dict[str, Any], _: None = Depends(_auth)):
+        async def api_set_expiry(payload: Dict[str, Any], request: Request, ctx: dict = Depends(_auth)):
             try:
                 gid = str(payload.get("group_id"))
                 expiry = datetime.fromisoformat(str(payload.get("expiry")))
                 if expiry.tzinfo is None:
                     expiry = expiry.replace(tzinfo=timezone.utc)
             except Exception as e:
-                raise HTTPException(400, f"参数无效：{e}")
+                raise HTTPException(400, f"参数无效: {e}")
             data = _read_data()
             rec = data.get(gid) or {}
             rec.update({"group_id": gid, "expiry": expiry.isoformat()})
             data[gid] = rec
             _write_data(data)
+            _audit("set_expiry", request, ctx.get("token_tail", ""), ctx.get("role", ""), True, {"group_id": gid, "expiry": expiry.isoformat()})
             return {"group_id": gid, "expiry": expiry.isoformat()}
 
-        # 接口：机器人退出指定群聊
-        # 方法：POST /member_renewal/leave
-        # 认证：需要有效令牌
-        # 请求体：{"group_id": int, "bot_id": str?（可选，优先使用该 bot）}
-        # 返回：{"status": "ok"}
-        # 错误：400 group_id 无效；500 所有机器人均退群失败；401 未授权
+        # 指定群退群
         @router.post("/leave")
-        async def api_leave(payload: Dict[str, Any], _: None = Depends(_auth)):
+        async def api_leave(payload: Dict[str, Any], request: Request, ctx: dict = Depends(_auth)):
             try:
                 gid = int(payload.get("group_id"))
             except Exception as e:
-                raise HTTPException(400, f"无效的 group_id：{e}")
+                raise HTTPException(400, f"无效的 group_id: {e}")
             preferred = str(payload.get("bot_id") or "")
             ok = False
             for bot in _choose_bots(preferred or None):
@@ -166,37 +233,30 @@ def setup_web_console() -> None:
                     ok = True
                     break
                 except Exception as e:
-                    logger.debug(f"通过机器人退群失败：{e}")
+                    logger.debug(f"leave group failed via bot: {e}")
                     continue
             if not ok:
-                raise HTTPException(500, "所有机器人退群均失败")
-            # 成功退群后，从配置中删除记录
+                raise HTTPException(500, "切换所有 Bot 退出群失败")
+            # 移除记录（忽略失败）
             try:
                 data = _read_data()
                 data.pop(str(gid), None)
                 _write_data(data)
             except Exception as e:
-                logger.debug(f"控制台退群后删除记录失败：{e}")
+                logger.debug(f"web console leave: remove record failed: {e}")
+            _audit("leave", request, ctx.get("token_tail", ""), ctx.get("role", ""), True, {"group_id": gid})
             return {"status": "ok"}
 
-        # 接口：在群内发送续费提醒
-        # 方法：POST /member_renewal/remind
-        # 认证：需要有效令牌
-        # 请求体：{"group_id": int, "content": str?（可选），"bot_id": str?（可选）}
-        #        若未提供 content，将采用默认提醒文案，并追加联系方式后缀
-        # 返回：{"status": "ok"}
-        # 错误：400 group_id 无效；500 所有机器人发送失败；401 未授权
+        # 群内提醒
         @router.post("/remind")
-        async def api_remind(payload: Dict[str, Any], _: None = Depends(_auth)):
+        async def api_remind(payload: Dict[str, Any], request: Request, ctx: dict = Depends(_auth)):
             try:
                 gid = int(payload.get("group_id"))
             except Exception as e:
-                raise HTTPException(400, f"无效的 group_id：{e}")
+                raise HTTPException(400, f"无效的 group_id: {e}")
             content = str(payload.get("content") or "本群会员即将到期，请尽快续费")
-            if not payload.get("content"):
-                content = "群成员会员即将到期，请尽快续费。"
-            if "757463664" not in content:
-                content = content + " 咨询/加入交流群 757463664 请联系管理员"
+            if CONTACT_SUFFIX and CONTACT_SUFFIX.strip() and CONTACT_SUFFIX.strip() not in content:
+                content = content + CONTACT_SUFFIX
             preferred = str(payload.get("bot_id") or "")
             ok = False
             for bot in _choose_bots(preferred or None):
@@ -205,13 +265,85 @@ def setup_web_console() -> None:
                     ok = True
                     break
                 except Exception as e:
-                    logger.debug(f"通过机器人发送提醒失败：{e}")
+                    logger.debug(f"send reminder failed via bot: {e}")
                     continue
             if not ok:
-                raise HTTPException(500, "所有机器人发送失败")
+                raise HTTPException(500, "切换所有 Bot 发送失败")
+            _audit("remind", request, ctx.get("token_tail", ""), ctx.get("role", ""), True, {"group_id": gid})
             return {"status": "ok"}
 
-        # 静态资源挂载：控制台前端静态文件
+        # 列出生成的续费码
+        @router.get("/codes")
+        async def api_codes(_: dict = Depends(_auth)):
+            data = _ensure_generated_codes(_read_data())
+            return data.get("generatedCodes", {})
+
+        # 撤销续费码
+        @router.post("/codes/revoke")
+        async def api_codes_revoke(payload: Dict[str, Any], request: Request, ctx: dict = Depends(_auth)):
+            code = str(payload.get("code") or "")
+            if not code:
+                raise HTTPException(400, "缺少 code")
+            data = _ensure_generated_codes(_read_data())
+            if code in data["generatedCodes"]:
+                data["generatedCodes"].pop(code, None)
+                _write_data(data)
+            _audit("revoke_code", request, ctx.get("token_tail", ""), ctx.get("role", ""), True, {"code_tail": code[-6:]})
+            return {"status": "ok"}
+
+        # 批量接口：延期/提醒/退群
+        @router.post("/batch/extend")
+        async def api_batch_extend(payload: Dict[str, Any], request: Request, ctx: dict = Depends(_auth)):
+            gids = payload.get("group_ids") or []
+            length = int(payload.get("length") or 0)
+            unit = str(payload.get("unit") or "天")
+            if unit not in UNITS:
+                raise HTTPException(400, "单位无效")
+            ok = []
+            for gid in [str(g) for g in gids if g]:
+                try:
+                    await api_extend({"group_id": gid, "length": length, "unit": unit}, request, ctx)
+                    ok.append(gid)
+                except Exception:
+                    continue
+            return {"count": len(ok), "ok": ok}
+
+        # 立即执行一次定时任务
+        @router.post("/job/run")
+        async def api_run_job(_: dict = Depends(_auth)):
+            try:
+                from .commands import _check_and_process  # type: ignore
+
+                r, l = await _check_and_process()
+                return {"reminded": r, "left": l}
+            except Exception as e:
+                raise HTTPException(500, f"执行失败: {e}")
+
+        @router.post("/batch/remind")
+        async def api_batch_remind(payload: Dict[str, Any], request: Request, ctx: dict = Depends(_auth)):
+            gids = payload.get("group_ids") or []
+            ok = []
+            for gid in [str(g) for g in gids if g]:
+                try:
+                    await api_remind({"group_id": int(gid)}, request, ctx)
+                    ok.append(gid)
+                except Exception:
+                    continue
+            return {"count": len(ok), "ok": ok}
+
+        @router.post("/batch/leave")
+        async def api_batch_leave(payload: Dict[str, Any], request: Request, ctx: dict = Depends(_auth)):
+            gids = payload.get("group_ids") or []
+            ok = []
+            for gid in [str(g) for g in gids if g]:
+                try:
+                    await api_leave({"group_id": int(gid)}, request, ctx)
+                    ok.append(gid)
+                except Exception:
+                    continue
+            return {"count": len(ok), "ok": ok}
+
+        # 静态资源：控制台前端
         static_dir = Path(__file__).parent / "web"
         app.mount(
             "/member_renewal/static",
@@ -219,16 +351,13 @@ def setup_web_console() -> None:
             name="member_renewal_static",
         )
 
-        # 接口：控制台页面（HTML）
-        # 方法：GET /member_renewal/console
-        # 认证：需要有效令牌
-        # 返回：控制台网页 HTML
+        # 控制台页面（HTML）
         @router.get("/console")
-        async def console(_: None = Depends(_auth)):
+        async def console(_: dict = Depends(_auth)):
             path = Path(__file__).parent / "web" / "console.html"
             return FileResponse(path, media_type="text/html")
 
         app.include_router(router)
-        logger.info("member_renewal Web 控制台已挂载到 /member_renewal")
+        logger.info("member_renewal Web 控制台已挂载 /member_renewal")
     except Exception as e:
-        logger.warning(f"member_renewal 控制台已禁用或不可用：{e}")
+        logger.warning(f"member_renewal 控制台已禁用或不可用: {e}")
