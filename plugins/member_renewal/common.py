@@ -1,20 +1,21 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
+import math
+import secrets
+import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-import math
-import shutil
 
 from nonebot import get_bots
 from nonebot.adapters.onebot.v11 import Bot
 from nonebot.log import logger
-import secrets
 from zoneinfo import ZoneInfo
 
-from .config import config
+from .config import load_cfg
 from ...utils import config_dir
+
 
 # Valid membership time units
 UNITS = ("天", "月", "年")
@@ -24,12 +25,13 @@ UNITS = ("天", "月", "年")
 
 
 def _tz():
+    cfg = load_cfg()
+    tzname = str(cfg.get("member_renewal_timezone", "Asia/Shanghai") or "Asia/Shanghai")
     try:
-        return ZoneInfo(config.member_renewal_timezone)
+        return ZoneInfo(tzname)
     except Exception:
-        # Fallback to +08:00 if timezone database is unavailable
         logger.warning(
-            f"member_renewal: invalid or unavailable timezone '{config.member_renewal_timezone}', fallback to +08:00"
+            f"member_renewal: invalid or unavailable timezone '{tzname}', fallback to +08:00"
         )
         return timezone(timedelta(hours=8))
 
@@ -133,9 +135,14 @@ def _ensure_generated_codes(obj: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def generate_unique_code(length: int, unit: str) -> str:
-    # Use cryptographic randomness to avoid collisions
-    rand = secrets.token_hex(3)  # 6 hex chars
-    return f"ww续费{length}{unit}-{rand}"
+    # Use cryptographic randomness and unified config
+    cfg = load_cfg()
+    prefix = str(cfg.get("member_renewal_code_prefix", "ww续费") or "ww续费")
+    n = int(cfg.get("member_renewal_code_random_len", 6) or 6)
+    n = max(2, n)
+    b = math.ceil(n / 2)
+    rand = secrets.token_hex(b)[:n]
+    return f"{prefix}{length}{unit}-{rand}"
 
 
 def _choose_bots(preferred_id: Optional[str]) -> List[Bot]:
@@ -146,24 +153,3 @@ def _choose_bots(preferred_id: Optional[str]) -> List[Bot]:
     bots.extend([b for sid, b in bots_map.items() if sid != preferred_id])
     return bots
 
-# ---- overrides to fix mojibake & enhance helpers ----
-
-# Ensure readable CN units for external callers
-UNITS = ("天", "月", "年")
-
-def _add_duration(start: datetime, length: int, unit: str) -> datetime:  # type: ignore[override]
-    if unit == "天":
-        return start + timedelta(days=length)
-    if unit == "月":
-        return start + timedelta(days=30 * length)
-    if unit == "年":
-        return start + timedelta(days=365 * length)
-    return start
-
-def generate_unique_code(length: int, unit: str) -> str:  # type: ignore[override]
-    prefix = str(getattr(config, "member_renewal_code_prefix", "ww续费") or "ww续费")
-    n = int(getattr(config, "member_renewal_code_random_len", 6) or 6)
-    n = max(2, n)
-    b = math.ceil(n / 2)
-    rand = secrets.token_hex(b)[:n]
-    return f"{prefix}{length}{unit}-{rand}"

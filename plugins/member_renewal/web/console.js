@@ -221,12 +221,16 @@ function renderStatsDetails(today){
   }catch{}
 }
 
-async function loadPermissions(){ try{ showLoading(true); const p=await apiCall('/permissions'); state.permissions=p; const ta=$('#permissions-json'); if(ta) ta.value=JSON.stringify(p,null,2); } catch(e){ showToast('加载权限失败: '+(e&&e.message?e.message:e),'error'); } finally{ showLoading(false);} }
+async function loadPermissions(){ try{ showLoading(true); const p=await apiCall('/permissions'); state.permissions=p; const ta=$('#permissions-json'); if(ta) ta.value=JSON.stringify(p,null,2); renderPermissionsList(); } catch(e){ showToast('加载权限失败: '+(e&&e.message?e.message:e),'error'); } finally{ showLoading(false);} }
+
+// 新的手风琴式权限列表渲染
 function renderPermissionsList(){
-  const wrap=document.getElementById('permissions-list'); if(!wrap) return;
+  const wrap=document.getElementById('permissions-list');
+  if(!wrap) return;
   const data = state.permissions || {};
   const plugins = Object.keys(data).sort((a,b)=>a.localeCompare(b));
-  if(!plugins.length){ wrap.innerHTML = '<div class="empty-state">暂无权限数据</div>'; return; }
+  if(!plugins.length){ wrap.innerHTML = '<div class="empty-state">💤 暂无权限数据</div>'; return; }
+  
   const optLevel = (v)=>`<option value="all" ${v==='all'?'selected':''}>所有人</option>
     <option value="member" ${v==='member'?'selected':''}>群成员</option>
     <option value="admin" ${v==='admin'?'selected':''}>群管理</option>
@@ -238,85 +242,197 @@ function renderPermissionsList(){
   const toCSV=(arr)=>Array.isArray(arr)?arr.join(','):(arr||'');
   const from=(x)=> (x && typeof x==='object')?x:{};
   const esc=(s)=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const rows = plugins.map(pn=>{
+  
+  const rows = plugins.map((pn, index)=>{
     const node = from(data[pn]);
     const top = from(node.top);
     const cmds = from(node.commands);
-    const wl = from(top.whitelist); const bl = from(top.blacklist);
+    const wl = from(top.whitelist);
+    const bl = from(top.blacklist);
+    
+    // 命令列表HTML - 改用插件样式的网格布局
     const cmdRows = Object.keys(cmds).sort((a,b)=>a.localeCompare(b)).map(cn=>{
-      const c=from(cmds[cn]); const cwl=from(c.whitelist); const cbl=from(c.blacklist);
-      return `<div class="perm-cmd" data-command="${esc(cn)}">
-        <div class="perm-cmd-name">${esc(cn)}</div>
-        <label class="perm-field"><input type="checkbox" class="perm-enabled" ${c.enabled===false?'':'checked'}> 启用</label>
-        <label class="perm-field">等级 <select class="perm-level">${optLevel(String(c.level||'all'))}</select></label>
-        <label class="perm-field">场景 <select class="perm-scene">${optScene(String(c.scene||'all'))}</select></label>
-        <label class="perm-field perm-grow">白名单 用户 <input type="text" class="perm-wl-users" placeholder="逗号分隔" value="${esc(toCSV(cwl.users))}"></label>
-        <label class="perm-field perm-grow">白名单 群 <input type="text" class="perm-wl-groups" placeholder="逗号分隔" value="${esc(toCSV(cwl.groups))}"></label>
-        <label class="perm-field perm-grow">黑名单 用户 <input type="text" class="perm-bl-users" placeholder="逗号分隔" value="${esc(toCSV(cbl.users))}"></label>
-        <label class="perm-field perm-grow">黑名单 群 <input type="text" class="perm-bl-groups" placeholder="逗号分隔" value="${esc(toCSV(cbl.groups))}"></label>
+      const c=from(cmds[cn]);
+      const cwl=from(c.whitelist);
+      const cbl=from(c.blacklist);
+      return `<div class="perm-command-item" data-command="${esc(cn)}">
+        <div class="perm-command-header">
+          <div class="perm-command-name">📌 ${esc(cn)}</div>
+          <div class="perm-command-inline-config">
+            <label class="perm-field">
+              <input type="checkbox" class="perm-enabled" ${c.enabled===false?'':'checked'}>
+              <span>启用</span>
+            </label>
+            <label class="perm-field">
+              <span>👤 等级</span>
+              <select class="perm-level">${optLevel(String(c.level||'all'))}</select>
+            </label>
+            <label class="perm-field">
+              <span>💬 场景</span>
+              <select class="perm-scene">${optScene(String(c.scene||'all'))}</select>
+            </label>
+          </div>
+        </div>
+        <div class="perm-command-lists">
+          <div class="perm-list-group">
+            <label class="perm-list-label">✅ 白名单用户</label>
+            <input type="text" class="perm-list-input perm-wl-users" placeholder="多个用逗号分隔" value="${esc(toCSV(cwl.users))}">
+          </div>
+          <div class="perm-list-group">
+            <label class="perm-list-label">✅ 白名单群组</label>
+            <input type="text" class="perm-list-input perm-wl-groups" placeholder="多个用逗号分隔" value="${esc(toCSV(cwl.groups))}">
+          </div>
+          <div class="perm-list-group">
+            <label class="perm-list-label">⛔ 黑名单用户</label>
+            <input type="text" class="perm-list-input perm-bl-users" placeholder="多个用逗号分隔" value="${esc(toCSV(cbl.users))}">
+          </div>
+          <div class="perm-list-group">
+            <label class="perm-list-label">⛔ 黑名单群组</label>
+            <input type="text" class="perm-list-input perm-bl-groups" placeholder="多个用逗号分隔" value="${esc(toCSV(cbl.groups))}">
+          </div>
+        </div>
       </div>`;
     }).join('');
-    return `<div class="perm-plugin" data-plugin="${esc(pn)}">
-      <div class="perm-header">
-        <div class="perm-title">插件：${esc(pn)}</div>
-        <div class="perm-top-fields">
-          <label class="perm-field"><input type="checkbox" class="perm-enabled" ${top.enabled===false?'':'checked'}> 启用</label>
-          <label class="perm-field">等级 <select class="perm-level">${optLevel(String(top.level||'all'))}</select></label>
-          <label class="perm-field">场景 <select class="perm-scene">${optScene(String(top.scene||'all'))}</select></label>
+    
+    return `<div class="perm-accordion-item" data-plugin="${esc(pn)}">
+      <div class="perm-accordion-header" data-index="${index}">
+        <div class="perm-accordion-title">
+          <span class="perm-accordion-icon">▶️</span>
+          <span>🔌 ${esc(pn)}</span>
+        </div>
+        <label class="perm-field" onclick="event.stopPropagation()">
+          <input type="checkbox" class="perm-enabled" ${top.enabled===false?'':'checked'}>
+          <span>启用插件</span>
+        </label>
+      </div>
+      <div class="perm-accordion-content">
+        <div class="perm-accordion-body">
+          <div class="perm-plugin-inline-config">
+            <label class="perm-field">
+              <span>👤 默认权限等级</span>
+              <select class="perm-level">${optLevel(String(top.level||'all'))}</select>
+            </label>
+            <label class="perm-field">
+              <span>💬 默认使用场景</span>
+              <select class="perm-scene">${optScene(String(top.scene||'all'))}</select>
+            </label>
+          </div>
+          
+          <div class="perm-lists-section">
+            <div class="perm-list-group">
+              <label class="perm-list-label">✅ 白名单用户</label>
+              <input type="text" class="perm-list-input perm-wl-users" placeholder="多个ID用逗号分隔" value="${esc(toCSV(wl.users))}">
+            </div>
+            <div class="perm-list-group">
+              <label class="perm-list-label">✅ 白名单群组</label>
+              <input type="text" class="perm-list-input perm-wl-groups" placeholder="多个群号用逗号分隔" value="${esc(toCSV(wl.groups))}">
+            </div>
+            <div class="perm-list-group">
+              <label class="perm-list-label">⛔ 黑名单用户</label>
+              <input type="text" class="perm-list-input perm-bl-users" placeholder="多个ID用逗号分隔" value="${esc(toCSV(bl.users))}">
+            </div>
+            <div class="perm-list-group">
+              <label class="perm-list-label">⛔ 黑名单群组</label>
+              <input type="text" class="perm-list-input perm-bl-groups" placeholder="多个群号用逗号分隔" value="${esc(toCSV(bl.groups))}">
+            </div>
+          </div>
+          
+          ${Object.keys(cmds).length ? `
+            <div class="perm-commands-section">
+              <div class="perm-commands-title">🎯 命令权限配置 (${Object.keys(cmds).length}个命令)</div>
+              <div class="perm-commands-list">${cmdRows}</div>
+            </div>
+          ` : '<div class="empty-state" style="padding: 40px 20px;">💤 该插件暂无命令</div>'}
         </div>
       </div>
-      <div class="perm-top-lists">
-        <label class="perm-field perm-grow">白名单 用户 <input type="text" class="perm-wl-users" placeholder="逗号分隔" value="${esc(toCSV(wl.users))}"></label>
-        <label class="perm-field perm-grow">白名单 群 <input type="text" class="perm-wl-groups" placeholder="逗号分隔" value="${esc(toCSV(wl.groups))}"></label>
-        <label class="perm-field perm-grow">黑名单 用户 <input type="text" class="perm-bl-users" placeholder="逗号分隔" value="${esc(toCSV(bl.users))}"></label>
-        <label class="perm-field perm-grow">黑名单 群 <input type="text" class="perm-bl-groups" placeholder="逗号分隔" value="${esc(toCSV(bl.groups))}"></label>
-      </div>
-      <div class="perm-commands">${cmdRows || '<div class="empty-state">无命令</div>'}</div>
     </div>`;
   });
+  
   wrap.innerHTML = rows.join('');
+  
+  // 绑定手风琴点击事件
+  wrap.querySelectorAll('.perm-accordion-header').forEach(header => {
+    header.addEventListener('click', function(e) {
+      const item = this.closest('.perm-accordion-item');
+      const content = item.querySelector('.perm-accordion-content');
+      const isActive = this.classList.contains('active');
+      
+      // 关闭所有其他项
+      wrap.querySelectorAll('.perm-accordion-header').forEach(h => {
+        h.classList.remove('active');
+        h.closest('.perm-accordion-item').querySelector('.perm-accordion-content').classList.remove('active');
+      });
+      
+      // 切换当前项
+      if (!isActive) {
+        this.classList.add('active');
+        content.classList.add('active');
+      }
+    });
+  });
 }
 
+// 从UI收集权限配置（适配新的手风琴结构）
 function collectPermissionsFromUI(){
   const wrap=document.getElementById('permissions-list');
   if(!wrap){
-    // fallback to JSON textarea if present
     try{ const txt=$('#permissions-json')?.value||'{}'; return JSON.parse(txt); }catch{ return {}; }
   }
   const out={};
-  wrap.querySelectorAll('.perm-plugin').forEach(pel=>{
-    const pn = pel.getAttribute('data-plugin')||'';
+  wrap.querySelectorAll('.perm-accordion-item').forEach(item=>{
+    const pn = item.getAttribute('data-plugin')||'';
     if(!pn) return;
     const node = {};
     const top={};
-    const get=(sel)=> pel.querySelector(sel);
-    top.enabled = get('.perm-header .perm-enabled')?.checked ?? true;
-    top.level = get('.perm-header .perm-level')?.value || 'all';
-    top.scene = get('.perm-header .perm-scene')?.value || 'all';
+    
+    // 获取插件顶级配置
+    const header = item.querySelector('.perm-accordion-header');
+    const body = item.querySelector('.perm-accordion-body');
+    
+    top.enabled = header.querySelector('.perm-enabled')?.checked ?? true;
+    top.level = body.querySelector('.perm-plugin-inline-config .perm-level')?.value || 'all';
+    top.scene = body.querySelector('.perm-plugin-inline-config .perm-scene')?.value || 'all';
+    
     const wl={ users:[], groups:[] }, bl={ users:[], groups:[] };
     const sv=(s)=> String(s||'').split(',').map(x=>x.trim()).filter(Boolean);
-    wl.users = sv(get('.perm-top-lists .perm-wl-users')?.value);
-    wl.groups = sv(get('.perm-top-lists .perm-wl-groups')?.value);
-    bl.users = sv(get('.perm-top-lists .perm-bl-users')?.value);
-    bl.groups = sv(get('.perm-top-lists .perm-bl-groups')?.value);
-    top.whitelist = wl; top.blacklist = bl;
+    
+    const listsSection = body.querySelector('.perm-lists-section');
+    if(listsSection) {
+      wl.users = sv(listsSection.querySelector('.perm-list-group:nth-child(1) .perm-wl-users')?.value);
+      wl.groups = sv(listsSection.querySelector('.perm-list-group:nth-child(2) .perm-wl-groups')?.value);
+      bl.users = sv(listsSection.querySelector('.perm-list-group:nth-child(3) .perm-bl-users')?.value);
+      bl.groups = sv(listsSection.querySelector('.perm-list-group:nth-child(4) .perm-bl-groups')?.value);
+    }
+    
+    top.whitelist = wl;
+    top.blacklist = bl;
     node.top = top;
+    
+    // 获取命令配置
     const cmds={};
-    pel.querySelectorAll('.perm-commands .perm-cmd').forEach(cel=>{
-      const cn = cel.getAttribute('data-command')||''; if(!cn) return;
+    body.querySelectorAll('.perm-command-item').forEach(cmdEl=>{
+      const cn = cmdEl.getAttribute('data-command')||'';
+      if(!cn) return;
       const c={};
-      c.enabled = cel.querySelector('.perm-enabled')?.checked ?? true;
-      c.level = cel.querySelector('.perm-level')?.value || 'all';
-      c.scene = cel.querySelector('.perm-scene')?.value || 'all';
+      c.enabled = cmdEl.querySelector('.perm-command-inline-config .perm-enabled')?.checked ?? true;
+      c.level = cmdEl.querySelector('.perm-command-inline-config .perm-level')?.value || 'all';
+      c.scene = cmdEl.querySelector('.perm-command-inline-config .perm-scene')?.value || 'all';
+      
       const cwl={ users:[], groups:[] }, cbl={ users:[], groups:[] };
-      const sv2=(s)=> String(s||'').split(',').map(x=>x.trim()).filter(Boolean);
-      cwl.users = sv2(cel.querySelector('.perm-wl-users')?.value);
-      cwl.groups = sv2(cel.querySelector('.perm-wl-groups')?.value);
-      cbl.users = sv2(cel.querySelector('.perm-bl-users')?.value);
-      cbl.groups = sv2(cel.querySelector('.perm-bl-groups')?.value);
-      c.whitelist = cwl; c.blacklist = cbl;
+      const cmdLists = cmdEl.querySelector('.perm-command-lists');
+      if(cmdLists) {
+        const groups = cmdLists.querySelectorAll('.perm-list-group');
+        cwl.users = sv(groups[0]?.querySelector('.perm-wl-users')?.value);
+        cwl.groups = sv(groups[1]?.querySelector('.perm-wl-groups')?.value);
+        cbl.users = sv(groups[2]?.querySelector('.perm-bl-users')?.value);
+        cbl.groups = sv(groups[3]?.querySelector('.perm-bl-groups')?.value);
+      }
+      
+      c.whitelist = cwl;
+      c.blacklist = cbl;
       cmds[cn] = c;
     });
+    
     if(Object.keys(cmds).length) node.commands = cmds;
     out[pn] = node;
   });
@@ -436,13 +552,281 @@ async function savePermJson(){
 }
 
 // 初始化
-async function init(){ document.body.setAttribute('data-theme', state.theme); const i=document.querySelector('#theme-toggle .icon'); if(i) i.textContent = state.theme==='light' ? '🌞' : '🌙'; await loadDashboard(); }
+async function init(){
+  document.body.setAttribute('data-theme', state.theme);
+  const i=document.querySelector('#theme-toggle .icon');
+  if(i) i.textContent = state.theme==='light' ? '🌞' : '🌙';
+  await loadDashboard();
+  
+  // 添加页面加载动画
+  animatePageLoad();
+}
+
+// 页面加载动画
+function animatePageLoad() {
+  const cards = document.querySelectorAll('.stat-card');
+  cards.forEach((card, index) => {
+    card.style.opacity = '0';
+    card.style.transform = 'translateY(30px)';
+    setTimeout(() => {
+      card.style.transition = 'all 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55)';
+      card.style.opacity = '1';
+      card.style.transform = 'translateY(0)';
+    }, index * 100);
+  });
+}
+
+// 添加卡片点击波纹效果
+function addRippleEffect(e) {
+  const card = e.currentTarget;
+  const ripple = document.createElement('span');
+  const rect = card.getBoundingClientRect();
+  const size = Math.max(rect.width, rect.height);
+  const x = e.clientX - rect.left - size / 2;
+  const y = e.clientY - rect.top - size / 2;
+  
+  ripple.style.cssText = `
+    position: absolute;
+    width: ${size}px;
+    height: ${size}px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.3);
+    left: ${x}px;
+    top: ${y}px;
+    pointer-events: none;
+    animation: ripple 0.6s ease-out;
+  `;
+  
+  card.style.position = 'relative';
+  card.style.overflow = 'hidden';
+  card.appendChild(ripple);
+  
+  setTimeout(() => ripple.remove(), 600);
+}
+
+// 添加CSS动画
+if (!document.getElementById('ripple-animation')) {
+  const style = document.createElement('style');
+  style.id = 'ripple-animation';
+  style.textContent = `
+    @keyframes ripple {
+      from {
+        transform: scale(0);
+        opacity: 1;
+      }
+      to {
+        transform: scale(2);
+        opacity: 0;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+// 增强主题切换动画
+function toggleTheme(){
+  const oldTheme = state.theme;
+  state.theme = state.theme==='light' ? 'dark':'light';
+  
+  // 添加切换动画
+  document.body.style.transition = 'background 0.5s ease, color 0.5s ease';
+  document.body.setAttribute('data-theme', state.theme);
+  localStorage.setItem('theme', state.theme);
+  
+  const i=$('#theme-toggle .icon');
+  if(i) {
+    i.style.transform = 'rotate(360deg)';
+    i.style.transition = 'transform 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55)';
+    setTimeout(() => {
+      i.textContent = state.theme==='light' ? '🌞' : '🌙';
+      i.style.transform = 'rotate(0deg)';
+    }, 300);
+  }
+  
+  // 显示切换提示
+  showToast(`已切换到${state.theme==='light'?'亮色':'暗色'}主题 ✨`, 'success');
+}
+
+// 增强刷新按钮动画
+function enhanceRefreshButton() {
+  const btn = $('#refresh-btn');
+  if (btn) {
+    btn.addEventListener('click', () => {
+      const icon = btn.querySelector('.icon');
+      if (icon) {
+        icon.style.animation = 'spin 0.8s cubic-bezier(0.68, -0.55, 0.265, 1.55)';
+        setTimeout(() => {
+          icon.style.animation = '';
+        }, 800);
+      }
+    });
+  }
+}
+
+// 为统计卡片添加交互效果
+function enhanceStatCards() {
+  const cards = document.querySelectorAll('.stat-card');
+  cards.forEach(card => {
+    card.addEventListener('click', addRippleEffect);
+    
+    // 添加悬停数字跳动效果
+    card.addEventListener('mouseenter', () => {
+      const value = card.querySelector('.stat-value');
+      if (value && value.textContent !== '-') {
+        value.style.transform = 'scale(1.1)';
+        value.style.transition = 'transform 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55)';
+      }
+    });
+    
+    card.addEventListener('mouseleave', () => {
+      const value = card.querySelector('.stat-value');
+      if (value) {
+        value.style.transform = 'scale(1)';
+      }
+    });
+  });
+}
+
+// 表格行动画
+function animateTableRows() {
+  const rows = document.querySelectorAll('.data-table tbody tr');
+  rows.forEach((row, index) => {
+    if (row.cells.length > 1) {
+      row.style.opacity = '0';
+      row.style.transform = 'translateX(-20px)';
+      setTimeout(() => {
+        row.style.transition = 'all 0.4s ease-out';
+        row.style.opacity = '1';
+        row.style.transform = 'translateX(0)';
+      }, index * 50);
+    }
+  });
+}
+
+// 增强按钮点击反馈
+function enhanceButtons() {
+  document.querySelectorAll('.btn').forEach(btn => {
+    btn.addEventListener('click', function(e) {
+      this.style.transform = 'scale(0.95)';
+      setTimeout(() => {
+        this.style.transform = '';
+      }, 150);
+    });
+  });
+}
+
+// 平滑滚动到顶部
+function smoothScrollToTop() {
+  window.scrollTo({
+    top: 0,
+    behavior: 'smooth'
+  });
+}
+
+// 监听标签页切换，添加动画
+const originalSwitchTab = switchTab;
+switchTab = function(tab) {
+  originalSwitchTab(tab);
+  
+  // 切换动画
+  const content = document.querySelector(`#tab-${tab}`);
+  if (content) {
+    content.style.animation = 'fadeInContent 0.4s ease-out';
+  }
+  
+  // 滚动到顶部
+  smoothScrollToTop();
+  
+  // 根据不同标签页添加特定动画
+  setTimeout(() => {
+    if (tab === 'renewal') {
+      animateTableRows();
+    } else if (tab === 'dashboard') {
+      enhanceStatCards();
+    }
+  }, 100);
+};
+
 window.addEventListener('DOMContentLoaded', ()=>{
   // 无认证：直接显示应用
   $('#app').classList.remove('hidden');
   const lp = document.getElementById('login-page'); if (lp) lp.style.display='none';
+  
   init();
   bindEvents();
+  
+  // 增强交互效果
+  enhanceRefreshButton();
+  enhanceStatCards();
+  enhanceButtons();
+  
+  // 添加页面可见性监听，切换回来时刷新数据
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      const activeTab = document.querySelector('.nav-item.active');
+      if (activeTab) {
+        const tab = activeTab.dataset.tab;
+        if (tab === 'dashboard') {
+          loadDashboard();
+        }
+      }
+    }
+  });
 });
+
 window.switchTab = switchTab;
-window.runScheduledTask = async function(){ try{ showLoading(true); const r=await apiCall('/job/run',{method:'POST'}); showToast(`检查完成 提醒${r.reminded}个群，退出${r.left}个群`,'success'); } catch(e){ showToast('执行失败: '+(e&&e.message?e.message:e),'error'); } finally{ showLoading(false);} };
+window.runScheduledTask = async function(){
+  try{
+    showLoading(true);
+    const r=await apiCall('/job/run',{method:'POST'});
+    showToast(`✅ 检查完成！提醒 ${r.reminded} 个群，退出 ${r.left} 个群`,'success');
+  } catch(e){
+    showToast('❌ 执行失败: '+(e&&e.message?e.message:e),'error');
+  } finally{
+    showLoading(false);
+  }
+};
+
+// 添加键盘快捷键支持
+document.addEventListener('keydown', (e) => {
+  // Ctrl/Cmd + K: 搜索
+  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    e.preventDefault();
+    const searchInput = document.querySelector('#group-search');
+    if (searchInput) {
+      searchInput.focus();
+      searchInput.select();
+    }
+  }
+  
+  // Ctrl/Cmd + R: 刷新
+  if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
+    e.preventDefault();
+    const refreshBtn = document.querySelector('#refresh-btn');
+    if (refreshBtn) {
+      refreshBtn.click();
+    }
+  }
+  
+  // Ctrl/Cmd + D: 切换主题
+  if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
+    e.preventDefault();
+    const themeBtn = document.querySelector('#theme-toggle');
+    if (themeBtn) {
+      themeBtn.click();
+    }
+  }
+  
+  // ESC: 关闭模态框
+  if (e.key === 'Escape') {
+    const modal = document.querySelector('.modal:not(.hidden)');
+    if (modal) {
+      closePermJsonModal();
+    }
+  }
+});
+
+// 控制台欢迎信息
+console.log('%c🌸 今汐管理控制台', 'font-size: 24px; color: #667eea; font-weight: bold;');
+console.log('%c✨ 欢迎使用现代化管理界面', 'font-size: 14px; color: #6366f1;');
+console.log('%c快捷键提示:\n  Ctrl+K: 搜索\n  Ctrl+R: 刷新\n  Ctrl+D: 切换主题\n  ESC: 关闭弹窗', 'font-size: 12px; color: #94a3b8; line-height: 1.8;');

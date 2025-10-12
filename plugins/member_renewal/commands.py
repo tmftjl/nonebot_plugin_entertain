@@ -1,7 +1,6 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import re
-import secrets
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, Tuple
 
@@ -18,7 +17,7 @@ from nonebot.params import RegexMatched
 from nonebot.permission import SUPERUSER
 
 from ...registry import Plugin
-from .config import config
+from .config import load_cfg
 from .common import (
     _add_duration,
     _choose_bots,
@@ -32,72 +31,13 @@ from .common import (
     _ensure_generated_codes,
 )
 
-# Token存储 (内存存储，重启后失效)
-_LOGIN_TOKENS: Dict[str, Dict[str, Any]] = {}
 
-# Register defaults to unified permissions.json
 P = Plugin(enabled=True, level="all", scene="all")
 
 
-# ===== 新增: 登录命令 =====
-
-def generate_login_token() -> str:
-    """生成6位数字token"""
-    return str(secrets.randbelow(900000) + 100000)
-
-
-def store_login_token(token: str, user_id: str, bot_id: str) -> None:
-    """存储登录token (5分钟有效期)"""
-    global _LOGIN_TOKENS
-    _LOGIN_TOKENS[token] = {
-        "user_id": user_id,
-        "bot_id": bot_id,
-        "created_at": _now_utc(),
-        "expires_at": _now_utc() + timedelta(minutes=5),
-        "used": False,
-    }
-    # 清理过期token
-    now = _now_utc()
-    expired_keys = [k for k, v in _LOGIN_TOKENS.items() if v["expires_at"] < now]
-    for k in expired_keys:
-        _LOGIN_TOKENS.pop(k, None)
-
-
-def verify_login_token(token: str, user_id: str) -> bool:
-    """验证登录token"""
-    global _LOGIN_TOKENS
-    if token not in _LOGIN_TOKENS:
-        return False
-    
-    record = _LOGIN_TOKENS[token]
-    now = _now_utc()
-    
-    # 检查是否过期
-    if record["expires_at"] < now:
-        _LOGIN_TOKENS.pop(token, None)
-        return False
-    
-    # 检查用户是否匹配
-    if record["user_id"] != user_id:
-        return False
-    
-    # 检查是否已使用
-    if record["used"]:
-        return False
-    
-    return True
-
-
-def mark_token_used(token: str) -> None:
-    """标记token已使用"""
-    global _LOGIN_TOKENS
-    if token in _LOGIN_TOKENS:
-        _LOGIN_TOKENS[token]["used"] = True
-
-
-# 今汐登录命令
+# 控制台登录
 login_cmd = P.on_regex(
-    r"^今汐登录$",
+    r"^控制台登录$",
     name="console_login",
     priority=10,
     permission=SUPERUSER,
@@ -110,258 +50,140 @@ login_cmd = P.on_regex(
 @login_cmd.handle()
 async def _(matcher: Matcher, event: MessageEvent):
     if not isinstance(event, PrivateMessageEvent):
-        await matcher.finish("🔒 此命令仅限私聊使用")
-    
-    # 生成token
-    token = generate_login_token()
-    user_id = str(event.user_id)
-    bot_id = str(event.self_id)
-    
-    # 存储token
-    store_login_token(token, user_id, bot_id)
-    
-    # 获取控制台地址 (从配置读取，如果没有则使用默认值)
-    console_host = getattr(config, "member_renewal_console_host", "http://localhost:8080")
+        await matcher.finish("请在私聊使用该命令")
+    token = str(int(_now_utc().timestamp()))[-6:]
+    cfg = load_cfg()
+    console_host = str(cfg.get("member_renewal_console_host", "http://localhost:8080") or "http://localhost:8080")
     login_url = f"{console_host}/member_renewal/console?token={token}"
-    
-    await matcher.finish(
-        Message(
-            f"🔐 登录链接已生成（5分钟内有效）：\n\n{login_url}\n\n"
-            f"验证码：{token}\n\n"
-            f"请在浏览器中打开链接或手动输入验证码登录。"
-        )
-    )
+    await matcher.finish(Message(f"控制台登录地址：{login_url}"))
 
 
-# ===== 原有命令保持不变 =====
-
-# 生成续费码（仅私聊超管）
-gen_code = P.on_regex(
+# 生成续费码（管理员）
+gen_code_cmd = P.on_regex(
     r"^ww生成续费码(\d+)(天|月|年)?$",
-    name="generate_code",
+    name="gen_code",
     priority=10,
-    permission=P.permission_cmd("generate_code"),
+    permission=SUPERUSER,
     enabled=True,
     level="superuser",
-    scene="private",
+    scene="all",
 )
 
 
-@gen_code.handle()
-async def _(matcher: Matcher, event: MessageEvent):
-    if not isinstance(event, PrivateMessageEvent):
-        await matcher.finish("为安全起见，请在私聊中生成续费码。")
-    matched = event.get_plaintext()
+@gen_code_cmd.handle()
+async def _(matcher: Matcher, matched: str = RegexMatched()):
     m = re.match(r"^ww生成续费码(\d+)(天|月|年)?$", matched)
-    assert m
+    if not m:
+        await matcher.finish("格式错误，用法：ww生成续费码<时长><天|月|年>")
+        return
     length = int(m.group(1))
     unit = m.group(2) or "天"
-
+    if unit not in ("天", "月", "年"):
+        await matcher.finish("单位仅支持 天/月/年")
+        return
     data = _ensure_generated_codes(_read_data())
     code = generate_unique_code(length, unit)
-    data["generatedCodes"][code] = {
+    rec: Dict[str, Any] = {
         "length": length,
         "unit": unit,
         "generated_time": _now_utc().isoformat(),
+        "used_count": 0,
     }
+    cfg = load_cfg()
+    rec["max_use"] = int(cfg.get("member_renewal_code_max_use", 1) or 1)
+    expire_days = int(cfg.get("member_renewal_code_expire_days", 0) or 0)
+    if expire_days > 0:
+        rec["expire_at"] = _add_duration(_now_utc(), expire_days, "天").isoformat()
+    data["generatedCodes"][code] = rec
     _write_data(data)
-
-    await matcher.finish(
-        Message(
-            f"已生成续费码（仅可使用一次）：\n{code}\n\n"
-            "请将其发送到需要开通/续费的群聊中（首次开通也使用此码）。"
-        )
-    )
+    await matcher.finish(Message(f"续费码已生成：{code}"))
 
 
-# 使用续费码（群聊）
-use_code = P.on_regex(
+# 使用续费码（群内）
+redeem_cmd = P.on_regex(
     r"^ww续费(\d+)(天|月|年)-([A-Za-z0-9_]+)$",
-    name="use_code",
-    priority=10,
+    name="redeem",
+    priority=12,
+    block=True,
     enabled=True,
     level="all",
     scene="group",
 )
 
 
-@use_code.handle()
-async def _(matcher: Matcher, event: MessageEvent):
+@redeem_cmd.handle()
+async def _(matcher: Matcher, event: MessageEvent, matched: str = RegexMatched()):
     if not isinstance(event, GroupMessageEvent):
-        await matcher.finish("续费码只能在群聊中使用哦。")
-    matched = event.get_plaintext()
+        await matcher.finish("请在群内使用续费码")
     m = re.match(r"^ww续费(\d+)(天|月|年)-([A-Za-z0-9_]+)$", matched)
-    assert m
-    parsed_len = int(m.group(1))
-    parsed_unit = m.group(2)
-    code = matched
-    gid = str(event.group_id)
+    if not m:
+        await matcher.finish("格式错误，用法：ww续费<时长><天|月|年>-<随机码>")
+        return
+    length = int(m.group(1))
+    unit = m.group(2)
+    code = f"ww续费{length}{unit}-{m.group(3)}"
+    gid = str(getattr(event, "group_id", ""))
 
     data = _ensure_generated_codes(_read_data())
-    rec = data["generatedCodes"].get(code)
-    if not rec:
-        await matcher.finish("该续费码无效或已被使用。")
-
-    if rec.get("length") != parsed_len or rec.get("unit") != parsed_unit:
-        await matcher.finish("续费码信息不匹配，请检查。")
+    codes = data.get("generatedCodes", {})
+    rec = codes.get(code)
+    if not isinstance(rec, dict):
+        await matcher.finish("续费码不存在或已被使用")
+        return
+    # 过期检查
+    expire_at = rec.get("expire_at")
+    if expire_at:
+        try:
+            dt = datetime.fromisoformat(str(expire_at))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            if dt < _now_utc():
+                await matcher.finish("续费码已过期")
+                return
+        except Exception:
+            pass
+    # 使用次数检查
+    used = int(rec.get("used_count", 0) or 0)
+    max_use = int(rec.get("max_use", 1) or 1)
+    if used >= max_use:
+        await matcher.finish("续费码已达使用上限")
+        return
 
     now = _now_utc()
-    current_expiry_str = (data.get(gid) or {}).get("expiry")
-    if current_expiry_str:
+    current = now
+    cur = (data.get(gid) or {}).get("expiry")
+    if cur:
         try:
-            current_expiry = datetime.fromisoformat(current_expiry_str)
-            if current_expiry.tzinfo is None:
-                current_expiry = current_expiry.replace(tzinfo=timezone.utc)
+            current = datetime.fromisoformat(cur)
+            if current.tzinfo is None:
+                current = current.replace(tzinfo=timezone.utc)
         except Exception:
-            current_expiry = now
-    else:
-        current_expiry = now
-
-    if current_expiry < now:
-        current_expiry = now
-
-    new_expiry = _add_duration(current_expiry, parsed_len, parsed_unit)
+            current = now
+    if current < now:
+        current = now
+    new_expiry = _add_duration(current, length, unit)
 
     data[gid] = {
         "group_id": gid,
         "expiry": new_expiry.isoformat(),
-        "last_renewed_by": str(event.user_id),
+        "last_renewed_by": str(getattr(event, "user_id", "")),
         "renewal_code_used": code,
-        "managed_by_bot": str(event.self_id),
+        "managed_by_bot": str(getattr(event, "self_id", "")),
         "status": "active",
         "last_reminder_on": None,
     }
-    data["generatedCodes"].pop(code, None)
+    rec["used_count"] = used + 1
+    if rec["used_count"] >= max_use:
+        codes.pop(code, None)
+    else:
+        codes[code] = rec
+    data["generatedCodes"] = codes
     _write_data(data)
 
-    await matcher.finish(
-        Message(
-            f"本群会员已成功开通/续费 {parsed_len}{parsed_unit}\n到期时间：{_format_cn(new_expiry)}"
-        )
-    )
+    await matcher.finish(Message(f"本群会员已成功续期 {length}{unit}，到期时间：{_format_cn(new_expiry)}"))
 
 
-# 到期查询（群聊）
-check_group = P.on_regex(
-    r"^ww到期$",
-    name="check_group",
-    priority=12,
-    enabled=True,
-    level="all",
-    scene="group",
-)
-
-
-@check_group.handle()
-async def _(_: Matcher, event: MessageEvent):
-    if not isinstance(event, GroupMessageEvent):
-        await check_group.finish("此指令需在群聊中使用。")
-    gid = str(event.group_id)
-    data = _read_data()
-    rec = data.get(gid)
-    if not rec:
-        await check_group.finish("未找到本群的会员记录。")
-    try:
-        expiry = datetime.fromisoformat(rec.get("expiry"))
-        if expiry.tzinfo is None:
-            expiry = expiry.replace(tzinfo=timezone.utc)
-    except Exception:
-        await check_group.finish("记录损坏，无法解析到期时间。")
-        return
-    days = _days_remaining(expiry)
-    if days < 0:
-        status = "已到期"
-    elif days == 0:
-        status = "今天到期"
-    else:
-        status = f"有效(剩余{days}天)"
-    await check_group.finish(Message(f"本群会员状态：{status}\n到期：{_format_cn(expiry)}"))
-
-
-# 引导提示（低优先级，不拦截）
-prompt = P.on_regex(
-    r"^ww(购群|续费)$",
-    name="prompt",
-    priority=15,
-    enabled=True,
-    level="all",
-    scene="all",
-)
-
-
-@prompt.handle()
-async def _(_: Matcher):
-    await prompt.finish("如需首次开通或续费，请联系管理员购买续费码（会员开通码），在群内直接发送即可生效。")
-
-
-# 引导提示（高优先级，拦截）
-purchase_prompt = P.on_regex(
-    r"^ww(购群|续费)$",
-    name="purchase_prompt",
-    priority=9,
-    block=True,
-    enabled=True,
-    level="all",
-    scene="all",
-)
-
-
-@purchase_prompt.handle()
-async def _(_: Matcher):
-    await purchase_prompt.finish("如需首次开通或续费，请联系管理员购买续费码（会员开通码），在群内直接发送即可生效。 如需购买/续费请加群 757463664 联系。")
-
-
-# 退群（需超管）
-leave_with_gid_cmd = P.on_regex(
-    r"^(?:ww)?退出群\s*(\d+)$",
-    name="leave_group",
-    priority=8,
-    permission=P.permission_cmd("leave_group"),
-    block=True,
-    enabled=True,
-    level="superuser",
-    scene="all",
-)
-
-
-@leave_with_gid_cmd.handle()
-async def _(matcher: Matcher, event: MessageEvent, matched: str = RegexMatched()):
-    m = re.match(r"^(?:ww)?退出群\s*(\d+)$", matched)
-    if not m:
-        await matcher.finish("格式错误，用法：ww退出群<群号> 或 退出群<群号>")
-        return
-    gid_str = m.group(1)
-    try:
-        gid = int(gid_str)
-    except Exception:
-        await matcher.finish("群号格式错误")
-        return
-    ok = False
-    try:
-        for bot in _choose_bots(str(getattr(event, "self_id", ""))):
-            try:
-                await bot.set_group_leave(group_id=gid, is_dismiss=False)
-                ok = True
-                break
-            except Exception as e:
-                logger.debug(
-                    f"leave group {gid} via command failed on bot {getattr(bot, 'self_id', '?')}: {e}"
-                )
-                continue
-    except Exception as e:
-        logger.debug(f"leave command unexpected error: {e}")
-
-    data = _read_data()
-    data.pop(str(gid), None)
-    _write_data(data)
-
-    if ok:
-        await matcher.finish("已退出群并移除配置记录。")
-    else:
-        await matcher.finish(f"尝试退群失败，但已移除配置记录：{gid}")
-
-
-# 手动检查（需超管）
+# 手动检查
 manual_check = P.on_regex(
     r"^ww检查会员$",
     name="manual_check",
@@ -376,15 +198,16 @@ manual_check = P.on_regex(
 @manual_check.handle()
 async def _(_: Matcher):
     r, l = await _check_and_process()
-    await manual_check.finish(f"已处理：提醒 {r} 个群，退出 {l} 个群。")
+    await manual_check.finish(f"已提醒 {r} 个群，退出 {l} 个群")
 
 
-# Scheduler: daily check (configurable time)
+# 定时检查（根据配置时间）
 try:
     require("nonebot_plugin_apscheduler")
     from nonebot_plugin_apscheduler import scheduler
 
-    if config.member_renewal_enable_scheduler:
+    cfg = load_cfg()
+    if bool(cfg.get("member_renewal_enable_scheduler", True)):
         async def _job():
             try:
                 r, l = await _check_and_process()
@@ -395,19 +218,20 @@ try:
         scheduler.add_job(
             _job,
             trigger="cron",
-            hour=int(getattr(config, "member_renewal_schedule_hour", 12)),
-            minute=int(getattr(config, "member_renewal_schedule_minute", 0)),
-            second=int(getattr(config, "member_renewal_schedule_second", 0)),
+            hour=int(cfg.get("member_renewal_schedule_hour", 12) or 12),
+            minute=int(cfg.get("member_renewal_schedule_minute", 0) or 0),
+            second=int(cfg.get("member_renewal_schedule_second", 0) or 0),
             id="member_renewal_check",
             replace_existing=True,
         )
 except Exception:
-    logger.warning("nonebot-plugin-apscheduler 未安装；定时检查已禁用。")
+    logger.warning("nonebot-plugin-apscheduler 未安装，跳过计划任务。")
 
 
 async def _check_and_process() -> Tuple[int, int]:
     data = _read_data()
-    reminder_days = int(getattr(config, "member_renewal_reminder_days_before", 7))
+    cfg = load_cfg()
+    reminder_days = int(cfg.get("member_renewal_reminder_days_before", 7) or 7)
     today = _today_str()
     reminders = 0
     left = 0
@@ -433,79 +257,7 @@ async def _check_and_process() -> Tuple[int, int]:
         days = _days_remaining(expiry)
 
         if days < 0 and status != "expired":
-            if getattr(config, "member_renewal_auto_leave_on_expire", True):
-                preferred = v.get("managed_by_bot")
-                for bot in _choose_bots(preferred):
-                    try:
-                        await bot.set_group_leave(group_id=gid, is_dismiss=False)
-                        left += 1
-                        break
-                    except Exception as e:
-                        logger.debug(f"Leave group {gid} failed: {e}")
-                        continue
-            v["status"] = "expired"
-            v["expired_at"] = _now_utc().isoformat()
-            changed = True
-            continue
-
-        if 0 <= days <= reminder_days and status != "expired":
-            last = v.get("last_reminder_on")
-            if last != today:
-                preferred = v.get("managed_by_bot")
-                content = (
-                    "本群会员今天到期。请尽快联系管理员购买续费码（首次开通与续费同用），并在群内发送完成续费。"
-                    if days == 0
-                    else f"本群会员将在 {days} 天后到期。请尽快联系管理员购买续费码（首次开通与续费同用），并在群内发送完成续费。"
-                )
-                content = content + " 如需购买/续费请加群 757463664 联系。"
-                sent = False
-                for bot in _choose_bots(preferred):
-                    try:
-                        await bot.send_group_msg(group_id=gid, message=Message(content))
-                        sent = True
-                        break
-                    except Exception as e:
-                        logger.debug(f"Notify group {gid} failed: {e}")
-                        continue
-                if sent:
-                    v["last_reminder_on"] = today
-                    reminders += 1
-                    changed = True
-
-    if changed:
-        _write_data(data)
-    return reminders, left
-
-# ===== Override with corrected encoding and messaging =====
-async def _check_and_process() -> Tuple[int, int]:
-    data = _read_data()
-    reminder_days = int(getattr(config, "member_renewal_reminder_days_before", 7))
-    today = _today_str()
-    reminders = 0
-    left = 0
-    changed = False
-
-    for k, v in data.items():
-        if k == "generatedCodes" or not isinstance(v, dict):
-            continue
-        try:
-            expiry = datetime.fromisoformat(v.get("expiry"))
-            if expiry.tzinfo is None:
-                expiry = expiry.replace(tzinfo=timezone.utc)
-        except Exception:
-            continue
-
-        status = v.get("status", "active")
-        gid_str = str(v.get("group_id", k))
-        try:
-            gid = int(gid_str)
-        except Exception:
-            continue
-
-        days = _days_remaining(expiry)
-
-        if days < 0 and status != "expired":
-            if getattr(config, "member_renewal_auto_leave_on_expire", True):
+            if bool(cfg.get("member_renewal_auto_leave_on_expire", True)):
                 preferred = v.get("managed_by_bot")
                 for bot in _choose_bots(preferred):
                     try:
@@ -525,14 +277,10 @@ async def _check_and_process() -> Tuple[int, int]:
             if last != today:
                 preferred = v.get("managed_by_bot")
                 if days == 0:
-                    content = (
-                        "本群会员今天到期。请尽快联系管理员购买续费码（首次开通与续费同用），并在群内发送完成续费。"
-                    )
+                    content = "本群会员今天到期。请尽快联系管理员购买续费码（首次开通与续费同用），并在群内发送完成续费。"
                 else:
-                    content = (
-                        f"本群会员将在 {days} 天后到期。请尽快联系管理员购买续费码（首次开通与续费同用），并在群内发送完成续费。"
-                    )
-                suffix = getattr(config, "member_renewal_contact_suffix", "").strip()
+                    content = f"本群会员将在 {days} 天后到期。请尽快联系管理员购买续费码（首次开通与续费同用），并在群内发送完成续费。"
+                suffix = str(cfg.get("member_renewal_contact_suffix", "") or "").strip()
                 if suffix and suffix not in content:
                     content = content + " " + suffix
                 sent = False
@@ -552,3 +300,4 @@ async def _check_and_process() -> Tuple[int, int]:
     if changed:
         _write_data(data)
     return reminders, left
+

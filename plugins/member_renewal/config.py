@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any, Dict
 
-# Use project-wide ConfigProxy instead of local pydantic model
-from ...config import register_plugin_config, get_plugin_config, save_plugin_config
-from ...utils import config_dir
+from ...config import register_plugin_config
 
 
+# Unified defaults for member_renewal (written once if file missing)
 DEFAULTS: Dict[str, Any] = {
     # scheduler and timezone
     "member_renewal_timezone": "Asia/Shanghai",
@@ -19,7 +16,7 @@ DEFAULTS: Dict[str, Any] = {
     # reminder behavior
     "member_renewal_reminder_days_before": 7,
     "member_renewal_daily_remind_once": True,
-    "member_renewal_contact_suffix": " 咨询/加入交流群 757463664 联系群管",
+    "member_renewal_contact_suffix": " 咨询/加入交流QQ群 757463664 联系群管",
     "member_renewal_remind_template": "本群会员将在 {days} 天后到期（{expiry}），请尽快联系管理员续费。",
     "member_renewal_soon_threshold_days": 7,
     # expiry handling
@@ -28,8 +25,10 @@ DEFAULTS: Dict[str, Any] = {
     "member_renewal_default_bot_id": "",
     # bots list for console: [{"bot_id": str, "bot_name": str?}]
     "member_renewal_bots": [],
-    # console
-    "member_renewal_console_enable": False,
+    # console/web
+    "member_renewal_console_enable": True,
+    # optional: stats API base for web console
+    "member_renewal_stats_api_url": "http://127.0.0.1:8000",
     # renewal code generation
     "member_renewal_code_prefix": "ww续费",
     "member_renewal_code_random_len": 6,  # hex chars
@@ -40,37 +39,12 @@ DEFAULTS: Dict[str, Any] = {
 }
 
 
-def _migrate_legacy_config() -> None:
-    """Migrate old plugins/member_renewal/member_renewal.json to
-    config/member_renewal/config.json once, preserving fields.
-    """
-    old = Path(__file__).parent / "member_renewal.json"
-    new = config_dir("member_renewal") / "config.json"
-    if new.exists():
-        return
-    if not old.exists():
-        return
-    try:
-        data = json.loads(old.read_text(encoding="utf-8"))
-        if not isinstance(data, dict):
-            data = {}
-    except Exception:
-        data = {}
-    # merge into defaults
-    merged = {**DEFAULTS, **data}
-    try:
-        new.parent.mkdir(parents=True, exist_ok=True)
-        new.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        pass
+# Legacy migration removed: project now only uses unified config file
 
 
 def _validate(cfg: Dict[str, Any]) -> None:
-    # very light checks; fill missing keys with defaults
-    for k, v in DEFAULTS.items():
-        if k not in cfg:
-            cfg[k] = v
-    # remove legacy keys
+    """Light normalization without default-merging (unified style)."""
+    # strip legacy/unused keys if present
     for k in (
         "member_renewal_console_token",
         "member_renewal_console_tokens",
@@ -80,61 +54,37 @@ def _validate(cfg: Dict[str, Any]) -> None:
         if k in cfg:
             cfg.pop(k, None)
 
-    # normalize bots list
-    bots = cfg.get("member_renewal_bots") or []
-    if not isinstance(bots, list):
-        bots = []
-    norm_bots = []
-    for b in bots:
-        try:
-            if not isinstance(b, dict):
+    # normalize bots list shape
+    bots = cfg.get("member_renewal_bots")
+    norm_bots: list[dict] = []
+    if isinstance(bots, list):
+        for b in bots:
+            try:
+                if not isinstance(b, dict):
+                    continue
+                bid = str(b.get("bot_id") or "").strip()
+                bname = str(b.get("bot_name") or "").strip()
+                if not bid:
+                    continue
+                norm_bots.append({"bot_id": bid, "bot_name": bname})
+            except Exception:
                 continue
-            bid = str(b.get("bot_id") or "").strip()
-            bname = str(b.get("bot_name") or "").strip()
-            if not bid:
-                continue
-            norm_bots.append({"bot_id": bid, "bot_name": bname})
-        except Exception:
-            continue
-    cfg["member_renewal_bots"] = norm_bots
+    if norm_bots:
+        cfg["member_renewal_bots"] = norm_bots
 
 
-_migrate_legacy_config()
-
-# Register and ensure config file exists
-register_plugin_config("member_renewal", DEFAULTS, filename="config.json", validator=_validate)
+# Register using unified config proxy
+REG = register_plugin_config("member_renewal", DEFAULTS, filename="config.json", validator=_validate)
 
 
-class _ConfigAdapter:
-    """Attribute-style adapter for the JSON config file.
-
-    Retains backward-compatible attribute names used across the plugin.
-    """
-
-    def __init__(self) -> None:
-        self._load()
-
-    def _load(self) -> None:
-        self._obj: Dict[str, Any] = get_plugin_config("member_renewal", filename="config.json")
-
-    def reload(self) -> None:
-        self._load()
-
-    def __getattr__(self, item: str):  # fallback to defaults when missing
-        if item in self._obj:
-            return self._obj[item]
-        if item in DEFAULTS:
-            return DEFAULTS[item]
-        raise AttributeError(item)
-
-    def to_dict(self) -> Dict[str, Any]:
-        return json.loads(json.dumps(self._obj, ensure_ascii=False))
-
-    def save(self, new_obj: Dict[str, Any]) -> None:
-        merged = {**DEFAULTS, **(new_obj or {})}
-        save_plugin_config("member_renewal", merged, filename="config.json")
-        self._obj = merged
+def load_cfg() -> Dict[str, Any]:
+    """Return current config dict (no default merge beyond on-create)."""
+    return REG.load()
 
 
-config = _ConfigAdapter()
+def save_cfg(cfg: Dict[str, Any]) -> None:
+    REG.save(cfg or {})
 
+
+def config_path() -> Path:
+    return REG.path

@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 from nonebot.plugin import PluginMetadata
+from nonebot.log import logger
 
 from ...registry import Plugin
 
@@ -22,6 +23,7 @@ try:
     from .web_console import setup_web_console as _setup
     _setup()
 except Exception:
+    logger.debug(f"挂载失败")
     pass
 
 

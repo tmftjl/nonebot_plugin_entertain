@@ -3,61 +3,121 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>今汐管理控制台</title>
+  <title>✨ 今汐管理控制台</title>
   <link rel="stylesheet" href="/member_renewal/static/console.css">
+  <meta name="theme-color" content="#667eea">
+  <meta name="description" content="今汐机器人管理控制台 - 现代化的管理界面">
 </head>
 <body>
+  <!-- Toast通知容器 -->
   <div id="toast-container"></div>
-  <div id="loading-overlay" class="hidden"><div class="spinner"></div><div class="loading-text">加载中...</div></div>
+  
+  <!-- 加载遮罩 -->
+  <div id="loading-overlay" class="hidden">
+    <div class="spinner"></div>
+    <div class="loading-text">加载中...</div>
+  </div>
 
+  <!-- 主应用容器 -->
   <div id="app" class="hidden">
+    <!-- 顶部导航栏 -->
     <header class="top-bar">
       <div class="top-bar-left">
-        <h1 class="logo"><span class="logo-icon">🌸</span><span class="logo-text">今汐控制台</span></h1>
+        <h1 class="logo">
+          <span class="logo-icon">🌸</span>
+          <span class="logo-text">今汐控制台</span>
+        </h1>
       </div>
       <div class="top-bar-right">
-        <button id="theme-toggle" class="icon-btn" title="切换主题"><span class="icon">🌙</span></button>
-        <button id="refresh-btn" class="icon-btn" title="刷新数据"><span class="icon">🔄</span></button>
+        <button id="theme-toggle" class="icon-btn" title="切换主题" aria-label="切换主题">
+          <span class="icon">🌙</span>
+        </button>
+        <button id="refresh-btn" class="icon-btn" title="刷新数据" aria-label="刷新数据">
+          <span class="icon">🔄</span>
+        </button>
       </div>
     </header>
 
     <div class="main-container">
+      <!-- 侧边栏导航 -->
       <aside class="sidebar">
-        <nav class="nav-menu">
-          <a href="#dashboard" class="nav-item active" data-tab="dashboard"><span class="nav-icon">📊</span><span class="nav-text">仪表盘</span></a>
-          <a href="#renewal" class="nav-item" data-tab="renewal"><span class="nav-icon">💰</span><span class="nav-text">会员续费</span></a>
-          <a href="#stats" class="nav-item" data-tab="stats"><span class="nav-icon">📈</span><span class="nav-text">消息统计</span></a>
-          <a href="#permissions" class="nav-item" data-tab="permissions"><span class="nav-icon">🔐</span><span class="nav-text">权限管理</span></a>
-          <a href="#config" class="nav-item" data-tab="config"><span class="nav-icon">⚙️</span><span class="nav-text">配置管理</span></a>
+        <nav class="nav-menu" role="navigation" aria-label="主导航">
+          <a href="#dashboard" class="nav-item active" data-tab="dashboard" role="button">
+            <span class="nav-icon">📊</span>
+            <span class="nav-text">仪表盘</span>
+          </a>
+          <a href="#renewal" class="nav-item" data-tab="renewal" role="button">
+            <span class="nav-icon">💰</span>
+            <span class="nav-text">会员续费</span>
+          </a>
+          <a href="#stats" class="nav-item" data-tab="stats" role="button">
+            <span class="nav-icon">📈</span>
+            <span class="nav-text">消息统计</span>
+          </a>
+          <a href="#permissions" class="nav-item" data-tab="permissions" role="button">
+            <span class="nav-icon">🔐</span>
+            <span class="nav-text">权限管理</span>
+          </a>
+          <a href="#config" class="nav-item" data-tab="config" role="button">
+            <span class="nav-icon">⚙️</span>
+            <span class="nav-text">配置管理</span>
+          </a>
         </nav>
       </aside>
 
-      <main class="content-area">
+      <!-- 主内容区 -->
+      <main class="content-area" role="main">
         <!-- 仪表盘 -->
         <section id="tab-dashboard" class="tab-content active">
-          <h2 class="page-title">仪表盘</h2>
+          <h2 class="page-title">📊 仪表盘总览</h2>
           <div class="stats-cards">
-            <div class="stat-card"><div class="stat-icon">👥</div><div class="stat-info"><div class="stat-label">活跃群组</div><div id="stat-active-groups" class="stat-value">-</div></div></div>
-            <div class="stat-card"><div class="stat-icon">💎</div><div class="stat-info"><div class="stat-label">有效会员</div><div id="stat-valid-members" class="stat-value success">-</div></div></div>
-            <div class="stat-card"><div class="stat-icon">⚠️</div><div class="stat-info"><div class="stat-label">即将到期</div><div id="stat-expiring-soon" class="stat-value warning">-</div></div></div>
-            <div class="stat-card"><div class="stat-icon">⏰</div><div class="stat-info"><div class="stat-label">已到期</div><div id="stat-expired" class="stat-value danger">-</div></div></div>
+            <div class="stat-card" role="status" aria-label="活跃群组统计">
+              <div class="stat-icon">👥</div>
+              <div class="stat-info">
+                <div class="stat-label">活跃群组</div>
+                <div id="stat-active-groups" class="stat-value">-</div>
+              </div>
+            </div>
+            <div class="stat-card" role="status" aria-label="有效会员统计">
+              <div class="stat-icon">💎</div>
+              <div class="stat-info">
+                <div class="stat-label">有效会员</div>
+                <div id="stat-valid-members" class="stat-value success">-</div>
+              </div>
+            </div>
+            <div class="stat-card" role="status" aria-label="即将到期统计">
+              <div class="stat-icon">⚠️</div>
+              <div class="stat-info">
+                <div class="stat-label">即将到期</div>
+                <div id="stat-expiring-soon" class="stat-value warning">-</div>
+              </div>
+            </div>
+            <div class="stat-card" role="status" aria-label="已到期统计">
+              <div class="stat-icon">⏰</div>
+              <div class="stat-info">
+                <div class="stat-label">已到期</div>
+                <div id="stat-expired" class="stat-value danger">-</div>
+              </div>
+            </div>
           </div>
         </section>
 
         <!-- 会员续费 -->
         <section id="tab-renewal" class="tab-content">
-          <h2 class="page-title">会员续费</h2>
+          <h2 class="page-title">💰 会员续费管理</h2>
+          
+          <!-- 群组列表面板 -->
           <div class="panel">
             <div class="panel-header">
-              <h3 class="panel-title">群组列表</h3>
+              <h3 class="panel-title">📋 群组列表</h3>
               <div class="toolbar">
-                <input id="group-search" class="input" placeholder="搜索群号">
-                <select id="status-filter" class="input">
-                  <option value="all">全部</option>
-                  <option value="active">有效</option>
-                  <option value="soon">即将到期</option>
-                  <option value="today">今日到期</option>
-                  <option value="expired">已到期</option>
+                <input id="group-search" class="input" placeholder="🔍 搜索群号..." aria-label="搜索群号">
+                <select id="status-filter" class="input" aria-label="筛选状态">
+                  <option value="all">📂 全部状态</option>
+                  <option value="active">✅ 有效</option>
+                  <option value="soon">⏰ 即将到期</option>
+                  <option value="today">🔔 今日到期</option>
+                  <option value="expired">❌ 已到期</option>
                 </select>
               </div>
             </div>
@@ -65,67 +125,99 @@
               <table class="data-table">
                 <thead>
                   <tr>
-                    <th><input type="checkbox" id="select-all"></th>
-                    <th data-sort="group">群号</th>
-                    <th data-sort="status">状态</th>
-                    <th data-sort="expiry">到期时间</th>
-                    <th data-sort="days">剩余天数</th>
+                    <th><input type="checkbox" id="select-all" aria-label="全选"></th>
+                    <th data-sort="group">群号 ▼</th>
+                    <th data-sort="status">状态 ▼</th>
+                    <th data-sort="expiry">到期时间 ▼</th>
+                    <th data-sort="days">剩余天数 ▼</th>
                     <th>操作</th>
                   </tr>
                 </thead>
                 <tbody id="groups-table-body">
-                  <tr><td colspan="6" class="text-center">加载中...</td></tr>
+                  <tr><td colspan="6" class="text-center">⏳ 加载中...</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
+          
+          <!-- 续费码管理面板（合并） -->
           <div class="panel">
             <div class="panel-header">
-              <h3 class="panel-title">生成续费码</h3>
+              <h3 class="panel-title">🎫 续费码管理</h3>
             </div>
-            <div class="toolbar">
-              <label>时长
-                <input id="renewal-length" type="number" min="1" value="30" class="form-input-sm" style="width:100px;">
-              </label>
-              <label>单位
-                <select id="renewal-unit" class="form-select-sm">
-                  <option value="天">天</option>
-                  <option value="月">月</option>
-                  <option value="年">年</option>
-                </select>
-              </label>
-              <button id="generate-code-btn" class="btn btn-primary btn-sm">生成续费码</button>
+            <div class="panel-body">
+              <!-- 生成续费码区域 -->
+              <div class="renewal-generate-section">
+                <h4 style="margin-bottom: 12px; color: var(--text-secondary); font-size: 14px;">✨ 生成新续费码</h4>
+                <div class="toolbar">
+                  <label>
+                    <span style="font-weight: 600; margin-right: 8px;">⏱️ 时长</span>
+                    <input id="renewal-length" type="number" min="1" value="30" class="form-input-sm" style="width:100px;" aria-label="续费时长">
+                  </label>
+                  <label>
+                    <span style="font-weight: 600; margin-right: 8px;">📅 单位</span>
+                    <select id="renewal-unit" class="form-select-sm" aria-label="时间单位">
+                      <option value="天">天</option>
+                      <option value="月">月</option>
+                      <option value="年">年</option>
+                    </select>
+                  </label>
+                  <button id="generate-code-btn" class="btn btn-primary btn-sm">✨ 生成续费码</button>
+                </div>
+              </div>
+              
+              <!-- 分隔线 -->
+              <div style="height: 1px; background: var(--border-color); margin: 20px 0;"></div>
+              
+              <!-- 待使用续费码列表 -->
+              <div class="renewal-codes-section">
+                <h4 style="margin-bottom: 12px; color: var(--text-secondary); font-size: 14px;">🎟️ 待使用的续费码</h4>
+                <div id="codes-list" class="codes-grid">
+                  <div class="empty-state">💤 暂无待使用的续费码</div>
+                </div>
+              </div>
             </div>
-          </div>
-          <div class="panel">
-            <h3 class="panel-title">待使用的续费码</h3>
-            <div id="codes-list" class="codes-grid"><div class="empty-state">暂无待使用的续费码</div></div>
           </div>
         </section>
 
         <!-- 消息统计 -->
         <section id="tab-stats" class="tab-content">
-          <h2 class="page-title">消息统计分析</h2>
+          <h2 class="page-title">📈 消息统计分析</h2>
+          
+          <!-- 统计概览 -->
           <div class="stats-overview">
-            <div class="stat-box"><div class="stat-box-label">今日总消息</div><div id="stats-today-total" class="stat-box-value">-</div></div>
-            <div class="stat-box"><div class="stat-box-label">群聊消息</div><div id="stats-group-total" class="stat-box-value">-</div></div>
-            <div class="stat-box"><div class="stat-box-label">私聊消息</div><div id="stats-private-total" class="stat-box-value">-</div></div>
+            <div class="stat-box" role="status">
+              <div class="stat-box-label">📨 今日总消息</div>
+              <div id="stats-today-total" class="stat-box-value">-</div>
+            </div>
+            <div class="stat-box" role="status">
+              <div class="stat-box-label">👥 群聊消息</div>
+              <div id="stats-group-total" class="stat-box-value">-</div>
+            </div>
+            <div class="stat-box" role="status">
+              <div class="stat-box-label">💬 私聊消息</div>
+              <div id="stats-private-total" class="stat-box-value">-</div>
+            </div>
           </div>
-          <div class="panel" style="margin-top:16px;">
-            <h3 class="panel-title">今日明细</h3>
+          
+          <!-- 详细数据面板 -->
+          <div class="panel" style="margin-top:20px;">
+            <h3 class="panel-title">📊 今日明细数据</h3>
             <div class="table-container">
               <table class="data-table">
                 <thead>
                   <tr>
-                    <th>Bot</th>
-                    <th>总发送</th>
-                    <th>群聊总数</th>
-                    <th>群聊目标(次数)</th>
-                    <th>私聊总数</th>
-                    <th>私聊目标(次数)</th>
+                    <th>🤖 Bot</th>
+                    <th>📤 总发送</th>
+                    <th>👥 群聊总数</th>
+                    <th>🎯 群聊目标(次数)</th>
+                    <th>💬 私聊总数</th>
+                    <th>🎯 私聊目标(次数)</th>
                   </tr>
                 </thead>
-                <tbody id="stats-detail-body"><tr><td colspan="6" class="text-center">无数据</td></tr></tbody>
+                <tbody id="stats-detail-body">
+                  <tr><td colspan="6" class="text-center">📭 暂无数据</td></tr>
+                </tbody>
               </table>
             </div>
           </div>
@@ -133,62 +225,85 @@
 
         <!-- 权限管理 -->
         <section id="tab-permissions" class="tab-content">
-          <h2 class="page-title">权限管理</h2>
+          <h2 class="page-title">🔐 权限管理中心</h2>
           <div class="panel">
             <div class="panel-header">
-              <h3 class="panel-title">权限配置</h3>
+              <h3 class="panel-title">🛡️ 权限配置</h3>
               <div class="toolbar-right">
-                <button id="open-permissions-json-btn" class="btn btn-secondary">编辑JSON</button>
-                <button id="save-permissions-btn" class="btn btn-primary">保存配置</button>
+                <button id="open-permissions-json-btn" class="btn btn-secondary">📝 编辑JSON</button>
+                <button id="save-permissions-btn" class="btn btn-primary">💾 保存配置</button>
               </div>
             </div>
-            <div id="permissions-list" class="perm-list"></div>
+            <div id="permissions-list" class="perm-accordion"></div>
           </div>
         </section>
 
         <!-- 配置管理 -->
         <section id="tab-config" class="tab-content">
-          <h2 class="page-title">配置管理</h2>
+          <h2 class="page-title">⚙️ 配置管理中心</h2>
           <div class="panel">
-            <div class="panel-header"><h3 class="panel-title">插件配置</h3><button id="save-config-btn" class="btn btn-primary">保存配置</button></div>
-            <div class="config-editor"><textarea id="config-json" class="json-editor" rows="25"></textarea></div>
+            <div class="panel-header">
+              <h3 class="panel-title">🔧 插件配置</h3>
+              <button id="save-config-btn" class="btn btn-primary">💾 保存配置</button>
+            </div>
+            <div class="config-editor">
+              <textarea id="config-json" class="json-editor" rows="25" placeholder="在此处编辑JSON配置..." aria-label="配置编辑器"></textarea>
+            </div>
           </div>
         </section>
       </main>
     </div>
   </div>
 
-  <!-- 登录页面（默认隐藏） -->
+  <!-- 登录页面 -->
   <div id="login-page" style="display:none;">
     <div class="login-container">
       <div class="login-card">
-        <h1 class="login-title"><span class="login-icon">🌸</span>今汐管理控制台</h1>
-        <p class="login-subtitle">请输入验证码登录</p>
+        <h1 class="login-title">
+          <span class="login-icon">🌸</span>
+          <span>今汐管理控制台</span>
+        </h1>
+        <p class="login-subtitle">✨ 请输入验证码登录系统</p>
         <div class="login-form">
-          <input type="text" id="login-token" placeholder="请输入6位验证码" class="login-input" maxlength="6">
-          <button id="login-btn" class="login-btn">登录</button>
+          <input 
+            type="text" 
+            id="login-token" 
+            placeholder="请输入6位验证码" 
+            class="login-input" 
+            maxlength="6"
+            autocomplete="off"
+            aria-label="验证码输入框"
+          >
+          <button id="login-btn" class="login-btn">🚀 立即登录</button>
         </div>
       </div>
     </div>
   </div>
 
   <!-- 权限JSON编辑弹窗 -->
-  <div id="perm-json-modal" class="modal hidden">
+  <div id="perm-json-modal" class="modal hidden" role="dialog" aria-labelledby="modal-title" aria-modal="true">
     <div class="modal-dialog">
       <div class="modal-header">
-        <h3 class="panel-title">编辑权限JSON</h3>
-        <button id="perm-json-close" class="modal-close" title="关闭">✖</button>
+        <h3 id="modal-title" class="panel-title">📝 编辑权限JSON</h3>
+        <button id="perm-json-close" class="modal-close" title="关闭" aria-label="关闭弹窗">✖</button>
       </div>
       <div class="modal-body">
-        <textarea id="permissions-json" class="json-editor" rows="20"></textarea>
+        <textarea 
+          id="permissions-json" 
+          class="json-editor" 
+          rows="20"
+          placeholder="在此处编辑权限JSON配置..."
+          aria-label="权限JSON编辑器"
+        ></textarea>
       </div>
       <div class="modal-footer">
-        <button id="perm-json-cancel" class="btn btn-secondary">取消</button>
-        <button id="perm-json-save" class="btn btn-primary">保存JSON</button>
+        <button id="perm-json-cancel" class="btn btn-secondary">❌ 取消</button>
+        <button id="perm-json-save" class="btn btn-primary">💾 保存JSON</button>
       </div>
     </div>
   </div>
 
+  <!-- JavaScript -->
   <script src="/member_renewal/static/console.js"></script>
 </body>
 </html>

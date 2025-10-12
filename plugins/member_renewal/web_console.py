@@ -12,7 +12,7 @@ from nonebot import get_app, get_bots
 from nonebot.adapters.onebot.v11 import Message
 from nonebot.log import logger
 
-from .config import config
+from .config import load_cfg, save_cfg
 from .common import (
     _add_duration,
     _now_utc,
@@ -24,19 +24,19 @@ from .common import (
 )
 
 
-CONTACT_SUFFIX = getattr(
-    config, "member_renewal_contact_suffix", " 咨询/加入交流QQ群 757463664 联系群管"
-)
-
-
 def _auth(request: Request) -> dict:
     ip = request.client.host if request and request.client else ""
     return {"role": "admin", "token_tail": "", "ip": ip, "request": request}
 
 
+def _contact_suffix() -> str:
+    cfg = load_cfg()
+    return str(cfg.get("member_renewal_contact_suffix", " 咨询/加入交流QQ群 757463664 联系群管") or "")
+
+
 def setup_web_console() -> None:
     try:
-        if not getattr(config, "member_renewal_console_enable", False):
+        if not bool(load_cfg().get("member_renewal_console_enable", False)):
             return
 
         app = get_app()
@@ -50,8 +50,9 @@ def setup_web_console() -> None:
             except Exception as e:
                 raise HTTPException(400, f"参数错误: {e}")
             content = str(payload.get("content") or "本群会员即将到期，请尽快续费")
-            if CONTACT_SUFFIX and CONTACT_SUFFIX.strip() and CONTACT_SUFFIX.strip() not in content:
-                content = content + CONTACT_SUFFIX
+            suf = _contact_suffix().strip()
+            if suf and suf not in content:
+                content = content + suf
             live = get_bots()
             bot = next(iter(live.values()), None)
             if not bot:
@@ -91,7 +92,7 @@ def setup_web_console() -> None:
         # 统计：转发到统计服务 API
         @router.get("/stats/today")
         async def api_stats_today():
-            stats_api_url = str(getattr(config, "member_renewal_stats_api_url", "http://127.0.0.1:8000") or "http://127.0.0.1:8000").rstrip("/")
+            stats_api_url = str(load_cfg().get("member_renewal_stats_api_url", "http://127.0.0.1:8000") or "http://127.0.0.1:8000").rstrip("/")
             try:
                 async with httpx.AsyncClient() as client:
                     resp = await client.get(f"{stats_api_url}/stats/today", timeout=10.0)
@@ -118,13 +119,12 @@ def setup_web_console() -> None:
         # 配置
         @router.get("/config")
         async def api_get_config():
-            return config.to_dict()
+            return load_cfg()
 
         @router.put("/config")
         async def api_update_config(payload: Dict[str, Any]):
             try:
-                config.save(payload)
-                config.reload()
+                save_cfg(payload)
                 return {"success": True, "message": "配置已更新"}
             except Exception as e:
                 raise HTTPException(500, f"更新配置失败: {e}")
@@ -151,12 +151,13 @@ def setup_web_console() -> None:
                 "unit": unit,
                 "generated_time": _now_utc().isoformat(),
             }
-            max_use = int(payload.get("max_use") or getattr(config, "member_renewal_code_max_use", 1) or 1)
+            cfg = load_cfg()
+            max_use = int(payload.get("max_use") or cfg.get("member_renewal_code_max_use", 1) or 1)
             rec["max_use"] = max_use
             rec["used_count"] = 0
-            expire_days = int(payload.get("expire_days") or getattr(config, "member_renewal_code_expire_days", 0) or 0)
+            expire_days = int(payload.get("expire_days") or cfg.get("member_renewal_code_expire_days", 0) or 0)
             if expire_days > 0:
-                # 使用与 UNITS[0] 对应的单位（通常为“天”）
+                # 使用 UNITS[0] 对应的单位（通常为“天”）
                 rec["expire_at"] = _add_duration(_now_utc(), expire_days, UNITS[0]).isoformat()
             data["generatedCodes"][code] = rec
             _write_data(data)
