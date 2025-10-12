@@ -1,7 +1,8 @@
 ﻿from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+import secrets
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, Tuple
 
 from nonebot import require
@@ -31,8 +32,108 @@ from .common import (
     _ensure_generated_codes,
 )
 
+# Token存储 (内存存储，重启后失效)
+_LOGIN_TOKENS: Dict[str, Dict[str, Any]] = {}
+
 # Register defaults to unified permissions.json
 P = Plugin(enabled=True, level="all", scene="all")
+
+
+# ===== 新增: 登录命令 =====
+
+def generate_login_token() -> str:
+    """生成6位数字token"""
+    return str(secrets.randbelow(900000) + 100000)
+
+
+def store_login_token(token: str, user_id: str, bot_id: str) -> None:
+    """存储登录token (5分钟有效期)"""
+    global _LOGIN_TOKENS
+    _LOGIN_TOKENS[token] = {
+        "user_id": user_id,
+        "bot_id": bot_id,
+        "created_at": _now_utc(),
+        "expires_at": _now_utc() + timedelta(minutes=5),
+        "used": False,
+    }
+    # 清理过期token
+    now = _now_utc()
+    expired_keys = [k for k, v in _LOGIN_TOKENS.items() if v["expires_at"] < now]
+    for k in expired_keys:
+        _LOGIN_TOKENS.pop(k, None)
+
+
+def verify_login_token(token: str, user_id: str) -> bool:
+    """验证登录token"""
+    global _LOGIN_TOKENS
+    if token not in _LOGIN_TOKENS:
+        return False
+    
+    record = _LOGIN_TOKENS[token]
+    now = _now_utc()
+    
+    # 检查是否过期
+    if record["expires_at"] < now:
+        _LOGIN_TOKENS.pop(token, None)
+        return False
+    
+    # 检查用户是否匹配
+    if record["user_id"] != user_id:
+        return False
+    
+    # 检查是否已使用
+    if record["used"]:
+        return False
+    
+    return True
+
+
+def mark_token_used(token: str) -> None:
+    """标记token已使用"""
+    global _LOGIN_TOKENS
+    if token in _LOGIN_TOKENS:
+        _LOGIN_TOKENS[token]["used"] = True
+
+
+# 今汐登录命令
+login_cmd = P.on_regex(
+    r"^今汐登录$",
+    name="console_login",
+    priority=10,
+    permission=SUPERUSER,
+    enabled=True,
+    level="superuser",
+    scene="private",
+)
+
+
+@login_cmd.handle()
+async def _(matcher: Matcher, event: MessageEvent):
+    if not isinstance(event, PrivateMessageEvent):
+        await matcher.finish("🔒 此命令仅限私聊使用")
+    
+    # 生成token
+    token = generate_login_token()
+    user_id = str(event.user_id)
+    bot_id = str(event.self_id)
+    
+    # 存储token
+    store_login_token(token, user_id, bot_id)
+    
+    # 获取控制台地址 (从配置读取，如果没有则使用默认值)
+    console_host = getattr(config, "member_renewal_console_host", "http://localhost:8080")
+    login_url = f"{console_host}/member_renewal/console?token={token}"
+    
+    await matcher.finish(
+        Message(
+            f"🔐 登录链接已生成（5分钟内有效）：\n\n{login_url}\n\n"
+            f"验证码：{token}\n\n"
+            f"请在浏览器中打开链接或手动输入验证码登录。"
+        )
+    )
+
+
+# ===== 原有命令保持不变 =====
 
 # 生成续费码（仅私聊超管）
 gen_code = P.on_regex(
@@ -357,6 +458,83 @@ async def _check_and_process() -> Tuple[int, int]:
                     else f"本群会员将在 {days} 天后到期。请尽快联系管理员购买续费码（首次开通与续费同用），并在群内发送完成续费。"
                 )
                 content = content + " 如需购买/续费请加群 757463664 联系。"
+                sent = False
+                for bot in _choose_bots(preferred):
+                    try:
+                        await bot.send_group_msg(group_id=gid, message=Message(content))
+                        sent = True
+                        break
+                    except Exception as e:
+                        logger.debug(f"Notify group {gid} failed: {e}")
+                        continue
+                if sent:
+                    v["last_reminder_on"] = today
+                    reminders += 1
+                    changed = True
+
+    if changed:
+        _write_data(data)
+    return reminders, left
+
+# ===== Override with corrected encoding and messaging =====
+async def _check_and_process() -> Tuple[int, int]:
+    data = _read_data()
+    reminder_days = int(getattr(config, "member_renewal_reminder_days_before", 7))
+    today = _today_str()
+    reminders = 0
+    left = 0
+    changed = False
+
+    for k, v in data.items():
+        if k == "generatedCodes" or not isinstance(v, dict):
+            continue
+        try:
+            expiry = datetime.fromisoformat(v.get("expiry"))
+            if expiry.tzinfo is None:
+                expiry = expiry.replace(tzinfo=timezone.utc)
+        except Exception:
+            continue
+
+        status = v.get("status", "active")
+        gid_str = str(v.get("group_id", k))
+        try:
+            gid = int(gid_str)
+        except Exception:
+            continue
+
+        days = _days_remaining(expiry)
+
+        if days < 0 and status != "expired":
+            if getattr(config, "member_renewal_auto_leave_on_expire", True):
+                preferred = v.get("managed_by_bot")
+                for bot in _choose_bots(preferred):
+                    try:
+                        await bot.set_group_leave(group_id=gid, is_dismiss=False)
+                        left += 1
+                        break
+                    except Exception as e:
+                        logger.debug(f"Leave group {gid} failed: {e}")
+                        continue
+            v["status"] = "expired"
+            v["expired_at"] = _now_utc().isoformat()
+            changed = True
+            continue
+
+        if 0 <= days <= reminder_days and status != "expired":
+            last = v.get("last_reminder_on")
+            if last != today:
+                preferred = v.get("managed_by_bot")
+                if days == 0:
+                    content = (
+                        "本群会员今天到期。请尽快联系管理员购买续费码（首次开通与续费同用），并在群内发送完成续费。"
+                    )
+                else:
+                    content = (
+                        f"本群会员将在 {days} 天后到期。请尽快联系管理员购买续费码（首次开通与续费同用），并在群内发送完成续费。"
+                    )
+                suffix = getattr(config, "member_renewal_contact_suffix", "").strip()
+                if suffix and suffix not in content:
+                    content = content + " " + suffix
                 sent = False
                 for bot in _choose_bots(preferred):
                     try:

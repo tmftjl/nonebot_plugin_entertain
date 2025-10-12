@@ -26,15 +26,10 @@ DEFAULTS: Dict[str, Any] = {
     "member_renewal_auto_leave_on_expire": True,
     "member_renewal_leave_mode": "leave",
     "member_renewal_default_bot_id": "",
+    # bots list for console: [{"bot_id": str, "bot_name": str?}]
+    "member_renewal_bots": [],
     # console
     "member_renewal_console_enable": False,
-    # legacy single-token for compatibility
-    "member_renewal_console_token": "",
-    # new multi-token list: [{"token": str, "role": "viewer|operator|admin", "note": str?, "disabled": bool?}]
-    "member_renewal_console_tokens": [],
-    "member_renewal_console_ip_allowlist": [],
-    # rate limit for APIs
-    "member_renewal_rate_limit": {"window_sec": 15, "max": 120},
     # renewal code generation
     "member_renewal_code_prefix": "ww续费",
     "member_renewal_code_random_len": 6,  # hex chars
@@ -75,33 +70,33 @@ def _validate(cfg: Dict[str, Any]) -> None:
     for k, v in DEFAULTS.items():
         if k not in cfg:
             cfg[k] = v
-    # clamp rate limit
-    rl = cfg.get("member_renewal_rate_limit") or {}
-    if not isinstance(rl, dict):
-        rl = {"window_sec": 15, "max": 120}
-    rl["window_sec"] = int(max(1, int(rl.get("window_sec", 15))))
-    rl["max"] = int(max(1, int(rl.get("max", 120))))
-    cfg["member_renewal_rate_limit"] = rl
-    # tokens normalize
-    toks = cfg.get("member_renewal_console_tokens") or []
-    if not isinstance(toks, list):
-        toks = []
-    norm = []
-    for t in toks:
-        if not isinstance(t, dict):
+    # remove legacy keys
+    for k in (
+        "member_renewal_console_token",
+        "member_renewal_console_tokens",
+        "member_renewal_console_ip_allowlist",
+        "member_renewal_rate_limit",
+    ):
+        if k in cfg:
+            cfg.pop(k, None)
+
+    # normalize bots list
+    bots = cfg.get("member_renewal_bots") or []
+    if not isinstance(bots, list):
+        bots = []
+    norm_bots = []
+    for b in bots:
+        try:
+            if not isinstance(b, dict):
+                continue
+            bid = str(b.get("bot_id") or "").strip()
+            bname = str(b.get("bot_name") or "").strip()
+            if not bid:
+                continue
+            norm_bots.append({"bot_id": bid, "bot_name": bname})
+        except Exception:
             continue
-        token = str(t.get("token") or "").strip()
-        role = str(t.get("role") or "viewer").lower()
-        if role not in ("viewer", "operator", "admin"):
-            role = "viewer"
-        if token:
-            norm.append({
-                "token": token,
-                "role": role,
-                "note": str(t.get("note") or ""),
-                "disabled": bool(t.get("disabled", False)),
-            })
-    cfg["member_renewal_console_tokens"] = norm
+    cfg["member_renewal_bots"] = norm_bots
 
 
 _migrate_legacy_config()
@@ -133,7 +128,7 @@ class _ConfigAdapter:
         raise AttributeError(item)
 
     def to_dict(self) -> Dict[str, Any]:
-        return json.loads(json.dumps(self._obj))
+        return json.loads(json.dumps(self._obj, ensure_ascii=False))
 
     def save(self, new_obj: Dict[str, Any]) -> None:
         merged = {**DEFAULTS, **(new_obj or {})}
@@ -142,3 +137,4 @@ class _ConfigAdapter:
 
 
 config = _ConfigAdapter()
+

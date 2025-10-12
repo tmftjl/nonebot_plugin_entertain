@@ -1,307 +1,250 @@
-(() => {
-  const $ = (sel, ctx = document) => ctx.querySelector(sel);
-  const $$ = (sel, ctx = document) => Array.from(ctx.querySelectorAll(sel));
+// ==================== 今汐控制台前端 ====================
 
-  const toastBox = document.getElementById('toast');
-  const loading = document.getElementById('loading');
+// 全局状态
+const state = {
+  bots: [],
+  selectedBotIds: [],
+  groups: [],
+  stats: null,
+  permissions: null,
+  config: null,
+  theme: localStorage.getItem('theme') || 'light',
+  sortBy: 'days', sortDir: 'asc', filter: 'all', keyword: ''
+};
 
-  function showToast(msg, isErr = false) {
-    const el = document.createElement('div');
-    el.className = 'toast' + (isErr ? ' error' : '');
-    el.textContent = String(msg ?? '');
-    if (toastBox) toastBox.appendChild(el);
-    else console[isErr ? 'error' : 'log'](msg);
-    setTimeout(() => el.remove(), 3500);
-  }
-  function setLoading(v) { if (loading) loading.classList.toggle('hidden', !v); }
+// 工具
+const $ = (s) => document.querySelector(s);
+const $$ = (s) => Array.from(document.querySelectorAll(s));
+function showToast(message, type='info'){
+  const c=$('#toast-container'); if(!c) return;
+  const n=document.createElement('div');
+  n.className=`toast toast-${type}`;
+  n.textContent=message;
+  c.appendChild(n);
+  setTimeout(()=>n.classList.add('show'),10);
+  setTimeout(()=>{ n.classList.remove('show'); setTimeout(()=>n.remove(),300);},3000);
+}
+function showLoading(show=true){ const o=$('#loading-overlay'); if(o) o.classList.toggle('hidden', !show); }
+function formatDate(s){ if(!s) return '-'; try{ const d=new Date(s); return d.toLocaleString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});}catch{return s;}}
+function daysRemaining(s){ try{ const e=new Date(s), n=new Date(); e.setHours(0,0,0,0); n.setHours(0,0,0,0); return Math.round((e-n)/86400000);}catch{return 0;} }
+function getStatusLabel(days){ if(days<0) return '<span class="status-badge status-expired">已到期</span>'; if(days===0) return '<span class="status-badge status-today">今日到期</span>'; if(days<=7) return '<span class="status-badge status-soon">即将到期</span>'; return '<span class="status-badge status-active">有效</span>'; }
+function maskCode(code){ if(!code) return ''; return String(code).slice(0,4)+'****'+String(code).slice(-4); }
+function normalizeUnit(u){ const x=String(u||'天'); if(['d','day','天'].includes(x)) return '天'; if(['m','month','月'].includes(x)) return '月'; if(['y','year','年'].includes(x)) return '年'; return '天'; }
 
-  function getQueryToken() {
-    const p = new URLSearchParams(window.location.search);
-    return p.get('token') || '';
-  }
-  function getToken() {
-    const t = $('#token');
-    return (t && t.value.trim()) || localStorage.getItem('mr_token') || getQueryToken();
-  }
-  function saveToken() {
-    const t = $('#token');
-    const v = (t && t.value.trim()) || '';
-    localStorage.setItem('mr_token', v);
-    showToast('Token 已保存');
-  }
+// API
+async function apiCall(path, options={}){
+  const token = localStorage.getItem('auth_token') || '';
+  const headers = {'Content-Type':'application/json', ...(options.headers||{})};
+  if(token) headers['Authorization'] = `Bearer ${token}`;
+  const resp = await fetch(`/member_renewal${path}`, { ...options, headers });
+  if(!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+  const ct = resp.headers.get('content-type')||'';
+  return ct.includes('application/json') ? resp.json() : resp.text();
+}
 
-  async function api(path, opts = {}) {
-    const t = getToken();
-    opts.headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
-    if (t) opts.headers['Authorization'] = 'Bearer ' + t;
-    const qs = (!t ? ('?token=' + encodeURIComponent(getQueryToken())) : '');
-    const r = await fetch('/member_renewal' + path + qs, opts);
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const ctype = r.headers.get('content-type') || '';
-    return ctype.includes('application/json') ? r.json() : r.text();
-  }
-
-  function maskCode(code) {
-    if (!code) return '';
-    const parts = String(code).split('-');
-    if (parts.length < 2) return code;
-    const head = parts[0];
-    const tail = parts[1];
-    return head + '-****' + tail.slice(-4);
-  }
-
-  function fmtDate(iso) {
-    try { return new Date(iso).toLocaleString(); } catch { return iso; }
-  }
-  function daysRemain(iso) {
-    try {
-      const d = new Date(iso);
-      const now = new Date();
-      const ms = d.setHours(0,0,0,0) - now.setHours(0,0,0,0);
-      return Math.round(ms / 86400000);
-    } catch { return 0; }
-  }
-
-  const state = { raw: {}, list: [], sortBy: 'days', sortDir: 'asc', filter: 'all', keyword: '' };
-
-  function buildList() {
-    const rows = [];
-    const raw = state.raw || {};
-    for (const [k, v] of Object.entries(raw)) {
-      if (k === 'generatedCodes' || typeof v !== 'object') continue;
-      const expiry = v.expiry;
-      const days = daysRemain(expiry);
-      let status = v.status || 'active';
-      if (days < 0) status = 'expired';
-      else if (days === 0) status = 'today';
-      else if (days <= 7) status = 'soon';
-      rows.push({ group: k, expiry, days, status });
+// 登录
+async function handleLogin(){
+  const t=($('#login-token')?.value||'').trim();
+  if(!t || t.length!==6){ showToast('请输入6位验证码','error'); return; }
+  try{
+    showLoading(true);
+    const r=await apiCall('/auth/login',{method:'POST', body: JSON.stringify({ token:t, user_id:'admin' })});
+    if(r.success){
+      localStorage.setItem('auth_token', t);
+      showToast('登录成功','success');
+      $('#login-page').style.display='none';
+      $('#app').classList.remove('hidden');
+      await init();
     }
-    state.list = rows;
-  }
+  } catch(e){ showToast(`登录失败: ${e.message}`,'error'); }
+  finally{ showLoading(false);} }
 
-  function applyFilterSort() {
-    let arr = state.list.slice();
-    if (state.filter !== 'all') arr = arr.filter(x => x.status === state.filter || (state.filter === 'valid' && x.status !== 'expired'));
-    if (state.keyword) arr = arr.filter(x => x.group.includes(state.keyword));
-    const dir = state.sortDir === 'asc' ? 1 : -1;
-    arr.sort((a,b) => {
-      const f = state.sortBy;
-      if (f === 'group') return (a.group.localeCompare(b.group)) * dir;
-      if (f === 'status') return (a.status.localeCompare(b.status)) * dir;
-      if (f === 'expiry') return ((a.expiry||'').localeCompare(b.expiry||'')) * dir;
-      if (f === 'days') return (a.days - b.days) * dir;
-      return 0;
+// 主题
+function toggleTheme(){
+  state.theme = state.theme==='light' ? 'dark':'light';
+  document.body.setAttribute('data-theme', state.theme);
+  localStorage.setItem('theme', state.theme);
+  const i=$('#theme-toggle .icon');
+  if(i) i.textContent = state.theme==='light' ? '🌞' : '🌙';
+}
+
+// Tab
+function switchTab(tab){
+  $$('.nav-item').forEach(i=>i.classList.toggle('active', i.dataset.tab===tab));
+  $$('.tab-content').forEach(c=>c.classList.toggle('active', c.id===`tab-${tab}`));
+  if(tab==='renewal') loadRenewalData();
+  else if(tab==='stats') loadStatsData();
+  else if(tab==='permissions') loadPermissions();
+  else if(tab==='config') loadConfig();
+}
+
+// 仪表盘
+async function loadDashboard(){
+  try{
+    const data=await apiCall('/data');
+    state.groups = Object.entries(data)
+      .filter(([k,v])=>k!=='generatedCodes'&&typeof v==='object')
+      .map(([gid,info])=>{ const d=daysRemaining(info.expiry); let s='active'; if(d<0)s='expired'; else if(d===0)s='today'; else if(d<=7)s='soon'; return { gid, ...info, days:d, status:s };});
+    $('#stat-active-groups').textContent=state.groups.length;
+    $('#stat-valid-members').textContent=state.groups.filter(g=>g.status==='active').length;
+    $('#stat-expiring-soon').textContent=state.groups.filter(g=>g.status==='soon'||g.status==='today').length;
+    $('#stat-expired').textContent=state.groups.filter(g=>g.status==='expired').length;
+  } catch(e){ showToast(`加载仪表盘失败: ${e.message}`,'error'); }
+}
+
+// 续费
+async function loadRenewalData(){
+  try{
+    showLoading(true);
+    const data=await apiCall('/data');
+    state.groups = Object.entries(data)
+      .filter(([k,v])=>k!=='generatedCodes'&&typeof v==='object')
+      .map(([gid,info])=>{ const d=daysRemaining(info.expiry); let s='active'; if(d<0)s='expired'; else if(d===0)s='today'; else if(d<=7)s='soon'; return { gid, ...info, days:d, status:s };});
+    ensureRenewalBotSelector();
+    renderGroupsTable();
+    const codes=await apiCall('/codes');
+    renderCodes(codes);
+  } catch(e){ showToast(`加载续费数据失败: ${e.message}`,'error'); }
+  finally{ showLoading(false);} }
+
+function renderGroupsTable(){
+  const tbody=$('#groups-table-body'); if(!tbody) return;
+  let list=[...state.groups];
+  if(state.filter!=='all') list=list.filter(g=>g.status===state.filter);
+  if(state.keyword) list=list.filter(g=>String(g.gid).includes(state.keyword));
+  const dir=state.sortDir==='asc'?1:-1;
+  list.sort((a,b)=>{
+    if(state.sortBy==='group') return String(a.gid).localeCompare(String(b.gid))*dir;
+    if(state.sortBy==='status') return String(a.status).localeCompare(String(b.status))*dir;
+    if(state.sortBy==='expiry') return String(a.expiry||'').localeCompare(String(b.expiry||''))*dir;
+    if(state.sortBy==='days') return (a.days-b.days)*dir;
+    return 0;
+  });
+  tbody.innerHTML = list.length? list.map(g=>`
+    <tr>
+      <td><input type="checkbox" class="group-checkbox" data-gid="${g.gid}"></td>
+      <td>${g.gid}</td>
+      <td>${getStatusLabel(g.days)}</td>
+      <td>${formatDate(g.expiry)}</td>
+      <td>${g.days}</td>
+      <td>
+        <button class="btn-action btn-remind" data-gid="${g.gid}">提醒</button>
+        <button class="btn-action btn-extend" data-gid="${g.gid}">+7天</button>
+        <button class="btn-action btn-leave" data-gid="${g.gid}">退群</button>
+      </td>
+    </tr>`).join('') : '<tr><td colspan="6" class="text-center">暂无数据</td></tr>';
+}
+
+function renderCodes(codes){
+  const el=$('#codes-list'); if(!el) return;
+  const arr=Object.entries(codes||{});
+  el.innerHTML = arr.length? arr.map(([code,meta])=>`<div class="code-card"><div class="code-info"><div class="code-value">${maskCode(code)}</div><div class="code-meta">${meta.length}${meta.unit} · 可用${meta.max_use||1}次</div></div><button class="btn-copy" data-code="${code}">复制</button></div>`).join('') : '<div class="empty-state">暂无可用续费码</div>';
+}
+
+// 统计（精简）
+async function loadStatsData(){
+  try{
+    showLoading(true);
+    const today=await apiCall('/stats/today');
+    state.stats={today};
+    renderStatsOverviewAll(today);
+    renderBotList();
+  } catch(e){ showToast(`加载统计失败: ${e.message}`,'error'); }
+  finally{ showLoading(false);} }
+
+function renderStatsOverviewAll(today){
+  try{
+    const bots=today.bots||{}; let total=0, gsum=0, psum=0;
+    Object.values(bots).forEach(s=>{ if(!s) return; total+=s.total_sent||0; gsum+=(s.group?.count)||0; psum+=(s.private?.count)||0;});
+    (document.getElementById('stats-today-total')).textContent = String(total);
+    (document.getElementById('stats-group-total')).textContent = String(gsum);
+    (document.getElementById('stats-private-total')).textContent = String(psum);
+  } catch{}
+}
+
+function renderBotList(){
+  let list=document.getElementById('bot-list');
+  if(!list){ const tab=$('#tab-stats'); if(!tab) return; const panel=document.createElement('div'); panel.className='panel'; panel.innerHTML='<h3 class="panel-title">机器人列表</h3><div id="bot-list" class="bot-list"></div>'; tab.appendChild(panel); list=document.getElementById('bot-list'); }
+  list.innerHTML = (state.bots||[]).length? state.bots.map(b=>`<div class="bot-list-item" data-bot="${b.bot_id}"><div><div class="title">${b.bot_name||('Bot '+b.bot_id)}</div><div class="status">${b.bot_id}${b.is_online?' · 在线':''}</div></div><div class="icon">›</div></div>`).join('') : '<div class="empty-state">未配置机器人</div>';
+  list.querySelectorAll('.bot-list-item').forEach(el=> el.addEventListener('click', ()=> showBotStatsModal(el.getAttribute('data-bot'))));
+}
+
+function ensureStatsDetailModal(){ if($('#stats-detail-modal')) return; const m=document.createElement('div'); m.id='stats-detail-modal'; m.className='modal hidden'; m.innerHTML='<div class="modal-dialog"><div class="modal-header"><h3 id="stats-detail-title">机器人详情</h3><button class="modal-close" id="stats-detail-close">×</button></div><div class="modal-body"><div class="stats-overview"><div class="stat-box"><div class="stat-box-label">群聊总数</div><div id="stats-detail-group-total" class="stat-box-value">-</div></div><div class="stat-box"><div class="stat-box-label">私聊总数</div><div id="stats-detail-private-total" class="stat-box-value">-</div></div></div><div class="panel" style="margin-top:12px;"><h3 class="panel-title">群消息数</h3><div id="stats-detail-groups" class="ranking-list"></div></div></div><div class="modal-footer"><button id="stats-detail-ok" class="btn btn-primary">关闭</button></div></div>'; document.body.appendChild(m); $('#stats-detail-close').addEventListener('click', closeStatsDetailModal); $('#stats-detail-ok').addEventListener('click', closeStatsDetailModal); }
+function showBotStatsModal(botId){ ensureStatsDetailModal(); const s=state.stats?.today?.bots?.[botId]; const name=(state.bots.find(b=>String(b.bot_id)===String(botId))?.bot_name)||('Bot '+botId); $('#stats-detail-title').textContent = `${name} (${botId})`; $('#stats-detail-group-total').textContent = s?.group?.count || 0; $('#stats-detail-private-total').textContent = s?.private?.count || 0; const targets=s?.group?.targets||{}; const sorted=Object.entries(targets).sort((a,b)=>b[1]-a[1]); $('#stats-detail-groups').innerHTML = sorted.map(([gid,count],i)=>`<div class="ranking-item"><div class="rank-number">${i+1}</div><div class="rank-info"><div class="rank-name">群 ${gid}</div><div class="rank-value">${count} 条</div></div></div>`).join(''); $('#stats-detail-modal').classList.remove('hidden'); }
+function closeStatsDetailModal(){ $('#stats-detail-modal')?.classList.add('hidden'); }
+
+// 权限/配置
+async function loadPermissions(){ try{ showLoading(true); const p=await apiCall('/permissions'); state.permissions=p; const ta=$('#permissions-json'); if(ta) ta.value=JSON.stringify(p,null,2); } catch(e){ showToast(`加载权限失败: ${e.message}`,'error'); } finally{ showLoading(false);} }
+async function savePermissions(){ try{ const txt=$('#permissions-json').value; const cfg=JSON.parse(txt||'{}'); showLoading(true); await apiCall('/permissions',{method:'PUT', body: JSON.stringify(cfg)}); showToast('权限配置已保存','success'); state.permissions=cfg; } catch(e){ showToast(`保存失败: ${e.message}`,'error'); } finally{ showLoading(false);} }
+async function loadConfig(){ try{ showLoading(true); const c=await apiCall('/config'); state.config=c; $('#config-json').value = JSON.stringify(c, null, 2); } catch(e){ showToast(`加载配置失败: ${e.message}`,'error'); } finally{ showLoading(false);} }
+async function saveConfig(){ try{ const txt=$('#config-json').value; const cfg=JSON.parse(txt||'{}'); showLoading(true); await apiCall('/config',{method:'PUT', body: JSON.stringify(cfg)}); showToast('配置已保存','success'); state.config=cfg; } catch(e){ showToast(`保存失败: ${e.message}`,'error'); } finally{ showLoading(false);} }
+
+// Bots
+async function loadBots(){ try{ const r=await apiCall('/bots/config'); state.bots=r.bots||[]; } catch(e){ showToast(`加载机器人列表失败: ${e.message}`,'error'); } }
+
+// 续费页机器人多选
+function ensureRenewalBotSelector(){ const tab=$('#tab-renewal'); if(!tab) return; if(!$('#btn-choose-bots')){ const host=tab.querySelector('.panel:nth-of-type(2)'); if(host){ const wrap=document.createElement('div'); wrap.className='bot-multi-select'; wrap.innerHTML='<button id="btn-choose-bots" class="btn">选择机器人</button><div id="selected-bots" class="bot-chips"></div>'; host.insertBefore(wrap, host.querySelector('.toolbar')); } } ensureBotSelectModal(); renderSelectedBotsChips(); }
+function ensureBotSelectModal(){ if($('#bot-select-modal')) return; const m=document.createElement('div'); m.id='bot-select-modal'; m.className='modal hidden'; m.innerHTML='<div class="modal-dialog"><div class="modal-header"><h3>选择机器人</h3><button class="modal-close" id="bot-select-close">×</button></div><div class="modal-body"><div id="bot-select-list" class="bot-select-list"></div></div><div class="modal-footer"><button id="bot-select-cancel" class="btn btn-secondary">取消</button><button id="bot-select-ok" class="btn btn-primary">确定</button></div></div>'; document.body.appendChild(m); $('#bot-select-cancel').addEventListener('click', closeBotSelectModal); $('#bot-select-close').addEventListener('click', closeBotSelectModal); $('#bot-select-ok').addEventListener('click', confirmBotSelection); $('#btn-choose-bots')?.addEventListener('click', openBotSelectModal); }
+function openBotSelectModal(){ const box=$('#bot-select-list'); if(box){ const ids=new Set(state.selectedBotIds||[]); box.innerHTML=(state.bots||[]).map(b=>`<label class="bot-select-item"><input type="checkbox" value="${b.bot_id}" ${ids.has(String(b.bot_id))?'checked':''}><div><div class="name">${b.bot_name||('Bot '+b.bot_id)} ${b.is_online?'<span style="color:#67C23A;font-size:12px;">(在线)</span>':''}</div><div class="meta">${b.bot_id}</div></div></label>`).join(''); } $('#bot-select-modal')?.classList.remove('hidden'); }
+function closeBotSelectModal(){ $('#bot-select-modal')?.classList.add('hidden'); }
+function confirmBotSelection(){ const box=$('#bot-select-list'); if(!box) return; const checks=Array.from(box.querySelectorAll('input[type="checkbox"]')); state.selectedBotIds = checks.filter(c=>c.checked).map(c=>String(c.value)); renderSelectedBotsChips(); closeBotSelectModal(); }
+function renderSelectedBotsChips(){ const wrap=$('#selected-bots'); if(!wrap) return; const ids=state.selectedBotIds||[]; if(!ids.length){ wrap.innerHTML='<div class="empty-state" style="padding:4px 0;">未选择机器人</div>'; return; } const map=new Map((state.bots||[]).map(b=>[String(b.bot_id), b])); wrap.innerHTML = ids.map(id=>{ const b=map.get(String(id)); const name=b?.bot_name||('Bot '+id); return `<span class="bot-chip" data-id="${id}">${name} <span class="remove">×</span></span>`; }).join(''); wrap.querySelectorAll('.bot-chip .remove').forEach(el=> el.addEventListener('click', ()=>{ const id=el.parentElement?.getAttribute('data-id'); state.selectedBotIds = (state.selectedBotIds||[]).filter(x=>String(x)!==String(id)); renderSelectedBotsChips(); })); }
+async function remindGroups(groupIds){ if(!Array.isArray(groupIds)||!groupIds.length) return; if(!state.selectedBotIds?.length){ showToast('请先选择机器人','warning'); return;} for(const gid of groupIds){ await apiCall('/remind_multi',{method:'POST', body: JSON.stringify({ group_id: gid, bot_ids: state.selectedBotIds })}); } }
+async function leaveGroups(groupIds){ if(!Array.isArray(groupIds)||!groupIds.length) return; if(!state.selectedBotIds?.length){ showToast('请先选择机器人','warning'); return;} for(const gid of groupIds){ await apiCall('/leave_multi',{method:'POST', body: JSON.stringify({ group_id: gid, bot_ids: state.selectedBotIds })}); } }
+
+// 事件绑定（带防抖）
+function bindEvents(){
+  $('#login-btn')?.addEventListener('click', handleLogin);
+  $('#login-token')?.addEventListener('keypress', e=>{ if(e.key==='Enter') handleLogin(); });
+  $('#theme-toggle')?.addEventListener('click', toggleTheme);
+  $$('.nav-item').forEach(i=> i.addEventListener('click', e=>{ e.preventDefault(); switchTab(i.dataset.tab);}));
+  $('#generate-code-btn')?.addEventListener('click', generateCode);
+  $('#save-permissions-btn')?.addEventListener('click', savePermissions);
+  $('#save-config-btn')?.addEventListener('click', saveConfig);
+  $('#group-search')?.addEventListener('input', e=>{ state.keyword=e.target.value.trim(); renderGroupsTable(); });
+  $('#status-filter')?.addEventListener('change', e=>{ state.filter=e.target.value; renderGroupsTable(); });
+  $('#select-all')?.addEventListener('change', e=> $$('.group-checkbox').forEach(cb=> cb.checked=e.target.checked));
+  $('#refresh-btn')?.addEventListener('click', ()=>{ const active=$('.nav-item.active'); if(active) switchTab(active.dataset.tab); });
+  const tbl=$('#groups-table-body');
+  if(tbl){
+    tbl.addEventListener('click', async (e)=>{
+      const btn=e.target.closest('.btn-action'); if(!btn) return; const gid=parseInt(btn.dataset.gid);
+      if(btn.dataset.busy==='1') return; btn.dataset.busy='1'; btn.setAttribute('disabled','disabled');
+      try{
+        if(btn.classList.contains('btn-remind')){
+          await remindGroups([gid]); showToast(`已向群 ${gid} 发送提醒`,'success');
+        } else if(btn.classList.contains('btn-extend')){
+          await apiCall('/extend',{method:'POST', body: JSON.stringify({ group_id: gid, length:7, unit:'天'})});
+          showToast(`已为群 ${gid} 延长7天`,'success'); await loadRenewalData();
+        } else if(btn.classList.contains('btn-leave')){
+          if(!confirm(`确认让所选机器人退出群 ${gid}?`)) return; await leaveGroups([gid]);
+          showToast(`已退出群 ${gid}`,'success'); await loadRenewalData();
+        }
+      } catch(err){ showToast(`操作失败: ${err.message}`,'error'); }
+      finally{ delete btn.dataset.busy; btn.removeAttribute('disabled'); }
     });
-    return arr;
   }
+  $('#codes-list')?.addEventListener('click', async (e)=>{ const btn=e.target.closest('.btn-copy'); if(!btn) return; try{ await navigator.clipboard.writeText(btn.dataset.code||''); showToast('续费码已复制','success'); } catch { showToast('复制失败','error'); } });
+}
 
-  function setText(id, val) {
-    const el = document.getElementById(id);
-    if (el) el.textContent = String(val);
-  }
+// 生成续费码（防重复）
+async function generateCode(){
+  const btn=$('#generate-code-btn'); if(btn && btn.dataset.busy==='1') return; if(btn){ btn.dataset.busy='1'; btn.setAttribute('disabled','disabled'); }
+  const length=parseInt($('#renewal-length').value)||30; let unit=$('#renewal-unit')?.value||'天'; unit = normalizeUnit(unit);
+  try{ showLoading(true); const r=await apiCall('/generate',{method:'POST', body: JSON.stringify({ length, unit })}); showToast(`续费码已生成: ${r.code}`,'success'); await loadRenewalData(); }
+  catch(e){ showToast(`生成失败: ${e.message}`,'error'); }
+  finally{ showLoading(false); if(btn){ delete btn.dataset.busy; btn.removeAttribute('disabled'); } }
+}
 
-  function renderSummary() {
-    const arr = state.list;
-    const total = arr.length;
-    const expired = arr.filter(x => x.status === 'expired').length;
-    const today = arr.filter(x => x.status === 'today').length;
-    const soonOnly = arr.filter(x => x.status === 'soon').length;
-    const soon = soonOnly + today;
-    const active = total - expired - soonOnly - today;
-    setText('sumTotal', total);
-    setText('sumActive', active);
-    setText('sumSoon', soon);
-    setText('sumExpired', expired);
-  }
+// 初始化
+async function init(){ document.body.setAttribute('data-theme', state.theme); const i=$('#theme-toggle .icon'); if(i) i.textContent = state.theme==='light'?'🌞':'🌙'; await loadBots(); ensureRenewalBotSelector(); await loadDashboard(); }
+window.addEventListener('DOMContentLoaded', ()=>{
+  // 无认证：直接显示应用
+  $('#app').classList.remove('hidden');
+  const lp = document.getElementById('login-page'); if (lp) lp.style.display='none';
+  init();
+  bindEvents();
+});
+window.switchTab = switchTab;
+window.runScheduledTask = async function(){ try{ showLoading(true); const r=await apiCall('/job/run',{method:'POST'}); showToast(`检查完成 提醒${r.reminded}个群，退出${r.left}个群`,'success'); } catch(e){ showToast(`执行失败: ${e.message}`,'error'); } finally{ showLoading(false);} };
 
-  function labelStatus(s) {
-    if (s === 'expired') return '<span class="chip danger">已到期</span>';
-    if (s === 'today') return '<span class="chip warn">今天到期</span>';
-    if (s === 'soon') return '<span class="chip warn">即将到期</span>';
-    return '<span class="chip ok">有效</span>';
-  }
-
-  function renderTable() {
-    const tbody = $('#groups tbody');
-    if (!tbody) return;
-    tbody.innerHTML = '';
-    const arr = applyFilterSort();
-    for (const r of arr) {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td><input type="checkbox" data-id="${r.group}" /></td>
-        <td>${r.group}</td>
-        <td>${labelStatus(r.status)}</td>
-        <td>${r.expiry ? fmtDate(r.expiry) : '-'}</td>
-        <td>${r.days}</td>
-        <td>
-          <button class="btn secondary" data-act="remind" data-gid="${r.group}">提醒</button>
-          <button class="btn" data-act="extend7" data-gid="${r.group}">+7天</button>
-          <button class="btn danger" data-act="leave" data-gid="${r.group}">退群</button>
-        </td>
-      `;
-      tbody.appendChild(tr);
-    }
-  }
-
-  function renderCodes() {
-    const box = $('#codes');
-    if (!box) return;
-    const raw = state.raw || {};
-    const codes = raw.generatedCodes || {};
-    const entries = Object.entries(codes).sort((a,b) => (a[1]?.generated_time || '').localeCompare(b[1]?.generated_time || ''));
-    box.innerHTML = '';
-    for (const [code, meta] of entries) {
-      const div = document.createElement('div');
-      div.className = 'code-item';
-      const expire = meta.expire_at ? `，有效期至 ${fmtDate(meta.expire_at)}` : '';
-      const info = `${meta.length}${meta.unit}，可用 ${meta.max_use ?? 1} 次${expire}`;
-      div.innerHTML = `
-        <div>
-          <div class="mask">${maskCode(code)}</div>
-          <div class="meta">${info}</div>
-        </div>
-        <div>
-          <button class="btn secondary" data-copy="${code}">复制</button>
-        </div>
-      `;
-      box.appendChild(div);
-    }
-  }
-
-  function getSelected() {
-    return $$('#groups tbody input[type="checkbox"]:checked').map(cb => cb.getAttribute('data-id'));
-  }
-
-  async function doExtend(group_id, length, unit) {
-    return api('/extend', { method: 'POST', body: JSON.stringify({ group_id, length, unit }) });
-  }
-  async function doRemind(group_id) {
-    return api('/remind', { method: 'POST', body: JSON.stringify({ group_id: parseInt(group_id, 10) }) });
-  }
-  async function doLeave(group_id) {
-    return api('/leave', { method: 'POST', body: JSON.stringify({ group_id: parseInt(group_id, 10) }) });
-  }
-  async function doGenerate(length, unit) {
-    return api('/generate', { method: 'POST', body: JSON.stringify({ length, unit }) });
-  }
-
-  async function copyText(text) {
-    if (navigator.clipboard && window.isSecureContext) {
-      return navigator.clipboard.writeText(text);
-    }
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    ta.remove();
-  }
-
-  async function reload() {
-    setLoading(true);
-    try {
-      const data = await api('/data');
-      state.raw = data || {};
-      buildList();
-      renderSummary();
-      renderTable();
-      renderCodes();
-    } catch (e) {
-      showToast('加载失败: ' + (e && e.message ? e.message : e), true);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function bindEvents() {
-    const rb = document.getElementById('refreshBtn');
-    if (rb) rb.addEventListener('click', () => reload());
-    const sf = document.getElementById('filter');
-    if (sf) sf.addEventListener('change', (e) => { state.filter = e.target.value; renderTable(); });
-    const ss = document.getElementById('search');
-    if (ss) ss.addEventListener('input', (e) => { state.keyword = e.target.value.trim(); renderTable(); });
-    const ca = document.getElementById('checkAll');
-    if (ca) ca.addEventListener('change', (e) => { $$('#groups tbody input[type="checkbox"]').forEach(cb => cb.checked = e.target.checked); });
-    $$('#groups thead th[data-sort]').forEach(th => {
-      th.addEventListener('click', () => {
-        const key = th.getAttribute('data-sort');
-        if (state.sortBy === key) state.sortDir = (state.sortDir === 'asc' ? 'desc' : 'asc');
-        else { state.sortBy = key; state.sortDir = 'asc'; }
-        renderTable();
-      });
-    });
-    const table = document.getElementById('groups');
-    if (table) table.addEventListener('click', async (e) => {
-      const btn = e.target.closest('button');
-      if (!btn) return;
-      const act = btn.getAttribute('data-act');
-      const gid = btn.getAttribute('data-gid');
-      try {
-        if (act === 'remind') { await doRemind(gid); showToast('已提醒 ' + gid); }
-        if (act === 'extend7') { await doExtend(gid, 7, '天'); showToast('已延长 7 天 · ' + gid); }
-        if (act === 'leave') { await doLeave(gid); showToast('已退群 ' + gid); }
-        reload();
-      } catch (err) { showToast(err.message || err, true); }
-    });
-    const bRemind = document.getElementById('bulkRemind');
-    if (bRemind) bRemind.addEventListener('click', async () => {
-      const ids = getSelected();
-      if (!ids.length) return showToast('未选择任何群');
-      setLoading(true);
-      try { for (const gid of ids) await doRemind(gid); showToast('已提醒 ' + ids.length + ' 个群'); reload(); }
-      catch (e) { showToast(e.message || e, true); setLoading(false); }
-    });
-    const bLeave = document.getElementById('bulkLeave');
-    if (bLeave) bLeave.addEventListener('click', async () => {
-      const ids = getSelected();
-      if (!ids.length) return showToast('未选择任何群');
-      if (!confirm('确认退出选中的 ' + ids.length + ' 个群？')) return;
-      setLoading(true);
-      try { for (const gid of ids) await doLeave(gid); showToast('已退群 ' + ids.length + ' 个群'); reload(); }
-      catch (e) { showToast(e.message || e, true); setLoading(false); }
-    });
-    const bExtend = document.getElementById('bulkExtend');
-    if (bExtend) bExtend.addEventListener('click', async () => {
-      const ids = getSelected();
-      if (!ids.length) return showToast('未选择任何群');
-      const length = parseInt($('#bulkLen')?.value || '0', 10);
-      const unit = $('#bulkUnit')?.value || '天';
-      setLoading(true);
-      try { for (const gid of ids) await doExtend(gid, length, unit); showToast('已延长 ' + ids.length + ' 个群'); reload(); }
-      catch (e) { showToast(e.message || e, true); setLoading(false); }
-    });
-    const gen = document.getElementById('gen');
-    if (gen) gen.addEventListener('click', async () => {
-      try {
-        const length = parseInt($('#len')?.value || '0', 10);
-        const unit = $('#unit')?.value || '天';
-        const r = await doGenerate(length, unit);
-        await copyText(r.code);
-        showToast('已生成并复制：' + r.code.slice(0, 12) + '…');
-        reload();
-      } catch (e) { showToast(e.message || e, true); }
-    });
-    const codes = document.getElementById('codes');
-    if (codes) codes.addEventListener('click', async (e) => {
-      const btn = e.target.closest('button[data-copy]');
-      if (!btn) return;
-      const code = btn.getAttribute('data-copy');
-      try { await copyText(code); showToast('已复制续费码'); }
-      catch { showToast('复制失败', true); }
-    });
-    const saveBtn = document.getElementById('saveToken');
-    if (saveBtn) saveBtn.addEventListener('click', saveToken);
-  }
-
-  async function main() {
-    const t = localStorage.getItem('mr_token') || getQueryToken();
-    const tok = document.getElementById('token');
-    if (tok) tok.value = t;
-    bindEvents();
-    reload();
-  }
-
-  window.addEventListener('DOMContentLoaded', main);
-})();
