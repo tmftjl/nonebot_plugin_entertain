@@ -30,6 +30,25 @@ function daysRemaining(s){ try{ const e=new Date(s), n=new Date(); e.setHours(0,
 function getStatusLabel(days){ if(days<0) return '<span class="status-badge status-expired">已到期</span>'; if(days===0) return '<span class="status-badge status-today">今日到期</span>'; if(days<=7) return '<span class="status-badge status-soon">即将到期</span>'; return '<span class="status-badge status-active">有效</span>'; }
 function maskCode(code){ if(!code) return ''; return String(code).slice(0,4)+'****'+String(code).slice(-4); }
 function normalizeUnit(u){ const x=String(u||'').trim().toLowerCase(); if(['d','day','天'].includes(x)) return '天'; if(['m','month','月'].includes(x)) return '月'; if(['y','year','年'].includes(x)) return '年'; return '天'; }
+async function copyText(text){
+  try{
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  }catch{}
+  try{
+    const ta=document.createElement('textarea');
+    ta.value=String(text||'');
+    ta.style.position='fixed'; ta.style.opacity='0'; ta.style.left='-9999px';
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    const ok=document.execCommand('copy');
+    ta.remove();
+    return !!ok;
+  }catch{}
+  return false;
+}
 
 // API
 async function apiCall(path, options={}){
@@ -203,7 +222,126 @@ function renderStatsDetails(today){
 }
 
 async function loadPermissions(){ try{ showLoading(true); const p=await apiCall('/permissions'); state.permissions=p; const ta=$('#permissions-json'); if(ta) ta.value=JSON.stringify(p,null,2); } catch(e){ showToast('加载权限失败: '+(e&&e.message?e.message:e),'error'); } finally{ showLoading(false);} }
-async function savePermissions(){ try{ const txt=$('#permissions-json').value; const cfg=JSON.parse(txt||'{}'); showLoading(true); await apiCall('/permissions',{method:'PUT', body: JSON.stringify(cfg)}); showToast('权限配置已保存','success'); state.permissions=cfg; } catch(e){ showToast('保存失败: '+(e&&e.message?e.message:e),'error'); } finally{ showLoading(false);} }
+function renderPermissionsList(){
+  const wrap=document.getElementById('permissions-list'); if(!wrap) return;
+  const data = state.permissions || {};
+  const plugins = Object.keys(data).sort((a,b)=>a.localeCompare(b));
+  if(!plugins.length){ wrap.innerHTML = '<div class="empty-state">暂无权限数据</div>'; return; }
+  const optLevel = (v)=>`<option value="all" ${v==='all'?'selected':''}>所有人</option>
+    <option value="member" ${v==='member'?'selected':''}>群成员</option>
+    <option value="admin" ${v==='admin'?'selected':''}>群管理</option>
+    <option value="owner" ${v==='owner'?'selected':''}>群主</option>
+    <option value="superuser" ${v==='superuser'?'selected':''}>超级用户</option>`;
+  const optScene = (v)=>`<option value="all" ${v==='all'?'selected':''}>全部</option>
+    <option value="group" ${v==='group'?'selected':''}>群聊</option>
+    <option value="private" ${v==='private'?'selected':''}>私聊</option>`;
+  const toCSV=(arr)=>Array.isArray(arr)?arr.join(','):(arr||'');
+  const from=(x)=> (x && typeof x==='object')?x:{};
+  const esc=(s)=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const rows = plugins.map(pn=>{
+    const node = from(data[pn]);
+    const top = from(node.top);
+    const cmds = from(node.commands);
+    const wl = from(top.whitelist); const bl = from(top.blacklist);
+    const cmdRows = Object.keys(cmds).sort((a,b)=>a.localeCompare(b)).map(cn=>{
+      const c=from(cmds[cn]); const cwl=from(c.whitelist); const cbl=from(c.blacklist);
+      return `<div class="perm-cmd" data-command="${esc(cn)}">
+        <div class="perm-cmd-name">${esc(cn)}</div>
+        <label class="perm-field"><input type="checkbox" class="perm-enabled" ${c.enabled===false?'':'checked'}> 启用</label>
+        <label class="perm-field">等级 <select class="perm-level">${optLevel(String(c.level||'all'))}</select></label>
+        <label class="perm-field">场景 <select class="perm-scene">${optScene(String(c.scene||'all'))}</select></label>
+        <label class="perm-field perm-grow">白名单 用户 <input type="text" class="perm-wl-users" placeholder="逗号分隔" value="${esc(toCSV(cwl.users))}"></label>
+        <label class="perm-field perm-grow">白名单 群 <input type="text" class="perm-wl-groups" placeholder="逗号分隔" value="${esc(toCSV(cwl.groups))}"></label>
+        <label class="perm-field perm-grow">黑名单 用户 <input type="text" class="perm-bl-users" placeholder="逗号分隔" value="${esc(toCSV(cbl.users))}"></label>
+        <label class="perm-field perm-grow">黑名单 群 <input type="text" class="perm-bl-groups" placeholder="逗号分隔" value="${esc(toCSV(cbl.groups))}"></label>
+      </div>`;
+    }).join('');
+    return `<div class="perm-plugin" data-plugin="${esc(pn)}">
+      <div class="perm-header">
+        <div class="perm-title">插件：${esc(pn)}</div>
+        <div class="perm-top-fields">
+          <label class="perm-field"><input type="checkbox" class="perm-enabled" ${top.enabled===false?'':'checked'}> 启用</label>
+          <label class="perm-field">等级 <select class="perm-level">${optLevel(String(top.level||'all'))}</select></label>
+          <label class="perm-field">场景 <select class="perm-scene">${optScene(String(top.scene||'all'))}</select></label>
+        </div>
+      </div>
+      <div class="perm-top-lists">
+        <label class="perm-field perm-grow">白名单 用户 <input type="text" class="perm-wl-users" placeholder="逗号分隔" value="${esc(toCSV(wl.users))}"></label>
+        <label class="perm-field perm-grow">白名单 群 <input type="text" class="perm-wl-groups" placeholder="逗号分隔" value="${esc(toCSV(wl.groups))}"></label>
+        <label class="perm-field perm-grow">黑名单 用户 <input type="text" class="perm-bl-users" placeholder="逗号分隔" value="${esc(toCSV(bl.users))}"></label>
+        <label class="perm-field perm-grow">黑名单 群 <input type="text" class="perm-bl-groups" placeholder="逗号分隔" value="${esc(toCSV(bl.groups))}"></label>
+      </div>
+      <div class="perm-commands">${cmdRows || '<div class="empty-state">无命令</div>'}</div>
+    </div>`;
+  });
+  wrap.innerHTML = rows.join('');
+}
+
+function collectPermissionsFromUI(){
+  const wrap=document.getElementById('permissions-list');
+  if(!wrap){
+    // fallback to JSON textarea if present
+    try{ const txt=$('#permissions-json')?.value||'{}'; return JSON.parse(txt); }catch{ return {}; }
+  }
+  const out={};
+  wrap.querySelectorAll('.perm-plugin').forEach(pel=>{
+    const pn = pel.getAttribute('data-plugin')||'';
+    if(!pn) return;
+    const node = {};
+    const top={};
+    const get=(sel)=> pel.querySelector(sel);
+    top.enabled = get('.perm-header .perm-enabled')?.checked ?? true;
+    top.level = get('.perm-header .perm-level')?.value || 'all';
+    top.scene = get('.perm-header .perm-scene')?.value || 'all';
+    const wl={ users:[], groups:[] }, bl={ users:[], groups:[] };
+    const sv=(s)=> String(s||'').split(',').map(x=>x.trim()).filter(Boolean);
+    wl.users = sv(get('.perm-top-lists .perm-wl-users')?.value);
+    wl.groups = sv(get('.perm-top-lists .perm-wl-groups')?.value);
+    bl.users = sv(get('.perm-top-lists .perm-bl-users')?.value);
+    bl.groups = sv(get('.perm-top-lists .perm-bl-groups')?.value);
+    top.whitelist = wl; top.blacklist = bl;
+    node.top = top;
+    const cmds={};
+    pel.querySelectorAll('.perm-commands .perm-cmd').forEach(cel=>{
+      const cn = cel.getAttribute('data-command')||''; if(!cn) return;
+      const c={};
+      c.enabled = cel.querySelector('.perm-enabled')?.checked ?? true;
+      c.level = cel.querySelector('.perm-level')?.value || 'all';
+      c.scene = cel.querySelector('.perm-scene')?.value || 'all';
+      const cwl={ users:[], groups:[] }, cbl={ users:[], groups:[] };
+      const sv2=(s)=> String(s||'').split(',').map(x=>x.trim()).filter(Boolean);
+      cwl.users = sv2(cel.querySelector('.perm-wl-users')?.value);
+      cwl.groups = sv2(cel.querySelector('.perm-wl-groups')?.value);
+      cbl.users = sv2(cel.querySelector('.perm-bl-users')?.value);
+      cbl.groups = sv2(cel.querySelector('.perm-bl-groups')?.value);
+      c.whitelist = cwl; c.blacklist = cbl;
+      cmds[cn] = c;
+    });
+    if(Object.keys(cmds).length) node.commands = cmds;
+    out[pn] = node;
+  });
+  return out;
+}
+
+async function loadPermissions(){
+  try{
+    showLoading(true);
+    const p=await apiCall('/permissions');
+    state.permissions=p;
+    const ta=$('#permissions-json'); if(ta) ta.value=JSON.stringify(p,null,2);
+    renderPermissionsList();
+  } catch(e){ showToast('加载权限失败: '+(e&&e.message?e.message:e),'error'); }
+  finally{ showLoading(false);} }
+async function savePermissions(){
+  try{
+    const cfg = collectPermissionsFromUI();
+    showLoading(true);
+    await apiCall('/permissions',{method:'PUT', body: JSON.stringify(cfg)});
+    showToast('权限配置已保存','success');
+    state.permissions=cfg;
+    const ta=$('#permissions-json'); if(ta) ta.value=JSON.stringify(cfg,null,2);
+  } catch(e){ showToast('保存失败: '+(e&&e.message?e.message:e),'error'); }
+  finally{ showLoading(false);} }
 async function loadConfig(){ try{ showLoading(true); const c=await apiCall('/config'); state.config=c; $('#config-json').value = JSON.stringify(c, null, 2); } catch(e){ showToast('加载配置失败: '+(e&&e.message?e.message:e),'error'); } finally{ showLoading(false);} }
 async function saveConfig(){ try{ const txt=$('#config-json').value; const cfg=JSON.parse(txt||'{}'); showLoading(true); await apiCall('/config',{method:'PUT', body: JSON.stringify(cfg)}); showToast('配置已保存','success'); state.config=cfg; } catch(e){ showToast('保存失败: '+(e&&e.message?e.message:e),'error'); } finally{ showLoading(false);} }
 
@@ -218,6 +356,10 @@ function bindEvents(){
   $$('.nav-item').forEach(i=> i.addEventListener('click', e=>{ e.preventDefault(); switchTab(i.dataset.tab);}));
   $('#generate-code-btn')?.addEventListener('click', generateCode);
   $('#save-permissions-btn')?.addEventListener('click', savePermissions);
+  $('#open-permissions-json-btn')?.addEventListener('click', openPermJsonModal);
+  $('#perm-json-close')?.addEventListener('click', closePermJsonModal);
+  $('#perm-json-cancel')?.addEventListener('click', closePermJsonModal);
+  $('#perm-json-save')?.addEventListener('click', savePermJson);
   $('#save-config-btn')?.addEventListener('click', saveConfig);
   $('#group-search')?.addEventListener('input', e=>{ state.keyword=e.target.value.trim(); renderGroupsTable(); });
   $('#status-filter')?.addEventListener('change', e=>{ state.filter=e.target.value; renderGroupsTable(); });
@@ -240,10 +382,10 @@ function bindEvents(){
       } catch(err){ showToast('操作失败: '+(err&&err.message?err.message:err),'error'); }
     });
   }
-  $('#codes-list')?.addEventListener('click', async (e)=>{ const btn=e.target.closest('.btn-copy'); if(!btn) return; try{ await navigator.clipboard.writeText(btn.dataset.code||''); showToast('续费码已复制','success'); } catch { showToast('复制失败','error'); } });
+  $('#codes-list')?.addEventListener('click', async (e)=>{ const btn=e.target.closest('.btn-copy'); if(!btn) return; const code=btn.dataset.code||''; const ok=await copyText(code); showToast(ok?'续费码已复制':'复制失败', ok?'success':'error'); });
 
   // 统计筛选/排序控件
-  const kw = document.createElement('input'); kw.id='stats-keyword'; kw.className='input'; kw.placeholder='按 Bot 或目标过滤';
+  const kw = document.createElement('input'); kw.id='stats-keyword'; kw.className='input'; kw.placeholder='按 Bot过滤';
   const sel = document.createElement('select'); sel.id='stats-sort'; sel.className='input'; sel.innerHTML = `
     <option value="total_desc">按总发送(降序)</option>
     <option value="total_asc">按总发送(升序)</option>
@@ -266,6 +408,33 @@ async function generateCode(){
   finally{ showLoading(false); if(btn){ delete btn.dataset.busy; btn.removeAttribute('disabled'); } }
 }
 
+// 权限JSON弹窗
+function openPermJsonModal(){
+  const modal=document.getElementById('perm-json-modal');
+  if(!modal) return;
+  const ta=document.getElementById('permissions-json');
+  if(ta){ ta.value = JSON.stringify(state.permissions || {}, null, 2); }
+  modal.classList.remove('hidden');
+}
+function closePermJsonModal(){
+  const modal=document.getElementById('perm-json-modal');
+  if(modal) modal.classList.add('hidden');
+}
+async function savePermJson(){
+  try{
+    const ta=document.getElementById('permissions-json');
+    const txt = ta && 'value' in ta ? ta.value : '{}';
+    const cfg = JSON.parse(txt || '{}');
+    showLoading(true);
+    await apiCall('/permissions',{method:'PUT', body: JSON.stringify(cfg)});
+    state.permissions = cfg;
+    renderPermissionsList();
+    showToast('JSON 已保存','success');
+    closePermJsonModal();
+  }catch(e){ showToast('JSON 保存失败: '+(e&&e.message?e.message:e),'error'); }
+  finally{ showLoading(false); }
+}
+
 // 初始化
 async function init(){ document.body.setAttribute('data-theme', state.theme); const i=document.querySelector('#theme-toggle .icon'); if(i) i.textContent = state.theme==='light' ? '🌞' : '🌙'; await loadDashboard(); }
 window.addEventListener('DOMContentLoaded', ()=>{
@@ -277,4 +446,3 @@ window.addEventListener('DOMContentLoaded', ()=>{
 });
 window.switchTab = switchTab;
 window.runScheduledTask = async function(){ try{ showLoading(true); const r=await apiCall('/job/run',{method:'POST'}); showToast(`检查完成 提醒${r.reminded}个群，退出${r.left}个群`,'success'); } catch(e){ showToast('执行失败: '+(e&&e.message?e.message:e),'error'); } finally{ showLoading(false);} };
-

@@ -1040,6 +1040,78 @@ body {
   font-size: 14px;
 }
 
+/* ==================== 权限列表 ==================== */
+.perm-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.perm-plugin {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  background: var(--color-bg-tertiary);
+}
+
+.perm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.perm-title {
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.perm-top-fields {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.perm-top-lists {
+  display: flex;
+  gap: 12px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.perm-commands {
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.perm-cmd {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-secondary);
+}
+
+.perm-cmd-name {
+  min-width: 160px;
+  font-weight: 500;
+}
+
+.perm-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.perm-grow {
+  flex: 1;
+}
+
 /* ==================== 响应式设计 ==================== */
 @media (max-width: 768px) {
   .sidebar {
@@ -1110,3 +1182,5 @@ body {
     break-inside: avoid;
   }
 }
+
+/* (移除重复的模态框样式，沿用文件前部现有定义) */

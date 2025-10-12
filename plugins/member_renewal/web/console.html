@@ -80,6 +80,24 @@
             </div>
           </div>
           <div class="panel">
+            <div class="panel-header">
+              <h3 class="panel-title">生成续费码</h3>
+            </div>
+            <div class="toolbar">
+              <label>时长
+                <input id="renewal-length" type="number" min="1" value="30" class="form-input-sm" style="width:100px;">
+              </label>
+              <label>单位
+                <select id="renewal-unit" class="form-select-sm">
+                  <option value="天">天</option>
+                  <option value="月">月</option>
+                  <option value="年">年</option>
+                </select>
+              </label>
+              <button id="generate-code-btn" class="btn btn-primary btn-sm">生成续费码</button>
+            </div>
+          </div>
+          <div class="panel">
             <h3 class="panel-title">待使用的续费码</h3>
             <div id="codes-list" class="codes-grid"><div class="empty-state">暂无待使用的续费码</div></div>
           </div>
@@ -117,8 +135,14 @@
         <section id="tab-permissions" class="tab-content">
           <h2 class="page-title">权限管理</h2>
           <div class="panel">
-            <div class="panel-header"><h3 class="panel-title">权限配置</h3><button id="save-permissions-btn" class="btn btn-primary">保存配置</button></div>
-            <div class="permission-editor"><textarea id="permissions-json" class="json-editor" rows="20"></textarea></div>
+            <div class="panel-header">
+              <h3 class="panel-title">权限配置</h3>
+              <div class="toolbar-right">
+                <button id="open-permissions-json-btn" class="btn btn-secondary">编辑JSON</button>
+                <button id="save-permissions-btn" class="btn btn-primary">保存配置</button>
+              </div>
+            </div>
+            <div id="permissions-list" class="perm-list"></div>
           </div>
         </section>
 
@@ -144,6 +168,23 @@
           <input type="text" id="login-token" placeholder="请输入6位验证码" class="login-input" maxlength="6">
           <button id="login-btn" class="login-btn">登录</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 权限JSON编辑弹窗 -->
+  <div id="perm-json-modal" class="modal hidden">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 class="panel-title">编辑权限JSON</h3>
+        <button id="perm-json-close" class="modal-close" title="关闭">✖</button>
+      </div>
+      <div class="modal-body">
+        <textarea id="permissions-json" class="json-editor" rows="20"></textarea>
+      </div>
+      <div class="modal-footer">
+        <button id="perm-json-cancel" class="btn btn-secondary">取消</button>
+        <button id="perm-json-save" class="btn btn-primary">保存JSON</button>
       </div>
     </div>
   </div>
