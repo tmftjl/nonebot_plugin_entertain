@@ -7,7 +7,7 @@ from nonebot.adapters.onebot.v11 import Message, MessageSegment, MessageEvent
 from ...registry import Plugin
 
 
-P = Plugin()
+P = Plugin(name="sick")
 _SICK = P.on_regex(
     r"^(?:#|/)?发病语录$",
     name="get",

@@ -4,7 +4,7 @@ from nonebot.adapters.onebot.v11 import Message, MessageSegment, MessageEvent
 from ...registry import Plugin
 
 
-P = Plugin()
+P = Plugin(name="doro")
 _DORO = P.on_regex(
     r"^#?(?:抽取|随机)?(?:今日)?doro结局$",
     name="draw",

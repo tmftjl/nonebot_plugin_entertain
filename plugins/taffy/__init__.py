@@ -58,7 +58,7 @@ def _fmt_bytes(b: Optional[int]) -> str:
         return str(b)
 
 
-P = Plugin()
+P = Plugin(name="taffy")
 taffy_cmd = P.on_regex(r"^#?查询流量\s*(.*)$", name="query", block=True, priority=100)
 
 

@@ -13,7 +13,7 @@ __plugin_meta__ = PluginMetadata(
 )
 
 # Ensure plugin-level permission entry exists
-P = Plugin(enabled=True, level="all", scene="all")
+P = Plugin(name="member_renewal", enabled=True, level="all", scene="all")
 
 # Import and register commands by side-effect
 from . import commands as _commands  # noqa: F401
@@ -25,5 +25,4 @@ try:
 except Exception:
     logger.debug(f"挂载失败")
     pass
-
 

@@ -370,6 +370,7 @@ def upsert_command_defaults(
     fw = data.setdefault(FRAMEWORK_NAME, {})
     sub_map = fw.setdefault("sub_plugins", {})
     sp = sub_map.setdefault(plugin, {})
+    sp.setdefault("top", _perm_entry_default())
     cmds = sp.setdefault("commands", {})
     c = cmds.setdefault(command, _perm_entry_default())
     if enabled is not None:

@@ -62,7 +62,7 @@ USER_RESULTS: Dict[str, Tuple[Platform, List[Song]]] = {}
 
 
 # Regex definitions
-P = Plugin()
+P = Plugin(name="musicshare")
 search_matcher = P.on_regex(
     r"^#?点歌(?:(qq|酷狗|网易云|wyy|kugou|netease))?\s*(.*)$",
     name="search",
@@ -596,4 +596,3 @@ async def _(matcher: Matcher, event: MessageEvent, groups: Tuple[str] = RegexGro
         await matcher.finish(f"{song.name} - {song.artist}\n{fallback}")
     else:
         await matcher.finish("播放失败：未能获取歌曲播放地址。")
-

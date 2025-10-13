@@ -32,7 +32,7 @@ from .common import (
 )
 
 
-P = Plugin(enabled=True, level="all", scene="all")
+P = Plugin(name="member_renewal", enabled=True, level="all", scene="all")
 
 
 # 控制台登录

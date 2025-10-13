@@ -39,7 +39,7 @@ def _b64_image(img_bytes: bytes) -> MessageSegment:
     return MessageSegment.image(f"base64://{base64.b64encode(img_bytes).decode()}")
 
 
-P = Plugin()
+P = Plugin(name="box")
 
 # 触发：盒 [@某人]|<QQ>
 box_cmd = P.on_regex(

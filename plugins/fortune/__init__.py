@@ -40,7 +40,7 @@ _JRYS_DATA: List[Dict[str, Any]] = []
 _USER_FORTUNES: Dict[str, Dict[str, Any]] = {}
 
 
-P = Plugin()
+P = Plugin(name="fortune")
 
 
 # ---------- Fonts ----------

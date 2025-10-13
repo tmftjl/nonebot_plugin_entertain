@@ -18,7 +18,7 @@ DEFAULT_CFG = {
     "qq_reg_time_api_key": None,
 }
 CFG = register_plugin_config("reg_time", DEFAULT_CFG)
-P = Plugin()
+P = Plugin(name="reg_time")
 
 
 _REG = P.on_regex(

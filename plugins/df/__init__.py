@@ -30,7 +30,7 @@ _updating_gallery = False
 from . import update_gallery as update_gallery  # register update commands
 
 # Permissions wrapper
-P = Plugin()
+P = Plugin(name="df")
 # Ensure default command entries exist for notice-based actions
 from ...config import upsert_command_defaults as _up_def
 _up_def('df', 'poke')

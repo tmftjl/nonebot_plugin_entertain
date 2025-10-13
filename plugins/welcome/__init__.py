@@ -22,7 +22,7 @@ from ...registry import Plugin
 
 WELCOME_DIR = plugin_data_dir("welcome")
 WELCOME_FILE = WELCOME_DIR / "welcome.json"
-P = Plugin()
+P = Plugin(name="welcome")
 
 
 def _load_store() -> Dict[str, Dict[str, Any]]:
