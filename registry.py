@@ -120,7 +120,7 @@ class Plugin:
         bl_groups: Optional[list[str]] = None,
         **kwargs: Any,
     ) -> Matcher:
-        # Always upsert a command default entry; validate only when explicit fields provided
+        # Upsert a command default entry; validate only when explicit fields provided
         if any(x is not None for x in (enabled, level, scene, wl_users, wl_groups, bl_users, bl_groups)):
             _validate_entry(enabled=enabled, level=level, scene=scene, wl_users=wl_users, wl_groups=wl_groups, bl_users=bl_users, bl_groups=bl_groups)
         upsert_command_defaults(

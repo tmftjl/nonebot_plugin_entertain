@@ -8,8 +8,10 @@ from pathlib import Path
 from nonebot.permission import Permission
 from nonebot.adapters.onebot.v11 import GroupMessageEvent, PrivateMessageEvent
 
-from .config import _permissions_default
+from .config import _permissions_default, save_permissions, ensure_permissions_file
 from .utils import config_dir
+from nonebot.log import logger
+from .kv_cache import KeyValueCache
 
 
 # ----- Embedded permissions store (merged from permissions_store.py) -----
@@ -56,6 +58,7 @@ class PermissionsStore:
 
 
 permissions_store = PermissionsStore()
+_eff_perm_cache = KeyValueCache(ttl=0.5)
 
 
 # ----- Config loading -----
@@ -64,14 +67,61 @@ def _default_config() -> Dict[str, Any]:
     return _permissions_default()
 
 
+def _deep_fill(user: Dict[str, Any] | None, defaults: Dict[str, Any] | None) -> Dict[str, Any]:
+    """Deep-fill user config with defaults without overwriting existing values.
+
+    - When both sides are dicts, recurse and only add missing keys from defaults.
+    - For other types or when user is missing, use user's value if present,
+      otherwise take default.
+    """
+    if not isinstance(user, dict):
+        return json.loads(json.dumps(defaults or {}))
+    if not isinstance(defaults, dict):
+        return json.loads(json.dumps(user))
+    out: Dict[str, Any] = json.loads(json.dumps(user))
+    for k, dv in (defaults or {}).items():
+        if k not in out:
+            out[k] = json.loads(json.dumps(dv))
+        else:
+            if isinstance(out[k], dict) and isinstance(dv, dict):
+                out[k] = _deep_fill(out[k], dv)
+    return out
+
+
 def _load_cfg() -> Dict[str, Any]:
+    # Ensure file presence
     try:
-        cfg = permissions_store.get()
-        if isinstance(cfg, dict) and cfg:
-            return cfg
+        ensure_permissions_file()
     except Exception:
         pass
-    return _default_config()
+
+    # Load project permissions (file); if missing/unreadable, treat as empty
+    try:
+        current = permissions_store.get()
+        if not isinstance(current, dict):
+            current = {}
+    except Exception:
+        current = {}
+
+    # Build defaults from current plugins snapshot
+    try:
+        defaults = _default_config()
+    except Exception:
+        defaults = {}
+
+    # Merge (fill missing only) and persist when changed
+    def _loader() -> Dict[str, Any]:
+        merged = _deep_fill(current, defaults)
+        try:
+            if json.dumps(merged, sort_keys=True, ensure_ascii=False) != json.dumps(current, sort_keys=True, ensure_ascii=False):
+                save_permissions(merged)
+                permissions_store.reload()
+        except Exception:
+            pass
+        return merged
+
+    eff = _eff_perm_cache.get("effective", loader=_loader)
+    return eff or {}
 
 # ----- Helpers -----
 def _uid(event) -> Optional[str]:
@@ -150,7 +200,11 @@ def _is_allowed_by_lists(event, wl: Dict[str, Any] | None, bl: Dict[str, Any] | 
 
 
 def _checker_factory(feature: str):
+    """
+    权限检查器工厂函数，创建一个包含详细日志记录的异步检查函数。
+    """
     def _get_plugin_command(name: str) -> tuple[str, Optional[str]]:
+        """解析 feature 字符串，分离出插件名和命令名。"""
         if ":" in name:
             p, c = name.split(":", 1)
             return p.strip(), (c.strip() or None)
@@ -160,42 +214,130 @@ def _checker_factory(feature: str):
                 return p.strip(), c.strip()
         return name.strip(), None
 
-    def _eval_layer(layer_cfg: Dict[str, Any] | None, event) -> Optional[bool]:
+    def _eval_layer(layer_cfg: Dict[str, Any] | None, event, *, layer_name: str) -> Optional[bool]:
+        """
+        评估单层权限配置 (插件层或命令层)。
+        返回: True (明确允许), False (明确拒绝), None (未配置规则)。
+        """
+        # 新增: 为日志添加层级标识
+        log_prefix = f"权限检查 [{layer_name}层]"
+
         if not isinstance(layer_cfg, dict) or not layer_cfg:
+            logger.debug(f"{log_prefix} - 未找到配置，跳过。")
             return None
-        if not bool(layer_cfg.get("enabled", True)) and not _is_superuser(_uid(event)):
-            return False
+
+        # 1. 检查总开关 'enabled'
+        if not bool(layer_cfg.get("enabled", True)):
+            if _is_superuser(_uid(event)):
+                logger.debug(f"{log_prefix} - 'enabled'为False，但用户是超级用户，忽略此规则。")
+            else:
+                logger.info(f"{log_prefix} - ❌ 拒绝: 配置中 'enabled' 为 False。")
+                return False
+
+        # 2. 检查白名单/黑名单
         force_f = _is_allowed_by_lists(event, layer_cfg.get("whitelist"), layer_cfg.get("blacklist"))
         if force_f is True:
+            logger.info(f"{log_prefix} - ✅ 允许: 用户或群组在白名单中。")
             return True
         if force_f is False:
+            logger.info(f"{log_prefix} - ❌ 拒绝: 用户或群组在黑名单中。")
             return False
-        if not _check_scene(str(layer_cfg.get("scene", "all")), event):
+
+        # 3. 检查场景 'scene'
+        scene = str(layer_cfg.get("scene", "all"))
+        if not _check_scene(scene, event):
+            logger.info(f"{log_prefix} - ❌ 拒绝: 场景不匹配 (需要: '{scene}')。")
             return False
-        if not _check_level(str(layer_cfg.get("level", "all")), event):
+
+        # 4. 检查等级 'level'
+        level = str(layer_cfg.get("level", "all"))
+        if not _check_level(level, event):
+            logger.info(f"{log_prefix} - ❌ 拒绝: 权限等级不足 (需要: '{level}')。")
             return False
+        
+        logger.debug(f"{log_prefix} - 通过所有检查 (enabled, 名单, scene, level)。")
         return True
 
-    async def _checker(bot, event) -> bool:  # type: ignore[override]
+    async def _checker(bot, event) -> bool:
+        """
+        最终的异步检查函数，整合插件和命令两个层级的权限判断。
+        """
+        logger.debug(f"--- 开始权限检查: feature='{feature}' ---")
         cfg = _load_cfg()
 
-        # Plugin and command layers only (no global layer)
+        # 全局兜底：当权限文件不存在或无任何默认项（有效配置为空）时，默认放行
+        if not cfg:
+            logger.info("--- 最终裁决: ✅ 允许 (原因: 权限文件/默认配置均为空，默认允许) ---")
+            return True
+
         plugin_name, cmd_name = _get_plugin_command(feature)
+        logger.debug(f"解析结果 -> 插件: '{plugin_name}', 命令: '{cmd_name}'")
+
         plug = cfg.get(plugin_name) or {}
+
+        # 当该插件在配置中完全不存在（文件与默认均无该插件条目）时，默认放行
+        if not plug:
+            logger.info("--- 最终裁决: ✅ 允许 (原因: 插件无任何权限配置，默认允许) ---")
+            return True
+
+        # --- 第一层: 插件级检查 (top) ---
         p_cfg = plug.get("top")
-        p_res = _eval_layer(p_cfg, event)
+        p_res = _eval_layer(p_cfg, event, layer_name="插件")
+        logger.debug(f"插件层检查结果: {p_res}")
+
         if p_res is False:
+            logger.info(f"--- 最终裁决: ❌ 拒绝 (原因: 插件层明确拒绝) ---")
             return False
-        c_cfg = None
+
+        # --- 第二层: 命令级检查 (commands) ---
+        c_res = None
         if cmd_name:
             c_cfg = (plug.get("commands") or {}).get(cmd_name)
-        c_res = _eval_layer(c_cfg, event)
-        if c_res is False:
+            c_res = _eval_layer(c_cfg, event, layer_name="命令")
+            logger.debug(f"命令层检查结果: {c_res}")
+        
+            if c_res is False:
+                logger.info(f"--- 最终裁决: ❌ 拒绝 (原因: 命令层明确拒绝) ---")
+                return False
+        else:
+            logger.debug("无命令名，跳过命令层检查。")
+
+        # --- 新裁决逻辑：插件优先，命令其次（两层均需通过） ---
+        # 仅对命令检查时：先看插件层，插件层通过后再看命令层；两层都通过才允许
+        # 若无命令名（仅插件级权限）：仅当插件层通过时允许
+        if p_res is not True:
+            logger.info(f"--- 最终裁决: ❌ 拒绝 (原因: 插件层未通过: {p_res}) ---")
             return False
-        return any(x is True for x in (p_res, c_res)) or (p_res is None and c_res is None)
+        if cmd_name:
+            if c_res is True:
+                logger.info("--- 最终裁决: ✅ 允许 (原因: 插件层与命令层均通过) ---")
+                return True
+            else:
+                logger.info(f"--- 最终裁决: ❌ 拒绝 (原因: 命令层未通过: {c_res}) ---")
+                return False
+        else:
+            logger.info("--- 最终裁决: ✅ 允许 (原因: 仅插件级检查且通过) ---")
+            return True
+
+        # --- 最终裁决 ---
+        # 裁决逻辑: 只要任一层明确允许(True)，就通过。
+        # 如果没有任何一层明确拒绝(False)，且没有任何一层明确允许(True)，即所有层都是None，则默认通过。
+        final_decision = any(x is True for x in (p_res, c_res)) or (p_res is None and c_res is None)
+
+        if final_decision:
+            if p_res is True or c_res is True:
+                reason = "至少有一层配置明确允许"
+            else: # p_res is None and c_res is None
+                reason = "插件和命令层均未配置特定规则，默认允许"
+            logger.info(f"--- 最终裁决: ✅ 允许 (原因: {reason}) ---")
+        else:
+            # 这个分支理论上不会被触发，因为所有 False 的情况都已提前 return
+            # 但为了代码健壮性保留
+            logger.warning(f"--- 最终裁决: ❌ 拒绝 (原因: 未知 - Plugin:{p_res}, Command:{c_res}) ---")
+
+        return final_decision
 
     return _checker
-
 
 def permission_for(feature: str) -> Permission:
     return Permission(_checker_factory(feature))

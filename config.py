@@ -86,10 +86,22 @@ class ConfigProxy:
             self._reload()
 
     def load(self) -> Dict[str, Any]:
-        """Load config without merging defaults, using in-memory cache."""
+        """Load config and deep-fill missing keys from defaults (in-memory cache).
+
+        Existing user values are preserved; only absent keys are filled from
+        the registered defaults.
+        """
         self.ensure()
         self.ensure_loaded()
-        return json.loads(json.dumps(self._cache or {}))
+        merged = _deep_merge(self.defaults or {}, self._cache or {})
+        # Persist filled defaults when file lacks keys
+        try:
+            if json.dumps(merged, sort_keys=True, ensure_ascii=False) != json.dumps(self._cache or {}, sort_keys=True, ensure_ascii=False):
+                self.save(merged)
+        except Exception:
+            # best effort; keep merged in memory
+            self._cache = json.loads(json.dumps(merged))
+        return json.loads(json.dumps(merged))
 
     def save(self, cfg: Dict[str, Any]) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -149,11 +161,86 @@ def _perm_entry_default(level: str = "all", scene: str = "all") -> Dict[str, Any
     }
 
 
+def _scan_plugins_for_permissions() -> Dict[str, Any]:
+    """Scan bundled plugins to build a strict per-plugin permissions map.
+
+    Structure: { "<plugin>": { "top": Entry, "commands": { name: Entry } }, ... }
+    This is used only to bootstrap a sensible initial permissions.json when
+    none exists. It does NOT mutate any existing user configuration.
+    """
+    result: Dict[str, Any] = {}
+    try:
+        base = Path(__file__).parent / "plugins"
+        if not base.exists():
+            return result
+
+        for pdir in base.iterdir():
+            try:
+                if not pdir.is_dir() or not (pdir / "__init__.py").exists():
+                    continue
+                plugin_name = pdir.name
+                node = result.setdefault(plugin_name, {"top": _perm_entry_default(), "commands": {}})
+                node.setdefault("top", _perm_entry_default())
+                cmds = node.setdefault("commands", {})
+
+                import ast as _ast
+
+                for f in pdir.rglob("*.py"):
+                    try:
+                        text = f.read_text(encoding="utf-8", errors="ignore")
+                    except Exception:
+                        continue
+                    try:
+                        tree = _ast.parse(text.lstrip("\ufeff"))
+                    except Exception:
+                        continue
+
+                    # collect alias names for upsert_command_defaults
+                    up_names = {"upsert_command_defaults"}
+                    for node_ in _ast.walk(tree):
+                        if isinstance(node_, _ast.ImportFrom):
+                            try:
+                                for alias in node_.names:
+                                    if alias.name == "upsert_command_defaults" and alias.asname:
+                                        up_names.add(alias.asname)
+                            except Exception:
+                                pass
+
+                    for node_ in _ast.walk(tree):
+                        try:
+                            if isinstance(node_, _ast.Call):
+                                fn = node_.func
+                                # P.on_regex(..., name="...")
+                                if isinstance(fn, _ast.Attribute) and isinstance(fn.value, _ast.Name) and fn.value.id == "P" and fn.attr == "on_regex":
+                                    for kw in node_.keywords or []:
+                                        if kw.arg == "name" and isinstance(kw.value, _ast.Constant) and isinstance(kw.value.value, str):
+                                            cmds.setdefault(str(kw.value.value), _perm_entry_default())
+                                # P.permission_cmd("...")
+                                if isinstance(fn, _ast.Attribute) and isinstance(fn.value, _ast.Name) and fn.value.id == "P" and fn.attr == "permission_cmd":
+                                    if node_.args and isinstance(node_.args[0], _ast.Constant) and isinstance(node_.args[0].value, str):
+                                        cmds.setdefault(str(node_.args[0].value), _perm_entry_default())
+                                # upsert_command_defaults or alias called with (plugin, command)
+                                if isinstance(fn, _ast.Name) and fn.id in up_names:
+                                    if len(node_.args) >= 2 and all(isinstance(a, _ast.Constant) and isinstance(a.value, str) for a in node_.args[:2]):
+                                        pn = str(node_.args[0].value)
+                                        cn = str(node_.args[1].value)
+                                        if pn == plugin_name and cn:
+                                            cmds.setdefault(cn, _perm_entry_default())
+                        except Exception:
+                            continue
+            except Exception:
+                continue
+    except Exception:
+        # return what we have gathered so far on any unexpected error
+        pass
+    return result
+
+
 def _permissions_default() -> Dict[str, Any]:
-    # Target schema (strict):
-    # { "<plugin>": { "top": Entry, "commands": { name: Entry } }, ... }
-    # No global-level fields.
-    return {}
+    # Generate a strict per-plugin permissions map on demand (ephemeral).
+    # This is used as the in-memory default shape; the project file should not
+    # be auto-populated from this by default.
+    return _scan_plugins_for_permissions()
 
 
 def permissions_path() -> Path:
@@ -164,8 +251,14 @@ def ensure_permissions_file() -> None:
     p = permissions_path()
     p.parent.mkdir(parents=True, exist_ok=True)
     if not p.exists():
+        # Initialize with scanned defaults if available; otherwise empty means "allow all"
         try:
-            p.write_text(json.dumps(_permissions_default(), ensure_ascii=False, indent=2), encoding="utf-8")
+            defaults = _permissions_default()
+        except Exception:
+            defaults = {}
+        try:
+            init_data = defaults if isinstance(defaults, dict) and defaults else {}
+            p.write_text(json.dumps(init_data, ensure_ascii=False, indent=2), encoding="utf-8")
         except Exception:
             pass
 
@@ -178,7 +271,9 @@ def load_permissions() -> Dict[str, Any]:
             return data
     except Exception:
         pass
-    return _permissions_default()
+    # On error or non-dict, return empty; merging with defaults and persistence
+    # will be handled by permission layer.
+    return {}
 
 
 def save_permissions(data: Dict[str, Any]) -> None:
@@ -308,193 +403,6 @@ def reload_plugin_config(
     return proxy.reload_and_validate()
 
 
-def aggregate_permissions() -> None:
-    """Ensure permissions.json exists and migrate to strict per-plugin schema.
-
-    Target schema:
-    { "<plugin>": { "top": Entry, "commands": { name: Entry } }, ... }
-    No global-level keys. Remove any legacy keys and the pseudo-plugin
-    "nonebot_plugin_entertain" if present.
-    """
-    p = permissions_path()
-    p.parent.mkdir(parents=True, exist_ok=True)
-    if not p.exists():
-        ensure_permissions_file()
-        return
-    try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-    except Exception:
-        save_permissions(_permissions_default())
-        return
-
-    # Build new dict, dropping any global-level keys
-    if not isinstance(data, dict):
-        save_permissions(_permissions_default())
-        return
-
-    new_data: Dict[str, Any] = {}
-
-    # Legacy with 'global'/'plugins'
-    if "plugins" in data or "global" in data:
-        try:
-            pmap = data.get("plugins") or {}
-            if isinstance(pmap, dict):
-                for pn, node in pmap.items():
-                    if not isinstance(node, dict):
-                        continue
-                    if pn == "nonebot_plugin_entertain":
-                        continue
-                    dst = new_data.setdefault(pn, {})
-                    if isinstance(node.get("default"), dict):
-                        dst["top"] = node.get("default")
-                    cmds = node.get("commands") or {}
-                    if isinstance(cmds, dict):
-                        dst_cmds = dst.setdefault("commands", {})
-                        for cn, centry in cmds.items():
-                            if isinstance(centry, dict):
-                                dst_cmds.setdefault(cn, centry)
-        except Exception:
-            new_data = {}
-    else:
-        # Current mixed schema: contains global keys and plugin maps at root
-        for k, v in data.items():
-            if k in {"enabled", "whitelist", "blacklist", "scene", "level"}:
-                continue
-            if k == "nonebot_plugin_entertain":
-                continue
-            if isinstance(v, dict):
-                node = new_data.setdefault(k, {})
-                top = v.get("top") if isinstance(v.get("top"), dict) else None
-                cmds = v.get("commands") if isinstance(v.get("commands"), dict) else None
-                if top:
-                    node["top"] = top
-                if cmds:
-                    node["commands"] = cmds
-
-    # Ensure every plugin node has required keys
-    for pn, node in list(new_data.items()):
-        if not isinstance(node, dict):
-            new_data[pn] = {"top": _perm_entry_default(), "commands": {}}
-            continue
-        node.setdefault("top", _perm_entry_default())
-        node.setdefault("commands", {})
-
-    # Populate from current plugins' source to auto-generate entries
-    try:
-        base = Path(__file__).parent / "plugins"
-        if base.exists():
-            for pdir in base.iterdir():
-                try:
-                    if not pdir.is_dir():
-                        continue
-                    if not (pdir / "__init__.py").exists():
-                        continue
-                    plugin_name = pdir.name
-                    node = new_data.setdefault(plugin_name, {"top": _perm_entry_default(), "commands": {}})
-                    node.setdefault("top", _perm_entry_default())
-                    cmds = node.setdefault("commands", {})
-
-                    # scan files for P.on_regex(..., name="...") and permission_cmd("...")
-                    import ast as _ast
-
-                    for f in pdir.rglob("*.py"):
-                        try:
-                            text = f.read_text(encoding="utf-8", errors="ignore")
-                        except Exception:
-                            continue
-                        try:
-                            tree = _ast.parse(text.lstrip("\ufeff"))
-                        except Exception:
-                            continue
-
-                        # alias collection for upsert_command_defaults
-                        up_names = {"upsert_command_defaults"}
-                        for node in _ast.walk(tree):
-                            if isinstance(node, _ast.ImportFrom):
-                                try:
-                                    for alias in node.names:
-                                        if alias.name == "upsert_command_defaults" and alias.asname:
-                                            up_names.add(alias.asname)
-                                except Exception:
-                                    pass
-
-                        for node in _ast.walk(tree):
-                            try:
-                                if isinstance(node, _ast.Call):
-                                    fn = node.func
-                                    # P.on_regex(..., name="...")
-                                    if isinstance(fn, _ast.Attribute) and isinstance(fn.value, _ast.Name) and fn.value.id == "P" and fn.attr == "on_regex":
-                                        for kw in node.keywords or []:
-                                            if kw.arg == "name" and isinstance(kw.value, _ast.Constant) and isinstance(kw.value.value, str):
-                                                cmds.setdefault(str(kw.value.value), _perm_entry_default())
-                                    # P.permission_cmd("...")
-                                    if isinstance(fn, _ast.Attribute) and isinstance(fn.value, _ast.Name) and fn.value.id == "P" and fn.attr == "permission_cmd":
-                                        if node.args and isinstance(node.args[0], _ast.Constant) and isinstance(node.args[0].value, str):
-                                            cmds.setdefault(str(node.args[0].value), _perm_entry_default())
-                                    # upsert_command_defaults or alias
-                                    if isinstance(fn, _ast.Name) and fn.id in up_names:
-                                        if len(node.args) >= 2 and all(isinstance(a, _ast.Constant) and isinstance(a.value, str) for a in node.args[:2]):
-                                            pn = str(node.args[0].value)
-                                            cn = str(node.args[1].value)
-                                            if pn == plugin_name and cn:
-                                                cmds.setdefault(cn, _perm_entry_default())
-                            except Exception:
-                                continue
-                except Exception:
-                    continue
-    except Exception:
-        pass
-
-    save_permissions(new_data)
-
-
-def _migrate_legacy_plugin_configs() -> None:
-    """Migrate legacy flat config files to new per-plugin layout.
-
-    - box: config/config.json -> config/box/config.json
-    - taffy: config/taffy.json -> config/taffy/config.json
-    """
-    # box (very old flat file)
-    try:
-        legacy_box = config_dir() / "config.json"
-        if legacy_box.exists():
-            try:
-                data = json.loads(legacy_box.read_text(encoding="utf-8"))
-                if isinstance(data, dict):
-                    dst = config_dir("box") / "config.json"
-                    if not dst.exists():
-                        dst.parent.mkdir(parents=True, exist_ok=True)
-                        dst.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-            except Exception:
-                pass
-            try:
-                legacy_box.unlink()
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-    # taffy (very old flat file)
-    try:
-        legacy_taffy = config_dir() / "taffy.json"
-        if legacy_taffy.exists():
-            try:
-                data = json.loads(legacy_taffy.read_text(encoding="utf-8"))
-                if isinstance(data, dict):
-                    dst = config_dir("taffy") / "config.json"
-                    if not dst.exists():
-                        dst.parent.mkdir(parents=True, exist_ok=True)
-                        dst.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-            except Exception:
-                pass
-            try:
-                legacy_taffy.unlink()
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-
 def bootstrap_configs() -> None:
     try:
         config_dir().mkdir(parents=True, exist_ok=True)
@@ -505,10 +413,7 @@ def bootstrap_configs() -> None:
         ensure_permissions_file()
     except Exception:
         pass
-    # Migrate any legacy config layout
-    _migrate_legacy_plugin_configs()
-    # Normalize permissions data shape if coming from older schema
-    aggregate_permissions()
+    # No legacy migrations; first-run file is generated and then respected
 
 def reload_all_configs() -> Tuple[bool, Dict[str, Any]]:
     """Reload all registered plugin configs and permissions.

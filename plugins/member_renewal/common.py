@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import math
 import secrets
-import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -14,7 +13,7 @@ from nonebot.log import logger
 from zoneinfo import ZoneInfo
 
 from .config import load_cfg
-from ...utils import config_dir
+
 
 
 # Valid membership time units
@@ -61,40 +60,21 @@ def _days_remaining(expiry: datetime) -> int:
 # ----- Simple JSON storage (local file only) -----
 
 _PLUGIN_DIR = Path(__file__).parent
-_OLD_DATA_FILE = _PLUGIN_DIR / "group_memberships.json"
-_NEW_DATA_FILE = config_dir("member_renewal") / "memberships.json"
+# Store memberships.json in plugin directory only (no legacy support)
+_NEW_DATA_FILE = _PLUGIN_DIR / "memberships.json"
 
 
 def _ensure_file() -> None:
-    # Ensure new path exists and migrate from legacy path once
+    # Only ensure the new path exists and initialize if missing
     try:
         _NEW_DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
     except Exception:
         pass
     if not _NEW_DATA_FILE.exists():
-        if _OLD_DATA_FILE.exists():
-            try:
-                text = _OLD_DATA_FILE.read_text(encoding="utf-8")
-            except Exception:
-                text = '{"generatedCodes": {}}'
-            try:
-                _NEW_DATA_FILE.write_text(text, encoding="utf-8")
-            except Exception:
-                try:
-                    _NEW_DATA_FILE.write_text('{"generatedCodes": {}}', encoding="utf-8")
-                except Exception:
-                    pass
-            # backup legacy file
-            try:
-                bak = _OLD_DATA_FILE.with_suffix(_OLD_DATA_FILE.suffix + ".bak")
-                shutil.move(str(_OLD_DATA_FILE), str(bak))
-            except Exception:
-                pass
-        else:
-            try:
-                _NEW_DATA_FILE.write_text('{"generatedCodes": {}}', encoding="utf-8")
-            except Exception:
-                pass
+        try:
+            _NEW_DATA_FILE.write_text('{"generatedCodes": {}}', encoding="utf-8")
+        except Exception:
+            pass
 
 
 def _read_data() -> Dict[str, Any]:
@@ -152,4 +132,3 @@ def _choose_bots(preferred_id: Optional[str]) -> List[Bot]:
         bots.append(bots_map[preferred_id])
     bots.extend([b for sid, b in bots_map.items() if sid != preferred_id])
     return bots
-
