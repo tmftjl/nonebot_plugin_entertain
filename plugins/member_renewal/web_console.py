@@ -116,7 +116,7 @@ def setup_web_console() -> None:
             except Exception as e:
                 raise HTTPException(500, f"更新权限失败: {e}")
 
-        # 配置 - 获取member_renewal配置
+        # 配置
         @router.get("/config")
         async def api_get_config():
             return load_cfg()
@@ -126,31 +126,6 @@ def setup_web_console() -> None:
             try:
                 save_cfg(payload)
                 return {"success": True, "message": "配置已更新"}
-            except Exception as e:
-                raise HTTPException(500, f"更新配置失败: {e}")
-        
-        # 配置 - 获取所有插件配置
-        @router.get("/all-configs")
-        async def api_get_all_configs():
-            from ...config import _CONFIG_REGISTRY
-            result = {}
-            for (plugin, filename), proxy in _CONFIG_REGISTRY.items():
-                try:
-                    result.setdefault(plugin, {})[filename] = proxy.load()
-                except Exception:
-                    result.setdefault(plugin, {})[filename] = {}
-            return result
-        
-        # 配置 - 更新指定插件的配置
-        @router.put("/plugin-config/{plugin}/{filename}")
-        async def api_update_plugin_config(plugin: str, filename: str, payload: Dict[str, Any]):
-            try:
-                from ...config import _CONFIG_REGISTRY, register_plugin_config
-                proxy = _CONFIG_REGISTRY.get((plugin, filename))
-                if not proxy:
-                    proxy = register_plugin_config(plugin, {}, filename=filename)
-                proxy.save(payload)
-                return {"success": True, "message": f"{plugin} 配置已更新"}
             except Exception as e:
                 raise HTTPException(500, f"更新配置失败: {e}")
 

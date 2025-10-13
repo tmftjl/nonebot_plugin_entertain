@@ -318,25 +318,6 @@ def _checker_factory(feature: str):
         else:
             logger.info("--- 最终裁决: ✅ 允许 (原因: 仅插件级检查且通过) ---")
             return True
-
-        # --- 最终裁决 ---
-        # 裁决逻辑: 只要任一层明确允许(True)，就通过。
-        # 如果没有任何一层明确拒绝(False)，且没有任何一层明确允许(True)，即所有层都是None，则默认通过。
-        final_decision = any(x is True for x in (p_res, c_res)) or (p_res is None and c_res is None)
-
-        if final_decision:
-            if p_res is True or c_res is True:
-                reason = "至少有一层配置明确允许"
-            else: # p_res is None and c_res is None
-                reason = "插件和命令层均未配置特定规则，默认允许"
-            logger.info(f"--- 最终裁决: ✅ 允许 (原因: {reason}) ---")
-        else:
-            # 这个分支理论上不会被触发，因为所有 False 的情况都已提前 return
-            # 但为了代码健壮性保留
-            logger.warning(f"--- 最终裁决: ❌ 拒绝 (原因: 未知 - Plugin:{p_res}, Command:{c_res}) ---")
-
-        return final_decision
-
     return _checker
 
 def permission_for(feature: str) -> Permission:
