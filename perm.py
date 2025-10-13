@@ -220,9 +220,11 @@ def _checker_factory(feature: str):
     def _parse_layers(name: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
         """解析 feature 字符串，分离出 框架 / 子插件 / 命令 三层。
 
-        期望格式：framework:sub:cmd
-        - 允许缺省后两层：framework:sub / framework
-        - 允许旧格式 (sub:cmd 或 sub_cmd)，此时框架默认取 FRAMEWORK_NAME
+        仅支持新格式：
+        - framework:sub:cmd（命令级）
+        - framework:sub（子插件级）
+        - framework（框架级）
+        旧格式（如 sub_cmd / sub:cmd）不再支持。
         """
         fw: Optional[str] = None
         sub: Optional[str] = None
@@ -236,14 +238,9 @@ def _checker_factory(feature: str):
             else:
                 fw = parts[0]
         else:
-            # Old 2-level hints: sub:cmd or sub_cmd
-            if "_" in name:
-                p, c = name.split("_", 1)
-                sub, cmd = p.strip(), c.strip()
-            else:
-                sub = name.strip()
-            fw = FRAMEWORK_NAME
-        # Fill default framework when missing
+            # 无冒号，视为框架级检查
+            fw = name.strip() or FRAMEWORK_NAME
+        # 默认框架名
         if not fw:
             fw = FRAMEWORK_NAME
         return fw or None, sub or None, cmd or None
@@ -333,30 +330,21 @@ def _checker_factory(feature: str):
         s_res = _eval_layer(sub_cfg_top, event, layer_name="子插件") if sub_name else None
         c_res = _eval_layer(cmd_cfg, event, layer_name="命令") if cmd_name else None
 
-        # 裁决顺序（允许覆盖）：命令 > 子插件 > 框架
-        if c_res is True:
-            logger.info("--- 最终裁决: ✅ 允许 (原因: 命令层白名单/配置允许) ---")
-            return True
-        if c_res is False:
-            logger.info("--- 最终裁决: ❌ 拒绝 (原因: 命令层明确拒绝) ---")
-            return False
-
-        if s_res is True:
-            logger.info("--- 最终裁决: ✅ 允许 (原因: 子插件层允许) ---")
-            return True
-        if s_res is False:
-            logger.info("--- 最终裁决: ❌ 拒绝 (原因: 子插件层明确拒绝) ---")
-            return False
-
-        if f_res is True:
-            logger.info("--- 最终裁决: ✅ 允许 (原因: 框架层允许) ---")
-            return True
+        # 顺序门控：框架 -> 子插件 -> 命令
+        # 任一层返回 False 则拒绝；None 视为“未配置”，按通过处理继续向下检查。
         if f_res is False:
-            logger.info("--- 最终裁决: ❌ 拒绝 (原因: 框架层明确拒绝) ---")
+            logger.info("--- 最终裁决: ❌ 拒绝 (原因: 框架层未通过) ---")
             return False
-
-        # 默认放行（无规则命中）
-        logger.info("--- 最终裁决: ✅ 允许 (原因: 无任何层级配置，默认允许) ---")
+        if sub_name:
+            if s_res is False:
+                logger.info("--- 最终裁决: ❌ 拒绝 (原因: 子插件层未通过) ---")
+                return False
+        if cmd_name:
+            if c_res is False:
+                logger.info("--- 最终裁决: ❌ 拒绝 (原因: 命令层未通过) ---")
+                return False
+        # 所有已配置层均未拒绝，则允许
+        logger.info("--- 最终裁决: ✅ 允许 (原因: 各层级均通过或未配置) ---")
         return True
     return _checker
 
