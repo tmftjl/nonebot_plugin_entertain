@@ -254,39 +254,28 @@ def _checker_factory(feature: str):
         log_prefix = f"权限检查 [{layer_name}层]"
 
         if not isinstance(layer_cfg, dict) or not layer_cfg:
-            logger.debug(f"{log_prefix} - 未找到配置，跳过。")
             return None
 
         # 1. 检查总开关 'enabled'
         if not bool(layer_cfg.get("enabled", True)):
-            if _is_superuser(_uid(event)):
-                logger.debug(f"{log_prefix} - 'enabled'为False，但用户是超级用户，忽略此规则。")
-            else:
-                logger.info(f"{log_prefix} - ❌ 拒绝: 配置中 'enabled' 为 False。")
-                return False
+            return False
 
         # 2. 检查白名单/黑名单
         force_f = _is_allowed_by_lists(event, layer_cfg.get("whitelist"), layer_cfg.get("blacklist"))
         if force_f is True:
-            logger.info(f"{log_prefix} - ✅ 允许: 用户或群组在白名单中。")
             return True
         if force_f is False:
-            logger.info(f"{log_prefix} - ❌ 拒绝: 用户或群组在黑名单中。")
             return False
 
         # 3. 检查场景 'scene'
         scene = str(layer_cfg.get("scene", "all"))
         if not _check_scene(scene, event):
-            logger.info(f"{log_prefix} - ❌ 拒绝: 场景不匹配 (需要: '{scene}')。")
             return False
 
         # 4. 检查等级 'level'
         level = str(layer_cfg.get("level", "all"))
         if not _check_level(level, event):
-            logger.info(f"{log_prefix} - ❌ 拒绝: 权限等级不足 (需要: '{level}')。")
             return False
-        
-        logger.debug(f"{log_prefix} - 通过所有检查 (enabled, 名单, scene, level)。")
         return True
 
     async def _checker(bot, event) -> bool:
@@ -294,23 +283,14 @@ def _checker_factory(feature: str):
         最终的异步检查函数，整合 框架/子插件/命令 三个层级的权限判断。
         优先级（允许覆盖）：命令层 > 子插件层 > 框架层。
         """
-        logger.debug(f"--- 开始权限检查: feature='{feature}' ---")
         cfg = _load_cfg()
-
         # 全局兜底：当权限文件不存在或无任何默认项（有效配置为空）时，默认放行
         if not cfg:
-            logger.info("--- 最终裁决: ✅ 允许 (原因: 权限文件/默认配置均为空，默认允许) ---")
             return True
-
         fw_name, sub_name, cmd_name = _parse_layers(feature)
-        logger.debug(
-            f"解析结果 -> 框架: '{fw_name}', 子插件: '{sub_name}', 命令: '{cmd_name}'"
-        )
-
         # 根节点（框架）
         fw = cfg.get(fw_name or "") or {}
         if not fw:
-            logger.info("--- 最终裁决: ✅ 允许 (原因: 框架无任何权限配置，默认允许) ---")
             return True
 
         # 三层配置
@@ -333,18 +313,13 @@ def _checker_factory(feature: str):
         # 顺序门控：框架 -> 子插件 -> 命令
         # 任一层返回 False 则拒绝；None 视为“未配置”，按通过处理继续向下检查。
         if f_res is False:
-            logger.info("--- 最终裁决: ❌ 拒绝 (原因: 框架层未通过) ---")
             return False
         if sub_name:
             if s_res is False:
-                logger.info("--- 最终裁决: ❌ 拒绝 (原因: 子插件层未通过) ---")
                 return False
         if cmd_name:
             if c_res is False:
-                logger.info("--- 最终裁决: ❌ 拒绝 (原因: 命令层未通过) ---")
                 return False
-        # 所有已配置层均未拒绝，则允许
-        logger.info("--- 最终裁决: ✅ 允许 (原因: 各层级均通过或未配置) ---")
         return True
     return _checker
 
