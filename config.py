@@ -7,6 +7,10 @@ from typing import Any, Dict, Optional, Callable, Tuple
 
 from .utils import config_dir
 
+# Framework identifier used for nested permissions
+# This package name is the framework name by design
+FRAMEWORK_NAME = "nonebot_plugin_entertain"
+
 
 def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
     def _merge(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
@@ -148,7 +152,7 @@ class ConfigProxy:
     
 
 
-# ----- New unified permissions (single global file) -----
+# ----- New unified permissions (single global file, nested: framework -> sub_plugins -> commands) -----
 
 
 def _perm_entry_default(level: str = "all", scene: str = "all") -> Dict[str, Any]:
@@ -162,9 +166,21 @@ def _perm_entry_default(level: str = "all", scene: str = "all") -> Dict[str, Any
 
 
 def _scan_plugins_for_permissions() -> Dict[str, Any]:
-    """Scan bundled plugins to build a strict per-plugin permissions map.
+    """Scan bundled sub-plugins to build a nested permissions map.
 
-    Structure: { "<plugin>": { "top": Entry, "commands": { name: Entry } }, ... }
+    Structure:
+    {
+      FRAMEWORK_NAME: {
+        "top": Entry,
+        "sub_plugins": {
+          "<sub_plugin>": {
+            "top": Entry,
+            "commands": { "name": Entry }
+          }
+        }
+      }
+    }
+
     This is used only to bootstrap a sensible initial permissions.json when
     none exists. It does NOT mutate any existing user configuration.
     """
@@ -173,13 +189,16 @@ def _scan_plugins_for_permissions() -> Dict[str, Any]:
         base = Path(__file__).parent / "plugins"
         if not base.exists():
             return result
+        # Initialize framework root
+        fw = result.setdefault(FRAMEWORK_NAME, {"top": _perm_entry_default(), "sub_plugins": {}})
+        sub_map = fw.setdefault("sub_plugins", {})
 
         for pdir in base.iterdir():
             try:
                 if not pdir.is_dir() or not (pdir / "__init__.py").exists():
                     continue
-                plugin_name = pdir.name
-                node = result.setdefault(plugin_name, {"top": _perm_entry_default(), "commands": {}})
+                sub_name = pdir.name
+                node = sub_map.setdefault(sub_name, {"top": _perm_entry_default(), "commands": {}})
                 node.setdefault("top", _perm_entry_default())
                 cmds = node.setdefault("commands", {})
 
@@ -224,7 +243,7 @@ def _scan_plugins_for_permissions() -> Dict[str, Any]:
                                     if len(node_.args) >= 2 and all(isinstance(a, _ast.Constant) and isinstance(a.value, str) for a in node_.args[:2]):
                                         pn = str(node_.args[0].value)
                                         cn = str(node_.args[1].value)
-                                        if pn == plugin_name and cn:
+                                        if pn == sub_name and cn:
                                             cmds.setdefault(cn, _perm_entry_default())
                         except Exception:
                             continue
@@ -237,7 +256,7 @@ def _scan_plugins_for_permissions() -> Dict[str, Any]:
 
 
 def _permissions_default() -> Dict[str, Any]:
-    # Generate a strict per-plugin permissions map on demand (ephemeral).
+    # Generate a nested permissions map on demand (ephemeral) for the framework.
     # This is used as the in-memory default shape; the project file should not
     # be auto-populated from this by default.
     return _scan_plugins_for_permissions()
@@ -303,10 +322,16 @@ def upsert_plugin_defaults(
     wl_groups: Optional[list[str]] = None,
     bl_users: Optional[list[str]] = None,
     bl_groups: Optional[list[str]] = None,
-) -> None:
+    ) -> None:
+    """Upsert defaults for a sub-plugin under the framework namespace.
+
+    Note: `plugin` here refers to the sub-plugin name inside the framework.
+    """
     data = load_permissions()
-    p = data.setdefault(plugin, {})
-    d = p.setdefault("top", _perm_entry_default())
+    fw = data.setdefault(FRAMEWORK_NAME, {})
+    sub_map = fw.setdefault("sub_plugins", {})
+    sp = sub_map.setdefault(plugin, {})
+    d = sp.setdefault("top", _perm_entry_default())
     # Set only provided keys; strict validation happens in registry
     if enabled is not None:
         d["enabled"] = bool(enabled)
@@ -337,9 +362,15 @@ def upsert_command_defaults(
     bl_users: Optional[list[str]] = None,
     bl_groups: Optional[list[str]] = None,
 ) -> None:
+    """Upsert defaults for a specific command under a sub-plugin in the framework.
+
+    Note: `plugin` here refers to the sub-plugin name inside the framework.
+    """
     data = load_permissions()
-    p = data.setdefault(plugin, {})
-    cmds = p.setdefault("commands", {})
+    fw = data.setdefault(FRAMEWORK_NAME, {})
+    sub_map = fw.setdefault("sub_plugins", {})
+    sp = sub_map.setdefault(plugin, {})
+    cmds = sp.setdefault("commands", {})
     c = cmds.setdefault(command, _perm_entry_default())
     if enabled is not None:
         c["enabled"] = bool(enabled)

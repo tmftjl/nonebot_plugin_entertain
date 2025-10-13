@@ -3,7 +3,7 @@ nonebot-plugin-entertain
 
 简介
 - 娱乐功能合集，按子插件拆分于 `plugins/*`
-- 统一权限控制：插件(top)、命令(commands) 两层（无全局层）
+- 统一权限控制：框架(top) -> 子插件(top) -> 命令(commands) 三层嵌套
 
 环境
 - Python 3.9+
@@ -24,23 +24,30 @@ nonebot-plugin-entertain
 
 权限模型（文件）
 - 文件：`config/permissions.json`
-- 结构（严格每插件）：
-  - `<plugin>.top` 插件级默认项
-  - `<plugin>.commands.<name>` 命令级默认项
+- 结构（嵌套：框架 -> 子插件 -> 命令）：
+  - `<framework>.top` 框架级默认项
+  - `<framework>.sub_plugins.<sub>.top` 子插件级默认项
+  - `<framework>.sub_plugins.<sub>.commands.<name>` 命令级默认项
+- 标识符：`nonebot_plugin_entertain:<子插件>:<命令>`（三段式）
 - 示例
 ```
 {
-  "box": {
+  "nonebot_plugin_entertain": {
     "top": { "enabled": true, "level": "all", "scene": "all" },
-    "commands": {
-      "open": { "enabled": true, "level": "admin", "scene": "group" }
+    "sub_plugins": {
+      "box": {
+        "top": { "enabled": true, "level": "all", "scene": "all" },
+        "commands": {
+          "open": { "enabled": true, "level": "admin", "scene": "group" }
+        }
+      }
     }
   }
 }
 ```
 
 首次生成
-- 首次运行若无 `config/permissions.json`，系统会扫描 `plugins/` 自动写入插件/命令条目，生成规范结构；后续不会在启动时自动迁移或重写该文件。
+- 首次运行若无 `config/permissions.json`，系统会扫描 `plugins/` 自动写入 框架/子插件/命令 条目，生成规范结构；后续不会在启动时自动迁移或重写该文件。
 
 权限用法（统一）
 - 使用包装器创建命令（会自动写入命令默认项至 `permissions.json`）：
@@ -51,8 +58,8 @@ P = Plugin()  # 或 P = Plugin(enabled=True, level="all", scene="all")
 
 cmd = P.on_regex(r"^#?<命令>$", name="command_name", priority=13, block=True)
 ```
-- 非正则事件：`permission=P.permission()`（插件级）或 `permission=P.permission_cmd("name")`（命令级）
-- 不再支持旧的每插件目录 `permissions.json` 与旧的 `permission_for*`/`register_command` 用法。
+- 非正则事件：`permission=P.permission()`（子插件级）或 `permission=P.permission_cmd("name")`（命令级）
+- 内部使用三段式标识 `nonebot_plugin_entertain:<子插件>:<命令>` 完成三级校验；命令层可对白名单进行精确豁免。
 
 配置管理（统一 API，独立文件）
 - 每个插件各自使用 `config/<plugin>/config.json` 存储配置；文件不存在时写入默认值，存在则直接使用文件内容（不做默认值合并）。
@@ -86,4 +93,3 @@ ok, cfg, err = reload_plugin_config("<plugin>")
 注意
 - 权限与配置均在内存中缓存，变更后可调用对应的重载函数（权限：`from nonebot_plugin_entertain.perm import reload_permissions`）。
 - 若运行环境无权写入包目录，请设置 `NPE_CONFIG_DIR` 指向可写路径。
-

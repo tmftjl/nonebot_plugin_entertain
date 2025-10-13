@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple
 import json
 import time
 from pathlib import Path
@@ -8,7 +8,12 @@ from pathlib import Path
 from nonebot.permission import Permission
 from nonebot.adapters.onebot.v11 import GroupMessageEvent, PrivateMessageEvent
 
-from .config import _permissions_default, save_permissions, ensure_permissions_file
+from .config import (
+    _permissions_default,
+    save_permissions,
+    ensure_permissions_file,
+    FRAMEWORK_NAME,
+)
 from .utils import config_dir
 from nonebot.log import logger
 from .kv_cache import KeyValueCache
@@ -109,9 +114,16 @@ def _load_cfg() -> Dict[str, Any]:
     except Exception:
         defaults = {}
 
-    # Merge (fill missing only) and persist when changed
+    # Merge (fill missing only) and persist when changed.
+    # If the existing file lacks the framework root, replace with new defaults.
     def _loader() -> Dict[str, Any]:
-        merged = _deep_fill(current, defaults)
+        nonlocal current, defaults
+        try:
+            need_replace = not (isinstance(current, dict) and isinstance(current.get(FRAMEWORK_NAME), dict))
+        except Exception:
+            need_replace = True
+
+        merged = defaults if need_replace else _deep_fill(current, defaults)
         try:
             if json.dumps(merged, sort_keys=True, ensure_ascii=False) != json.dumps(current, sort_keys=True, ensure_ascii=False):
                 save_permissions(merged)
@@ -202,17 +214,39 @@ def _is_allowed_by_lists(event, wl: Dict[str, Any] | None, bl: Dict[str, Any] | 
 def _checker_factory(feature: str):
     """
     权限检查器工厂函数，创建一个包含详细日志记录的异步检查函数。
+    支持三层标识：框架:子插件:命令
     """
-    def _get_plugin_command(name: str) -> tuple[str, Optional[str]]:
-        """解析 feature 字符串，分离出插件名和命令名。"""
+
+    def _parse_layers(name: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+        """解析 feature 字符串，分离出 框架 / 子插件 / 命令 三层。
+
+        期望格式：framework:sub:cmd
+        - 允许缺省后两层：framework:sub / framework
+        - 允许旧格式 (sub:cmd 或 sub_cmd)，此时框架默认取 FRAMEWORK_NAME
+        """
+        fw: Optional[str] = None
+        sub: Optional[str] = None
+        cmd: Optional[str] = None
         if ":" in name:
-            p, c = name.split(":", 1)
-            return p.strip(), (c.strip() or None)
-        if "_" in name:
-            p, c = name.split("_", 1)
-            if p and c:
-                return p.strip(), c.strip()
-        return name.strip(), None
+            parts = [p.strip() for p in name.split(":")]
+            if len(parts) >= 3:
+                fw, sub, cmd = parts[0], parts[1], parts[2] or None
+            elif len(parts) == 2:
+                fw, sub = parts[0], parts[1]
+            else:
+                fw = parts[0]
+        else:
+            # Old 2-level hints: sub:cmd or sub_cmd
+            if "_" in name:
+                p, c = name.split("_", 1)
+                sub, cmd = p.strip(), c.strip()
+            else:
+                sub = name.strip()
+            fw = FRAMEWORK_NAME
+        # Fill default framework when missing
+        if not fw:
+            fw = FRAMEWORK_NAME
+        return fw or None, sub or None, cmd or None
 
     def _eval_layer(layer_cfg: Dict[str, Any] | None, event, *, layer_name: str) -> Optional[bool]:
         """
@@ -260,7 +294,8 @@ def _checker_factory(feature: str):
 
     async def _checker(bot, event) -> bool:
         """
-        最终的异步检查函数，整合插件和命令两个层级的权限判断。
+        最终的异步检查函数，整合 框架/子插件/命令 三个层级的权限判断。
+        优先级（允许覆盖）：命令层 > 子插件层 > 框架层。
         """
         logger.debug(f"--- 开始权限检查: feature='{feature}' ---")
         cfg = _load_cfg()
@@ -270,54 +305,59 @@ def _checker_factory(feature: str):
             logger.info("--- 最终裁决: ✅ 允许 (原因: 权限文件/默认配置均为空，默认允许) ---")
             return True
 
-        plugin_name, cmd_name = _get_plugin_command(feature)
-        logger.debug(f"解析结果 -> 插件: '{plugin_name}', 命令: '{cmd_name}'")
+        fw_name, sub_name, cmd_name = _parse_layers(feature)
+        logger.debug(
+            f"解析结果 -> 框架: '{fw_name}', 子插件: '{sub_name}', 命令: '{cmd_name}'"
+        )
 
-        plug = cfg.get(plugin_name) or {}
-
-        # 当该插件在配置中完全不存在（文件与默认均无该插件条目）时，默认放行
-        if not plug:
-            logger.info("--- 最终裁决: ✅ 允许 (原因: 插件无任何权限配置，默认允许) ---")
+        # 根节点（框架）
+        fw = cfg.get(fw_name or "") or {}
+        if not fw:
+            logger.info("--- 最终裁决: ✅ 允许 (原因: 框架无任何权限配置，默认允许) ---")
             return True
 
-        # --- 第一层: 插件级检查 (top) ---
-        p_cfg = plug.get("top")
-        p_res = _eval_layer(p_cfg, event, layer_name="插件")
-        logger.debug(f"插件层检查结果: {p_res}")
+        # 三层配置
+        fw_cfg = fw.get("top")
+        sub_cfg_top = None
+        cmd_cfg = None
 
-        if p_res is False:
-            logger.info(f"--- 最终裁决: ❌ 拒绝 (原因: 插件层明确拒绝) ---")
-            return False
+        if sub_name:
+            sp = (fw.get("sub_plugins") or {}).get(sub_name) or {}
+            if sp:
+                sub_cfg_top = sp.get("top")
+                if cmd_name:
+                    cmd_cfg = (sp.get("commands") or {}).get(cmd_name)
 
-        # --- 第二层: 命令级检查 (commands) ---
-        c_res = None
-        if cmd_name:
-            c_cfg = (plug.get("commands") or {}).get(cmd_name)
-            c_res = _eval_layer(c_cfg, event, layer_name="命令")
-            logger.debug(f"命令层检查结果: {c_res}")
-        
-            if c_res is False:
-                logger.info(f"--- 最终裁决: ❌ 拒绝 (原因: 命令层明确拒绝) ---")
-                return False
-        else:
-            logger.debug("无命令名，跳过命令层检查。")
+        # 逐层评估
+        f_res = _eval_layer(fw_cfg, event, layer_name="框架")
+        s_res = _eval_layer(sub_cfg_top, event, layer_name="子插件") if sub_name else None
+        c_res = _eval_layer(cmd_cfg, event, layer_name="命令") if cmd_name else None
 
-        # --- 新裁决逻辑：插件优先，命令其次（两层均需通过） ---
-        # 仅对命令检查时：先看插件层，插件层通过后再看命令层；两层都通过才允许
-        # 若无命令名（仅插件级权限）：仅当插件层通过时允许
-        if p_res is not True:
-            logger.info(f"--- 最终裁决: ❌ 拒绝 (原因: 插件层未通过: {p_res}) ---")
-            return False
-        if cmd_name:
-            if c_res is True:
-                logger.info("--- 最终裁决: ✅ 允许 (原因: 插件层与命令层均通过) ---")
-                return True
-            else:
-                logger.info(f"--- 最终裁决: ❌ 拒绝 (原因: 命令层未通过: {c_res}) ---")
-                return False
-        else:
-            logger.info("--- 最终裁决: ✅ 允许 (原因: 仅插件级检查且通过) ---")
+        # 裁决顺序（允许覆盖）：命令 > 子插件 > 框架
+        if c_res is True:
+            logger.info("--- 最终裁决: ✅ 允许 (原因: 命令层白名单/配置允许) ---")
             return True
+        if c_res is False:
+            logger.info("--- 最终裁决: ❌ 拒绝 (原因: 命令层明确拒绝) ---")
+            return False
+
+        if s_res is True:
+            logger.info("--- 最终裁决: ✅ 允许 (原因: 子插件层允许) ---")
+            return True
+        if s_res is False:
+            logger.info("--- 最终裁决: ❌ 拒绝 (原因: 子插件层明确拒绝) ---")
+            return False
+
+        if f_res is True:
+            logger.info("--- 最终裁决: ✅ 允许 (原因: 框架层允许) ---")
+            return True
+        if f_res is False:
+            logger.info("--- 最终裁决: ❌ 拒绝 (原因: 框架层明确拒绝) ---")
+            return False
+
+        # 默认放行（无规则命中）
+        logger.info("--- 最终裁决: ✅ 允许 (原因: 无任何层级配置，默认允许) ---")
+        return True
     return _checker
 
 def permission_for(feature: str) -> Permission:
@@ -325,11 +365,13 @@ def permission_for(feature: str) -> Permission:
 
 
 def permission_for_plugin(plugin: str) -> Permission:
-    return Permission(_checker_factory(plugin))
+    # plugin here is the sub-plugin name
+    return Permission(_checker_factory(f"{FRAMEWORK_NAME}:{plugin}"))
 
 
 def permission_for_cmd(plugin: str, command: str) -> Permission:
-    return Permission(_checker_factory(f"{plugin}:{command}"))
+    # plugin here is the sub-plugin name
+    return Permission(_checker_factory(f"{FRAMEWORK_NAME}:{plugin}:{command}"))
 
 
 def reload_permissions() -> None:
