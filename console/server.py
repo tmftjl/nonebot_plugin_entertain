@@ -12,7 +12,7 @@ from nonebot import get_app, get_bots
 from nonebot.adapters.onebot.v11 import Message
 from nonebot.log import logger
 
-from ..system_config import load_cfg, save_cfg
+from ..core.system_config import load_cfg, save_cfg
 from ..core.commands.membership.membership_service import (
     _add_duration,
     _now_utc,
