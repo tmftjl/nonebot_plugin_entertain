@@ -267,10 +267,10 @@ def _checker_factory(feature: str, *, category: str = "sub"):
                             return False
             return True
         elif category == "system":
-            # 结构：system.<plugin>.commands（不受 top 影响）
-            if sub_name and cmd_name:
-                mp = (cfg.get("system") or {}).get(sub_name) or {}
-                c_cfg = (mp.get("commands") or {}).get(cmd_name)
+            # 扁平结构：system.commands（不受 top 影响）
+            if cmd_name:
+                sys_map = (cfg.get("system") or {})
+                c_cfg = (sys_map.get("commands") or {}).get(cmd_name)
                 c_res = _eval_layer(c_cfg, event, layer_name="命令")
                 if c_res is False:
                     return False

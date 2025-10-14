@@ -25,6 +25,12 @@ REG = register_namespaced_config("useful", "taffy", DEFAULT_CFG)
 def _load_cfg() -> Dict[str, Any]:
     return REG.load()
 
+# 模块加载时写入默认配置，避免 config/useful/config.json 为空
+try:
+    _ = _load_cfg()
+except Exception:
+    pass
+
 
 def _fmt_bytes(b: Optional[int]) -> str:
     try:

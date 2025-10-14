@@ -45,37 +45,12 @@ SYSTEM_DEFAULTS: Dict[str, Any] = {
 _REG = register_plugin_config("system", SYSTEM_DEFAULTS, filename="config.json")
 
 
-def _js_config_path() -> Path:
-    return config_dir("system") / "config.js"
-
-
-def _write_js(cfg: Dict[str, Any]) -> None:
-    """输出前端可直接引用的 JS 配置文件。
-
-    内容为 window.NPE_CONFIG = {...}; 写入 config/system/config.js
-    """
-    try:
-        js_path = _js_config_path()
-        js_path.parent.mkdir(parents=True, exist_ok=True)
-        import json as _json
-
-        payload = "window.NPE_CONFIG = " + _json.dumps(cfg, ensure_ascii=False, indent=2) + ";\n"
-        js_path.write_text(payload, encoding="utf-8")
-    except Exception:
-        # 尽力而为；忽略写入错误
-        pass
-
-
 def load_cfg() -> Dict[str, Any]:
-    cfg = _REG.load()
-    # 同步生成 JS 版本，便于网页侧直接使用
-    _write_js(cfg)
-    return cfg
+    return _REG.load()
 
 
 def save_cfg(cfg: Dict[str, Any]) -> None:
     _REG.save(cfg or {})
-    _write_js(_REG.load())
 
 
 def config_path() -> Path:

@@ -283,14 +283,13 @@ def _scan_plugins_for_permissions() -> Dict[str, Any]:
             for pdir in base.iterdir():
                 _scan_one(pdir, pdir.name)
 
-        # 2) 扫描框架内置系统功能（如 membership），收集命令到 system
+        # 2) 扫描框架内置系统功能（如 membership），收集命令到 system（扁平 commands）
         def _scan_system_one(pdir: Path, name: str) -> None:
             try:
                 if not pdir.is_dir() or not (pdir / "__init__.py").exists():
                     return
                 sys_map = result.setdefault("system", {})
-                node = sys_map.setdefault(name, {"commands": {}})
-                cmds = node.setdefault("commands", {})
+                cmds = sys_map.setdefault("commands", {})
 
                 import ast as _ast
                 for f in pdir.rglob("*.py"):
@@ -443,20 +442,31 @@ def optimize_permissions() -> Tuple[bool, Dict[str, Any]]:
             out[name] = {"top": top, "commands": cmds}
         return out
 
-    def _norm_system(sys_map: Any) -> Dict[str, Any]:
-        if not isinstance(sys_map, dict):
-            return {}
-        out: Dict[str, Any] = {}
-        for name in sorted(sys_map.keys(), key=lambda x: str(x)):
-            node = sys_map.get(name)
-            if not isinstance(node, dict):
-                continue
-            cmds_src = node.get("commands") if isinstance(node.get("commands"), dict) else {}
-            cmds: Dict[str, Any] = {}
-            for cname in sorted(cmds_src.keys(), key=lambda x: str(x)):
-                cmds[cname] = _normalize_entry_shape(cmds_src.get(cname))
-            out[name] = {"commands": cmds}
-        return out
+def _norm_system(sys_map: Any) -> Dict[str, Any]:
+    """规范化 system 节点，支持两种结构：
+    - 扁平：{"commands": {...}}
+    - 分组：{"<name>": {"commands": {...}}}
+    按需转换为扁平结构。
+    """
+    if not isinstance(sys_map, dict):
+        return {}
+    # 扁平结构
+    if isinstance(sys_map.get("commands"), dict):
+        cmds_src = sys_map.get("commands") or {}
+        cmds: Dict[str, Any] = {}
+        for cname in sorted(cmds_src.keys(), key=lambda x: str(x)):
+            cmds[cname] = _normalize_entry_shape(cmds_src.get(cname))
+        return {"commands": cmds}
+    # 分组结构 -> 合并为扁平
+    flat_cmds: Dict[str, Any] = {}
+    for name in sorted(sys_map.keys(), key=lambda x: str(x)):
+        node = sys_map.get(name)
+        if not isinstance(node, dict):
+            continue
+        cmds_src = node.get("commands") if isinstance(node.get("commands"), dict) else {}
+        for cname in sorted(cmds_src.keys(), key=lambda x: str(x)):
+            flat_cmds[cname] = _normalize_entry_shape(cmds_src.get(cname))
+    return {"commands": flat_cmds}
 
     new_root: Dict[str, Any] = {}
     new_root["top"] = _normalize_entry_shape((data or {}).get("top"))
@@ -567,12 +577,11 @@ def upsert_system_command_defaults(
     bl_users: Optional[list[str]] = None,
     bl_groups: Optional[list[str]] = None,
 ) -> None:
-    """Upsert defaults for a system command (does not depend on root top)."""
+    """为系统命令写入默认项（不受全局 top 影响），扁平到 system.commands。"""
     data = load_permissions()
     root = data
     sys_map = root.setdefault("system", {})
-    sp = sys_map.setdefault(plugin, {})
-    cmds = sp.setdefault("commands", {})
+    cmds = sys_map.setdefault("commands", {})
     c = cmds.setdefault(command, _perm_entry_default())
     if enabled is not None:
         c["enabled"] = bool(enabled)

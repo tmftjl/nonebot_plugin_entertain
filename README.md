@@ -70,7 +70,7 @@ cmd = P.on_regex(r"^#?<示例>$", name="command_name", priority=13, block=True)
 - 系统内置模块可使用 `Plugin(name="membership", category="system")` 放入 system 分类并受 `system.top` 影响。
 
 配置（统一 API 与文件）
-- 系统整体配置：`config/system/config.json`；同时会生成 `config/system/config.js`（供前端直接引用 `window.NPE_CONFIG`）。
+- 系统整体配置：`config/system/config.json`。
 - 每个子插件仍可使用 `config/<plugin>/config.json` 保存独立配置。
 - 配置目录优先级：环境变量 `NPE_CONFIG_DIR` > 包根目录 `config/`（可写）> 运行目录 `./config/`。
 

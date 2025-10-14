@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from nonebot.plugin import PluginMetadata
 from nonebot.log import logger
@@ -24,7 +24,6 @@ try:
     from .console.server import setup_web_console as _setup
 
     _setup()
-except Exception:
-    logger.debug("membership 控制台挂载失败，已跳过")
+except Exception as e:
+    logger.warning(f"membership 控制台挂载失败: {e}")
     pass
-

@@ -1,10 +1,9 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import base64
 from typing import Optional
 
 import httpx
-from nonebot.matcher import Matcher
 from nonebot.params import RegexGroup
 from nonebot.adapters.onebot.v11 import (
     Bot,
@@ -12,7 +11,7 @@ from nonebot.adapters.onebot.v11 import (
     MessageSegment,
 )
 
-from ...core.api import Plugin
+from ...core.api import Plugin, register_namespaced_config
 from .box_draw import create_image
 
 
@@ -22,6 +21,20 @@ def _b64_image(img_bytes: bytes) -> MessageSegment:
 
 P = Plugin(name="entertain")
 
+# 写入 entertain/config.json 的 box 默认节点
+DEFAULT_CFG = {
+    "auto_box": False,
+    "increase_box": False,
+    "decrease_box": False,
+    "only_admin": False,
+    "auto_box_groups": [],
+    "box_blacklist": [],
+}
+_BOX_CFG = register_namespaced_config("entertain", "box", DEFAULT_CFG)
+try:
+    _ = _BOX_CFG.load()
+except Exception:
+    pass
 
 box_cmd = P.on_regex(r"^(?:[/#])?(?:盒|开盒)\s*(.*)?$", name="open", block=True, priority=5)
 
@@ -73,4 +86,3 @@ async def _(bot: Bot, event: MessageEvent, groups: tuple = RegexGroup()):
         await box_cmd.finish(_b64_image(img))
     except Exception:
         await box_cmd.finish("生成图片失败")
-

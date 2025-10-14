@@ -93,6 +93,23 @@ def _write_data(obj: Dict[str, Any]) -> None:
     tmp.replace(_NEW_DATA_FILE)
 
 
+def _add_duration(start: datetime, length: int, unit: str) -> datetime:
+    if unit == "天":
+        return start + timedelta(days=length)
+    if unit == "月":
+        # 简单按 30 天计算
+        return start + timedelta(days=30 * length)
+    if unit == "年":
+        return start + timedelta(days=365 * length)
+    return start
+
+
+def _ensure_generated_codes(obj: Dict[str, Any]) -> Dict[str, Any]:
+    if "generatedCodes" not in obj or not isinstance(obj.get("generatedCodes"), dict):
+        obj["generatedCodes"] = {}
+    return obj
+
+
 def generate_unique_code(length: int, unit: str) -> str:
     # 使用加密随机和统一配置
     cfg = load_cfg()
@@ -102,4 +119,13 @@ def generate_unique_code(length: int, unit: str) -> str:
     b = math.ceil(n / 2)
     rand = secrets.token_hex(b)[:n]
     return f"{prefix}{length}{unit}-{rand}"
+
+
+def _choose_bots(preferred_id: Optional[str]) -> List[Bot]:
+    bots_map = get_bots()
+    bots: List[Bot] = []
+    if preferred_id and preferred_id in bots_map:
+        bots.append(bots_map[preferred_id])
+    bots.extend([b for sid, b in bots_map.items() if sid != preferred_id])
+    return bots
 
