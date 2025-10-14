@@ -268,19 +268,19 @@ function renderPermissionsList(){
         </div>
         <div class="perm-lists-section" style="margin-top:8px;">
           <div class="perm-list-group">
-            <label class="perm-list-label">🤍 白名单用�?/label>
+            <label class="perm-list-label">✅ 白名单用户</label>
             <input type="text" class="perm-list-input perm-wl-users" placeholder="用户ID，多个用逗号分隔" value="${esc(toCSV(gWl.users))}">
           </div>
           <div class="perm-list-group">
-            <label class="perm-list-label">🤍 白名单群�?/label>
+            <label class="perm-list-label">✅ 白名单群组</label>
             <input type="text" class="perm-list-input perm-wl-groups" placeholder="群号，多个用逗号分隔" value="${esc(toCSV(gWl.groups))}">
           </div>
           <div class="perm-list-group">
-            <label class="perm-list-label">🖤 黑名单用�?/label>
+            <label class="perm-list-label">⛔ 黑名单用户</label>
             <input type="text" class="perm-list-input perm-bl-users" placeholder="用户ID，多个用逗号分隔" value="${esc(toCSV(gBl.users))}">
           </div>
           <div class="perm-list-group">
-            <label class="perm-list-label">🖤 黑名单群�?/label>
+            <label class="perm-list-label">⛔ 黑名单群组</label>
             <input type="text" class="perm-list-input perm-bl-groups" placeholder="群号，多个用逗号分隔" value="${esc(toCSV(gBl.groups))}">
           </div>
         </div>
