@@ -16,7 +16,7 @@ from nonebot.adapters.onebot.v11 import (
 import base64
 import httpx
 
-from ...utils import plugin_data_dir
+from ...core.api import plugin_data_dir
 from ...core.api import Plugin
 
 

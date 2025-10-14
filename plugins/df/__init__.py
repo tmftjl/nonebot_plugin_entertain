@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import asyncio
 import json
@@ -19,19 +19,17 @@ from nonebot.adapters.onebot.v11 import (
     PokeNotifyEvent,
 )
 
-from ...core.api import Plugin
-from ...core.api import plugin_data_dir
+from ...core.api import Plugin, plugin_data_dir
 from .config import load_cfg, face_list, random_local_image
 
 
 driver = get_driver()
 _cfg = load_cfg()
 _updating_gallery = False
-from . import update_gallery as update_gallery  # register update commands
+from . import update_gallery as update_gallery  # 注册更新命令
 
-# Permissions wrapper
+# 权限包装与默认命令项
 P = Plugin(name="df")
-# Ensure default command entries exist for notice-based actions
 from ...core.api import upsert_command_defaults as _up_def
 _up_def('df', 'poke')
 for _c in ('pictures_face','pictures_list','contact','reply'):
@@ -41,15 +39,18 @@ for _c in ('pictures_face','pictures_list','contact','reply'):
         pass
 
 
-# ---------- Helpers ----------
+# ---------- 工具函数 ----------
+
 
 def _api_handlers() -> List[Tuple[str, Any]]:
     handlers: List[Tuple[str, Any]] = []
 
+    # jk 图
     handlers.append((r"jk(?:图)?", lambda: MessageSegment.image("https://api.suyanw.cn/api/jk.php")))
 
     async def _hs():
-        return Message(MessageSegment.text("黑丝来啦") + MessageSegment.image("https://api.suyanw.cn/api/hs.php"))
+        # 黑丝
+        return Message(MessageSegment.text("黑丝来咯") + MessageSegment.image("https://api.suyanw.cn/api/hs.php"))
 
     handlers.append((r"黑丝", _hs))
 
@@ -58,7 +59,7 @@ def _api_handlers() -> List[Tuple[str, Any]]:
             r = await client.get("https://v2.api-m.com/api/baisi")
             r.raise_for_status()
             link = r.text.replace("\\", "/")
-        return Message(MessageSegment.text("白丝来啦~") + MessageSegment.image(link))
+        return Message(MessageSegment.text("白丝来咯~") + MessageSegment.image(link))
 
     handlers.append((r"白丝", _bs))
 
@@ -66,7 +67,7 @@ def _api_handlers() -> List[Tuple[str, Any]]:
         async with httpx.AsyncClient(timeout=15) as client:
             r = await client.get("https://api.suyanw.cn/api/cos.php?type=json")
             link = r.text.replace("\\", "/")
-        return Message(MessageSegment.text("COS 来啦~") + MessageSegment.image(link))
+        return Message(MessageSegment.text("COS 来咯~") + MessageSegment.image(link))
 
     handlers.append((r"cos", _cos))
 
@@ -75,15 +76,16 @@ def _api_handlers() -> List[Tuple[str, Any]]:
             r = await client.get("https://api.suyanw.cn/api/meitui.php")
             m = re.search(r"https?://[^ ]+", r.text)
             link = m.group(0) if m else ""
-        return Message(MessageSegment.text("美腿来啦~") + (MessageSegment.image(link) if link else MessageSegment.text("")))
+        return Message(MessageSegment.text("美腿来咯~") + (MessageSegment.image(link) if link else MessageSegment.text("")))
 
-    handlers.append((r"腿", _leg))
+    handlers.append((r"(?:腿|美腿)", _leg))
 
     return handlers
 
 
 def _build_picture_regex() -> re.Pattern:
     regs = [r for r, _ in _api_handlers()]
+    # 触发词：来张/看看/随机 + 目标
     pattern = rf"^#?(?:来张|看看|随机)({'|'.join(regs)})$"
     return re.compile(pattern, re.I)
 
@@ -106,7 +108,7 @@ async def _hitokoto(api: str) -> Optional[str]:
         return None
 
 
-# ---------- Random pictures ----------
+# ---------- 随机图片 ----------
 
 _PIC = P.on_regex(
     _build_picture_regex(),
@@ -136,9 +138,9 @@ async def _(matcher: Matcher, event: MessageEvent):
     await matcher.finish()
 
 
-# Use a generic matcher and validate face names at runtime
+# 表情：通用匹配，运行时校验
 _FACE = P.on_regex(
-    r"^#?(?:来张|看看|随机)(\S+)$",
+    r"^#?(?:表情|表情包|表情图)(\S+)$",
     priority=13,
     block=False,
     name="pictures_face",
@@ -149,7 +151,7 @@ _FACE = P.on_regex(
 async def _(matcher: Matcher, event: MessageEvent):
     if not _cfg.get("random_picture_open", True):
         return
-    m = re.match(r"^#?(?:来张|看看|随机)(\S+)$", str(event.get_message()))
+    m = re.match(r"^#?(?:表情|表情包|表情图)(\S+)$", str(event.get_message()))
     if not m:
         return
     name = m.group(1)
@@ -168,11 +170,11 @@ _LIST = P.on_regex(
 @_LIST.handle()
 async def _(matcher: Matcher):
     faces = face_list()
-    text = "表情包列表：\n" + ("、".join(faces) or "(无)") + "\n\n使用 #随机<表情包名>"
+    text = "表情列表：\n" + ("、".join(faces) or "(空)") + "\n\n使用 #表情<名称>"
     await matcher.finish(text)
 
 
-# ---------- Poke (鎴充竴鎴? ----------
+# ---------- 戳一戳 ----------
 
 _POKE = on_notice(priority=12, block=False, permission=P.permission_cmd("poke"))
 
@@ -251,11 +253,11 @@ _CONTACT = P.on_regex(
 @_CONTACT.handle()
 async def _(matcher: Matcher, bot: Bot, event: MessageEvent):
     if not _cfg.get("send_master", {}).get("open", True):
-        await matcher.finish("该功能暂未开启")
+        await matcher.finish("该功能未开启")
 
     plain = str(event.get_message()).replace("#联系主人", "", 1).strip()
     if not plain:
-        await matcher.finish("消息不能为空")
+        await matcher.finish("信息不能为空")
 
     try:
         su = {str(x) for x in getattr(get_driver().config, "superusers", set())}
@@ -263,7 +265,7 @@ async def _(matcher: Matcher, bot: Bot, event: MessageEvent):
         su = set()
 
     if not su:
-        await matcher.finish("未设置超级用户，无法联系主人")
+        await matcher.finish("未配置超级用户，无法联系主人")
 
     msg_id = secrets.token_hex(3)
 
@@ -277,7 +279,7 @@ async def _(matcher: Matcher, bot: Bot, event: MessageEvent):
             group = "群聊"
 
     text = (
-        f"联系主人消息({msg_id})\n"
+        f"联系主人的信息({msg_id})\n"
         f"平台: onebot.v11\n"
         f"用户: {user}\n"
         f"场景: {scene} {group}\n"
@@ -301,7 +303,7 @@ async def _(matcher: Matcher, bot: Bot, event: MessageEvent):
             logger.warning(f"Failed to send to superuser {uid}: {e}")
 
     if ok:
-        await matcher.finish(_cfg.get("send_master", {}).get("success", "已将消息转发给主人"))
+        await matcher.finish(_cfg.get("send_master", {}).get("success", "已将信息转发给主人"))
     else:
         await matcher.finish(_cfg.get("send_master", {}).get("failed", "发送失败，请稍后重试"))
 
@@ -331,9 +333,8 @@ async def _(matcher: Matcher, bot: Bot, event: PrivateMessageEvent):
             await bot.send_group_msg(group_id=int(gid), message=MessageSegment.text(_cfg.get("send_master", {}).get("reply_prefix", "主人回复：")) + MessageSegment.text(content))
         elif uid:
             await bot.send_private_msg(user_id=int(uid), message=MessageSegment.text(_cfg.get("send_master", {}).get("reply_prefix", "主人回复：")) + MessageSegment.text(content))
-        await matcher.finish("消息已送达")
+        await matcher.finish("消息已发送")
     except Exception as e:
-        logger.error(f"回复消息时发生错误: {e}")
-        await matcher.finish("发生错误，请查看控制台日志")
-
+        logger.error(f"回复消息时发生异常: {e}")
+        await matcher.finish("操作失败，请查看控制台日志")
 

@@ -12,7 +12,7 @@ from nonebot import get_app, get_bots
 from nonebot.adapters.onebot.v11 import Message
 from nonebot.log import logger
 
-from ..membership_settings import load_cfg, save_cfg
+from ..system_config import load_cfg, save_cfg
 from ..membership_service import (
     _add_duration,
     _now_utc,
@@ -25,16 +25,18 @@ from ..membership_service import (
 
 
 def _auth(request: Request) -> dict:
+    """极简认证（仅示例）。"""
     ip = request.client.host if request and request.client else ""
     return {"role": "admin", "token_tail": "", "ip": ip, "request": request}
 
 
 def _contact_suffix() -> str:
     cfg = load_cfg()
-    return str(cfg.get("member_renewal_contact_suffix", " 咨询/加入交流QQ群 757463664 联系群管") or "")
+    return str(cfg.get("member_renewal_contact_suffix", " 咨询/加入交流QQ群：757463664 联系群管") or "")
 
 
 def setup_web_console() -> None:
+    """挂载 Web 控制台与接口（UTF-8 中文注释）。"""
     try:
         if not bool(load_cfg().get("member_renewal_console_enable", False)):
             return
@@ -56,7 +58,7 @@ def setup_web_console() -> None:
             live = get_bots()
             bot = next(iter(live.values()), None)
             if not bot:
-                raise HTTPException(500, "无可用 Bot 可发送提醒")
+                raise HTTPException(500, "没有可用的 Bot 可发送提醒")
             try:
                 await bot.send_group_msg(group_id=gid, message=Message(content))
             except Exception as e:
@@ -74,7 +76,7 @@ def setup_web_console() -> None:
             live = get_bots()
             bot = next(iter(live.values()), None)
             if not bot:
-                raise HTTPException(500, "无可用 Bot 可退群")
+                raise HTTPException(500, "没有可用的 Bot 可退群")
             try:
                 await bot.set_group_leave(group_id=gid, is_dismiss=False)
             except Exception as e:
@@ -101,12 +103,14 @@ def setup_web_console() -> None:
             except Exception as e:
                 logger.error(f"获取统计失败: {e}")
                 raise HTTPException(500, f"获取统计失败: {e}")
-        # 权限
+
+        # 权限读取
         @router.get("/permissions")
         async def api_get_permissions():
             from ..framework.config import load_permissions
             return load_permissions()
 
+        # 权限更新
         @router.put("/permissions")
         async def api_update_permissions(payload: Dict[str, Any]):
             from ..framework.config import save_permissions
@@ -116,7 +120,7 @@ def setup_web_console() -> None:
             except Exception as e:
                 raise HTTPException(500, f"更新权限失败: {e}")
 
-        # 优化权限文件（排序、规范化、迁移残留结构）
+        # 优化权限文件（排序、规范化）
         @router.post("/permissions/optimize")
         async def api_optimize_permissions():
             from ..framework.config import optimize_permissions
@@ -126,11 +130,12 @@ def setup_web_console() -> None:
             except Exception as e:
                 raise HTTPException(500, f"优化失败: {e}")
 
-        # 配置
+        # 配置读取
         @router.get("/config")
         async def api_get_config():
             return load_cfg()
 
+        # 配置更新
         @router.put("/config")
         async def api_update_config(payload: Dict[str, Any]):
             try:
@@ -139,7 +144,7 @@ def setup_web_console() -> None:
             except Exception as e:
                 raise HTTPException(500, f"更新配置失败: {e}")
 
-        # 数据
+        # 数据读取
         @router.get("/data")
         async def api_get_all(_: dict = Depends(_auth)):
             return _read_data()
@@ -209,21 +214,21 @@ def setup_web_console() -> None:
             data = _ensure_generated_codes(_read_data())
             return data.get("generatedCodes", {})
 
-        # 运行定时任务
+        # 运行定时任务（调用内部检查逻辑）
         @router.post("/job/run")
         async def api_run_job(_: dict = Depends(_auth)):
             try:
-                from ..commands import _check_and_process  # type: ignore
+                from ..commands.membership.membership import _check_and_process  # type: ignore
                 r, l = await _check_and_process()
                 return {"reminded": r, "left": l}
             except Exception as e:
                 raise HTTPException(500, f"执行失败: {e}")
 
-        # 静态资源与控制台页面
-        static_dir = Path(__file__).parent / "frontend"
+        # 静态资源与控制台页面（使用 console/web 目录）
+        static_dir = Path(__file__).parent / "web"
         if not static_dir.exists():
-            # fallback to legacy path for compatibility
-            static_dir = Path(__file__).resolve().parents[2] / "membership" / "console" / "frontend"
+            # 兼容旧路径（如果未来迁移）
+            static_dir = Path(__file__).resolve().parents[2] / "console" / "web"
         app.mount("/membership/static", StaticFiles(directory=str(static_dir)), name="core_static")
 
         @router.get("/console")
@@ -235,3 +240,4 @@ def setup_web_console() -> None:
         logger.info("core Web 控制台已挂载 /membership")
     except Exception as e:
         logger.warning(f"membership Web 控制台挂载失败: {e}")
+

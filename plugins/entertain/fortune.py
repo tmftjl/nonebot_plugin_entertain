@@ -18,7 +18,7 @@ from nonebot.matcher import Matcher
 
 from ...core.api import Plugin
 from ...core.api import register_namespaced_config
-from ...utils import plugin_data_dir, plugin_resource_dir
+from ...core.api import plugin_data_dir, plugin_resource_dir
 
 
 DATA_DIR = plugin_data_dir("entertain")

@@ -12,15 +12,14 @@ from nonebot.adapters.onebot.v11 import Bot
 from nonebot.log import logger
 from zoneinfo import ZoneInfo
 
-from .membership_settings import load_cfg
-
+from ...system_config import load_cfg
 
 
 # 有效的时间单位
 UNITS = ("天", "月", "年")
 
 
-# ----- Time helpers -----
+# ----- 时间与时区工具 -----
 
 
 def _tz():
@@ -57,15 +56,15 @@ def _days_remaining(expiry: datetime) -> int:
     return (local_expiry.date() - today).days
 
 
-# ----- Simple JSON storage (local file only) -----
+# ----- 简单的本地 JSON 存储 -----
 
 _PLUGIN_DIR = Path(__file__).parent
-# Store memberships.json alongside the framework module
+# 数据文件与框架模块位于同一目录
 _NEW_DATA_FILE = _PLUGIN_DIR / "memberships.json"
 
 
 def _ensure_file() -> None:
-    # Ensure data path exists and initialize if missing (no legacy migration)
+    # 确保数据路径存在；若文件缺失则初始化（不做旧版本迁移）
     try:
         _NEW_DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
         if not _NEW_DATA_FILE.exists():
@@ -88,7 +87,7 @@ def _read_data() -> Dict[str, Any]:
 
 def _write_data(obj: Dict[str, Any]) -> None:
     _ensure_file()
-    # atomic write
+    # 原子写入
     tmp = _NEW_DATA_FILE.with_suffix(".tmp")
     tmp.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(_NEW_DATA_FILE)
@@ -98,7 +97,7 @@ def _add_duration(start: datetime, length: int, unit: str) -> datetime:
     if unit == "天":
         return start + timedelta(days=length)
     if unit == "月":
-        # 简单按 30 天/月 计算
+        # 简单按 30 天计算
         return start + timedelta(days=30 * length)
     if unit == "年":
         return start + timedelta(days=365 * length)
@@ -112,7 +111,7 @@ def _ensure_generated_codes(obj: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def generate_unique_code(length: int, unit: str) -> str:
-    # Use cryptographic randomness and unified config
+    # 使用加密随机和统一配置
     cfg = load_cfg()
     prefix = str(cfg.get("member_renewal_code_prefix", "ww续费") or "ww续费")
     n = int(cfg.get("member_renewal_code_random_len", 6) or 6)
@@ -129,3 +128,4 @@ def _choose_bots(preferred_id: Optional[str]) -> List[Bot]:
         bots.append(bots_map[preferred_id])
     bots.extend([b for sid, b in bots_map.items() if sid != preferred_id])
     return bots
+

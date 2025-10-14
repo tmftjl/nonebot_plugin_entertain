@@ -1,10 +1,9 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ...utils import config_dir, plugin_resource_dir, plugin_data_dir
-from ...core.api import register_plugin_config
+from ...core.api import config_dir, plugin_resource_dir, plugin_data_dir, register_plugin_config
 
 
 CFG_DIR = config_dir("df")
@@ -16,12 +15,12 @@ DATA_DF_DIR = plugin_data_dir("df")
 
 DEFAULT_CFG: Dict[str, Any] = {
     "random_picture_open": True,
-    # Git repo for DF face-pack gallery (poke images)
+    # DF 表情图库（戳一戳图片）仓库地址
     "poke_repo": "https://cnb.cool/denfenglai/poke.git",
     "poke": {
         "chuo": True,
         "mode": "random",  # image | text | mix | random
-        "imageType": "all",  # name or all
+        "imageType": "all",  # 名称或 all
         "imageBlack": [],
         "textMode": "hitokoto",  # hitokoto | list
         "hitokoto_api": "https://v1.hitokoto.cn/?encode=text",
@@ -29,8 +28,8 @@ DEFAULT_CFG: Dict[str, Any] = {
     },
     "send_master": {
         "open": True,
-        "cd": 0,  # seconds; 0 to disable
-        "success": "已将消息转发给主人",
+        "cd": 0,  # 秒；0 表示关闭
+        "success": "已将信息转发给主人",
         "failed": "发送失败，请稍后重试",
         "reply_prefix": "主人回复：",
     },
@@ -75,7 +74,7 @@ def _validate_cfg(cfg: Dict[str, Any]) -> None:
             raise ValueError("send_master.open must be bool")
         if "cd" in sm:
             try:
-                cd = int(sm["cd"])  # allow int-like
+                cd = int(sm["cd"])  # 允许近似整数
                 if cd < 0:
                     raise ValueError
             except Exception:
@@ -84,7 +83,7 @@ def _validate_cfg(cfg: Dict[str, Any]) -> None:
             if k in sm and not isinstance(sm[k], str):
                 raise ValueError(f"send_master.{k} must be str")
 
-# Register per-plugin config file and in-memory cache
+# 注册插件配置
 REG = register_plugin_config("df", DEFAULT_CFG, validator=_validate_cfg)
 
 
@@ -104,16 +103,8 @@ def save_cfg(cfg: Dict[str, Any]) -> None:
     REG.save(cfg)
 
 
-"""
-Plugins should use unified helpers from nonebot_plugin_entertain.config:
- - register_plugin_config("df", DEFAULT_CFG, validator=_validate_cfg)  # done above
- - get_plugin_config("df") / save_plugin_config("df", cfg)
- - reload_plugin_config("df")
-"""
-
-
 def face_list() -> List[str]:
-    """Return available face-pack names from resource/df/poke subdirectories."""
+    """返回 resource/df/poke 下可用的表情包名称列表。"""
     ensure_dirs()
     names: List[str] = []
     try:
@@ -122,12 +113,11 @@ def face_list() -> List[str]:
                 names.append(p.name)
     except Exception:
         pass
-    # ensure at least 'default' for API fallback behaviour
     return sorted(set(names or ["default"]))
 
 
 def random_local_image(face: str) -> Optional[Path]:
-    """Pick a random file path from a face-pack dir if exists; otherwise None."""
+    """从本地表情包目录随机选择一个文件路径，若不存在则返回 None。"""
     d = POKE_DIR / face
     if not d.exists() or not d.is_dir():
         return None

@@ -7,7 +7,7 @@ from PIL import Image, ImageDraw, ImageFont
 from io import BytesIO
 import emoji
 
-from ...utils import plugin_resource_dir
+from ...core.api import plugin_resource_dir
 
 
 FONT_SIZE = 35
