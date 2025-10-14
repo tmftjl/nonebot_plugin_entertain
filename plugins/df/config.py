@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ...utils import config_dir, plugin_resource_dir, plugin_data_dir
-from ...config import register_plugin_config
+from ...core.api import register_plugin_config
 
 
 CFG_DIR = config_dir("df")

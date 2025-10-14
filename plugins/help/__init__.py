@@ -8,7 +8,7 @@ from nonebot.plugin import PluginMetadata
 from nonebot.matcher import Matcher
 from nonebot.adapters.onebot.v11 import MessageSegment
 
-from ...registry import Plugin
+from ...core.api import Plugin
 
 # Reuse core logic from bundled nonebot_plugin_help package
 from .config import (

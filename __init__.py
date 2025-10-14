@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 
@@ -12,7 +12,7 @@ driver = get_driver()
 __plugin_meta__ = PluginMetadata(
     name="nonebot-plugin-entertain",
     description=(
-        "娱乐插件合集：注册时间查询、每日 doro 结局、发病语录、音乐点歌、今日运势、开盒"
+        "娱乐插件合集：注册时间查询、doro 结局、发病语录、音乐点歌、今日运势、开盒等"
     ),
     usage=(
         "- #注册时间 [@QQ 或 QQ号]\n"
@@ -30,7 +30,8 @@ __plugin_meta__ = PluginMetadata(
 
 # Bootstrap unified configs and permission files on startup
 try:
-    from .config import bootstrap_configs
+    # moved under core.framework.config
+    from .core.framework.config import bootstrap_configs
 
     @driver.on_startup
     async def _entertain_bootstrap_configs():
@@ -59,3 +60,11 @@ def _load_subplugins_via_nonebot() -> None:
 
 
 _load_subplugins_via_nonebot()
+
+# Initialize built-in framework features (non-subplugin)
+try:
+    # core (formerly membership) is part of the framework package
+    from . import core as _core  # noqa: F401
+except Exception:
+    # Keep other plugins working even if this optional feature fails to init
+    pass

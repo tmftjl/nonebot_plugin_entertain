@@ -19,8 +19,8 @@ from nonebot.adapters.onebot.v11 import (
     PokeNotifyEvent,
 )
 
-from ...registry import Plugin
-from ...utils import plugin_data_dir
+from ...core.api import Plugin
+from ...core.api import plugin_data_dir
 from .config import load_cfg, face_list, random_local_image
 
 
@@ -32,7 +32,7 @@ from . import update_gallery as update_gallery  # register update commands
 # Permissions wrapper
 P = Plugin(name="df")
 # Ensure default command entries exist for notice-based actions
-from ...config import upsert_command_defaults as _up_def
+from ...core.api import upsert_command_defaults as _up_def
 _up_def('df', 'poke')
 for _c in ('pictures_face','pictures_list','contact','reply'):
     try:

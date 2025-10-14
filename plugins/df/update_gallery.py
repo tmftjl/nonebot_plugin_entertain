@@ -8,7 +8,7 @@ from typing import Tuple
 from nonebot.matcher import Matcher
 from nonebot.adapters.onebot.v11 import MessageEvent
 
-from ...registry import Plugin
+from ...core.api import Plugin
 from .config import load_cfg, POKE_DIR, RES_DF_DIR
 
 
