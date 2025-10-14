@@ -16,7 +16,7 @@ _cfg = load_cfg()
 _updating_gallery = False
 
 
-P = Plugin()
+P = Plugin(name="df")
 _UPDATE = P.on_regex(
     r"^#?DF(?:安装|(?:强制)?更新)(?:戳一戳)?图库$",
     name="update_gallery",
