@@ -111,8 +111,9 @@ def setup_web_console() -> None:
         async def api_update_permissions(payload: Dict[str, Any]):
             from ...config import save_permissions
             try:
+                # Persist new permissions only; runtime reload should be triggered manually
                 save_permissions(payload)
-                return {"success": True, "message": "权限配置已更新"}
+                return {"success": True, "message": "权限配置已更新（需手动重载生效）"}
             except Exception as e:
                 raise HTTPException(500, f"更新权限失败: {e}")
 

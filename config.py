@@ -7,8 +7,7 @@ from typing import Any, Dict, Optional, Callable, Tuple
 
 from .utils import config_dir
 
-# Framework identifier used for nested permissions
-# This package name is the framework name by design
+# Framework identifier kept for identification only; not used as a root key
 FRAMEWORK_NAME = "nonebot_plugin_entertain"
 
 
@@ -168,30 +167,25 @@ def _perm_entry_default(level: str = "all", scene: str = "all") -> Dict[str, Any
 def _scan_plugins_for_permissions() -> Dict[str, Any]:
     """Scan bundled sub-plugins to build a nested permissions map.
 
-    Structure:
+    Structure (flat root):
     {
-      FRAMEWORK_NAME: {
-        "top": Entry,
-        "sub_plugins": {
-          "<sub_plugin>": {
-            "top": Entry,
-            "commands": { "name": Entry }
-          }
+      "top": Entry,
+      "sub_plugins": {
+        "<sub_plugin>": {
+          "top": Entry,
+          "commands": { "name": Entry }
         }
       }
     }
 
-    This is used only to bootstrap a sensible initial permissions.json when
-    none exists. It does NOT mutate any existing user configuration.
+    This is used only to bootstrap a sensible initial permissions.json when none exists.
     """
-    result: Dict[str, Any] = {}
+    result: Dict[str, Any] = {"top": _perm_entry_default(), "sub_plugins": {}}
     try:
         base = Path(__file__).parent / "plugins"
         if not base.exists():
             return result
-        # Initialize framework root
-        fw = result.setdefault(FRAMEWORK_NAME, {"top": _perm_entry_default(), "sub_plugins": {}})
-        sub_map = fw.setdefault("sub_plugins", {})
+        sub_map = result.setdefault("sub_plugins", {})
 
         for pdir in base.iterdir():
             try:
@@ -256,9 +250,8 @@ def _scan_plugins_for_permissions() -> Dict[str, Any]:
 
 
 def _permissions_default() -> Dict[str, Any]:
-    # Generate a nested permissions map on demand (ephemeral) for the framework.
-    # This is used as the in-memory default shape; the project file should not
-    # be auto-populated from this by default.
+    # Generate a flat permissions map on demand (ephemeral).
+    # This is used as the in-memory default shape; the project file is initialized from it.
     return _scan_plugins_for_permissions()
 
 
@@ -323,13 +316,10 @@ def upsert_plugin_defaults(
     bl_users: Optional[list[str]] = None,
     bl_groups: Optional[list[str]] = None,
     ) -> None:
-    """Upsert defaults for a sub-plugin under the framework namespace.
-
-    Note: `plugin` here refers to the sub-plugin name inside the framework.
-    """
+    """Upsert defaults for a sub-plugin (flat schema)."""
     data = load_permissions()
-    fw = data.setdefault(FRAMEWORK_NAME, {})
-    sub_map = fw.setdefault("sub_plugins", {})
+    root = data
+    sub_map = root.setdefault("sub_plugins", {})
     sp = sub_map.setdefault(plugin, {})
     d = sp.setdefault("top", _perm_entry_default())
     # Set only provided keys; strict validation happens in registry
@@ -347,7 +337,7 @@ def upsert_plugin_defaults(
         d.setdefault("blacklist", {}).update({"users": _as_str_list(bl_users)})
     if bl_groups is not None:
         d.setdefault("blacklist", {}).update({"groups": _as_str_list(bl_groups)})
-    save_permissions(data)
+    save_permissions(root)
 
 
 def upsert_command_defaults(
@@ -362,13 +352,10 @@ def upsert_command_defaults(
     bl_users: Optional[list[str]] = None,
     bl_groups: Optional[list[str]] = None,
 ) -> None:
-    """Upsert defaults for a specific command under a sub-plugin in the framework.
-
-    Note: `plugin` here refers to the sub-plugin name inside the framework.
-    """
+    """Upsert defaults for a specific command under a sub-plugin (flat schema)."""
     data = load_permissions()
-    fw = data.setdefault(FRAMEWORK_NAME, {})
-    sub_map = fw.setdefault("sub_plugins", {})
+    root = data
+    sub_map = root.setdefault("sub_plugins", {})
     sp = sub_map.setdefault(plugin, {})
     sp.setdefault("top", _perm_entry_default())
     cmds = sp.setdefault("commands", {})
@@ -387,7 +374,7 @@ def upsert_command_defaults(
         c.setdefault("blacklist", {}).update({"users": _as_str_list(bl_users)})
     if bl_groups is not None:
         c.setdefault("blacklist", {}).update({"groups": _as_str_list(bl_groups)})
-    save_permissions(data)
+    save_permissions(root)
 
 
 _CONFIG_REGISTRY: Dict[tuple[str, str], ConfigProxy] = {}

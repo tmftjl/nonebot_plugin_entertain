@@ -12,14 +12,13 @@ from .config import (
     _permissions_default,
     save_permissions,
     ensure_permissions_file,
-    FRAMEWORK_NAME,
 )
 from .utils import config_dir
 from nonebot.log import logger
 from .kv_cache import KeyValueCache
 
 
-# ----- Embedded permissions store (merged from permissions_store.py) -----
+# ----- Lightweight permissions store -----
 
 
 class PermissionsStore:
@@ -43,16 +42,9 @@ class PermissionsStore:
             pass
 
     def ensure_loaded(self) -> None:
-        now = time.time()
-        # throttle mtime checks to avoid too frequent stat calls
-        if not self._loaded or (now - self._last_check) > 0.5:
-            self._last_check = now
-            try:
-                m = self._path.stat().st_mtime
-            except Exception:
-                m = 0.0
-            if (not self._loaded) or (m != self._mtime):
-                self._reload()
+        # Only load once; no automatic reload by mtime.
+        if not self._loaded:
+            self._reload()
 
     def get(self) -> Dict[str, Any]:
         self.ensure_loaded()
@@ -63,22 +55,18 @@ class PermissionsStore:
 
 
 permissions_store = PermissionsStore()
-_eff_perm_cache = KeyValueCache(ttl=0.5)
+# Do not auto-expire; rely on explicit reload to invalidate
+_eff_perm_cache = KeyValueCache(ttl=None)
 
 
-# ----- Config loading -----
+# ----- Config loading (flat schema) -----
+
+
 def _default_config() -> Dict[str, Any]:
-    # New schema
     return _permissions_default()
 
 
 def _deep_fill(user: Dict[str, Any] | None, defaults: Dict[str, Any] | None) -> Dict[str, Any]:
-    """Deep-fill user config with defaults without overwriting existing values.
-
-    - When both sides are dicts, recurse and only add missing keys from defaults.
-    - For other types or when user is missing, use user's value if present,
-      otherwise take default.
-    """
     if not isinstance(user, dict):
         return json.loads(json.dumps(defaults or {}))
     if not isinstance(defaults, dict):
@@ -94,13 +82,11 @@ def _deep_fill(user: Dict[str, Any] | None, defaults: Dict[str, Any] | None) -> 
 
 
 def _load_cfg() -> Dict[str, Any]:
-    # Ensure file presence
     try:
         ensure_permissions_file()
     except Exception:
         pass
 
-    # Load project permissions (file); if missing/unreadable, treat as empty
     try:
         current = permissions_store.get()
         if not isinstance(current, dict):
@@ -108,34 +94,29 @@ def _load_cfg() -> Dict[str, Any]:
     except Exception:
         current = {}
 
-    # Build defaults from current plugins snapshot
     try:
         defaults = _default_config()
     except Exception:
         defaults = {}
 
-    # Merge (fill missing only) and persist when changed.
-    # If the existing file lacks the framework root, replace with new defaults.
     def _loader() -> Dict[str, Any]:
         nonlocal current, defaults
         try:
-            need_replace = not (isinstance(current, dict) and isinstance(current.get(FRAMEWORK_NAME), dict))
-        except Exception:
-            need_replace = True
-
-        merged = defaults if need_replace else _deep_fill(current, defaults)
-        try:
-            if json.dumps(merged, sort_keys=True, ensure_ascii=False) != json.dumps(current, sort_keys=True, ensure_ascii=False):
+            merged = _deep_fill(current if isinstance(current, dict) else {}, defaults if isinstance(defaults, dict) else {})
+            if json.dumps(merged, sort_keys=True, ensure_ascii=False) != json.dumps(current if isinstance(current, dict) else {}, sort_keys=True, ensure_ascii=False):
+                # Persist filled defaults, but do not auto-reload runtime state
                 save_permissions(merged)
-                permissions_store.reload()
         except Exception:
-            pass
+            merged = current if isinstance(current, dict) else {}
         return merged
 
     eff = _eff_perm_cache.get("effective", loader=_loader)
     return eff or {}
 
+
 # ----- Helpers -----
+
+
 def _uid(event) -> Optional[str]:
     return str(getattr(event, "user_id", "")) or None
 
@@ -213,115 +194,87 @@ def _is_allowed_by_lists(event, wl: Dict[str, Any] | None, bl: Dict[str, Any] | 
 
 def _checker_factory(feature: str):
     """
-    权限检查器工厂函数，创建一个包含详细日志记录的异步检查函数。
-    支持三层标识：框架:子插件:命令
+    权限检查器工厂函数：支持全局 / 子插件 / 命令 三层。
+
+    feature 取值：
+    - "plugin:cmd"（命令级）
+    - "plugin"（子插件级）
+    - "" 或其它（仅检查全局）
     """
 
-    def _parse_layers(name: str) -> Tuple[Optional[str], Optional[str], Optional[str]]:
-        """解析 feature 字符串，分离出 框架 / 子插件 / 命令 三层。
-
-        仅支持新格式：
-        - framework:sub:cmd（命令级）
-        - framework:sub（子插件级）
-        - framework（框架级）
-        旧格式（如 sub_cmd / sub:cmd）不再支持。
-        """
-        fw: Optional[str] = None
-        sub: Optional[str] = None
+    def _parse_layers(name: str) -> Tuple[Optional[str], Optional[str]]:
+        plugin: Optional[str] = None
         cmd: Optional[str] = None
-        if ":" in name:
-            parts = [p.strip() for p in name.split(":")]
-            if len(parts) >= 3:
-                fw, sub, cmd = parts[0], parts[1], parts[2] or None
-            elif len(parts) == 2:
-                fw, sub = parts[0], parts[1]
-            else:
-                fw = parts[0]
-        else:
-            # 无冒号，视为框架级检查
-            fw = name.strip() or FRAMEWORK_NAME
-        # 默认框架名
-        if not fw:
-            fw = FRAMEWORK_NAME
-        return fw or None, sub or None, cmd or None
+        try:
+            parts = [p.strip() for p in str(name or "").split(":") if p.strip()]
+        except Exception:
+            parts = []
+        if len(parts) >= 2:
+            plugin, cmd = parts[0], parts[1]
+        elif len(parts) == 1:
+            plugin = parts[0]
+        return plugin or None, cmd or None
 
     def _eval_layer(layer_cfg: Dict[str, Any] | None, event, *, layer_name: str) -> Optional[bool]:
-        """
-        评估单层权限配置 (插件层或命令层)。
-        返回: True (明确允许), False (明确拒绝), None (未配置规则)。
-        """
-        # 新增: 为日志添加层级标识
-        log_prefix = f"权限检查 [{layer_name}层]"
-
         if not isinstance(layer_cfg, dict) or not layer_cfg:
             return None
 
-        # 1. 检查总开关 'enabled'
+        # 1) enable switch
         if not bool(layer_cfg.get("enabled", True)):
             return False
 
-        # 2. 检查白名单/黑名单
+        # 2) whitelist / blacklist
         force_f = _is_allowed_by_lists(event, layer_cfg.get("whitelist"), layer_cfg.get("blacklist"))
         if force_f is True:
             return True
         if force_f is False:
             return False
 
-        # 3. 检查场景 'scene'
+        # 3) scene
         scene = str(layer_cfg.get("scene", "all"))
         if not _check_scene(scene, event):
             return False
 
-        # 4. 检查等级 'level'
+        # 4) level
         level = str(layer_cfg.get("level", "all"))
         if not _check_level(level, event):
             return False
         return True
 
     async def _checker(bot, event) -> bool:
-        """
-        最终的异步检查函数，整合 框架/子插件/命令 三个层级的权限判断。
-        优先级（允许覆盖）：命令层 > 子插件层 > 框架层。
-        """
         cfg = _load_cfg()
-        # 全局兜底：当权限文件不存在或无任何默认项（有效配置为空）时，默认放行
         if not cfg:
             return True
-        fw_name, sub_name, cmd_name = _parse_layers(feature)
-        # 根节点（框架）
-        fw = cfg.get(fw_name or "") or {}
-        if not fw:
-            return True
 
-        # 三层配置
-        fw_cfg = fw.get("top")
-        sub_cfg_top = None
-        cmd_cfg = None
+        sub_name, cmd_name = _parse_layers(feature)
+
+        # Global / plugin / command
+        g_cfg = cfg.get("top")
+        p_top = None
+        c_cfg = None
 
         if sub_name:
-            sp = (fw.get("sub_plugins") or {}).get(sub_name) or {}
+            sp = (cfg.get("sub_plugins") or {}).get(sub_name) or {}
             if sp:
-                sub_cfg_top = sp.get("top")
+                p_top = sp.get("top")
                 if cmd_name:
-                    cmd_cfg = (sp.get("commands") or {}).get(cmd_name)
+                    c_cfg = (sp.get("commands") or {}).get(cmd_name)
 
-        # 逐层评估
-        f_res = _eval_layer(fw_cfg, event, layer_name="框架")
-        s_res = _eval_layer(sub_cfg_top, event, layer_name="子插件") if sub_name else None
-        c_res = _eval_layer(cmd_cfg, event, layer_name="命令") if cmd_name else None
+        # Gate in order
+        g_res = _eval_layer(g_cfg, event, layer_name="全局")
+        p_res = _eval_layer(p_top, event, layer_name="子插件") if sub_name else None
+        c_res = _eval_layer(c_cfg, event, layer_name="命令") if cmd_name else None
 
-        # 顺序门控：框架 -> 子插件 -> 命令
-        # 任一层返回 False 则拒绝；None 视为“未配置”，按通过处理继续向下检查。
-        if f_res is False:
+        if g_res is False:
             return False
-        if sub_name:
-            if s_res is False:
-                return False
-        if cmd_name:
-            if c_res is False:
-                return False
+        if sub_name and p_res is False:
+            return False
+        if cmd_name and c_res is False:
+            return False
         return True
+
     return _checker
+
 
 def permission_for(feature: str) -> Permission:
     return Permission(_checker_factory(feature))
@@ -329,13 +282,19 @@ def permission_for(feature: str) -> Permission:
 
 def permission_for_plugin(plugin: str) -> Permission:
     # plugin here is the sub-plugin name
-    return Permission(_checker_factory(f"{FRAMEWORK_NAME}:{plugin}"))
+    return Permission(_checker_factory(f"{plugin}"))
 
 
 def permission_for_cmd(plugin: str, command: str) -> Permission:
     # plugin here is the sub-plugin name
-    return Permission(_checker_factory(f"{FRAMEWORK_NAME}:{plugin}:{command}"))
+    return Permission(_checker_factory(f"{plugin}:{command}"))
 
 
 def reload_permissions() -> None:
+    # Reload on-disk permissions and invalidate derived cache for immediate effect
     permissions_store.reload()
+    try:
+        _eff_perm_cache.invalidate("effective")
+    except Exception:
+        # best-effort; cache will expire shortly by TTL
+        pass

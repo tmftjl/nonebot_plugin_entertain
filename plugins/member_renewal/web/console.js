@@ -774,6 +774,259 @@ window.addEventListener('DOMContentLoaded', ()=>{
   });
 });
 
+// ---- Override permissions UI for flat schema (top + sub_plugins) ----
+renderPermissionsList = function(){
+  const wrap=document.getElementById('permissions-list');
+  if(!wrap) return;
+  const data = state.permissions || {};
+  const from=(x)=> (x && typeof x==='object')?x:{};
+  const esc=(s)=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const toCSV=(arr)=>Array.isArray(arr)?arr.join(','):(arr||'');
+  const optLevel = (v)=>`<option value="all" ${v==='all'?'selected':''}>所有人</option>
+    <option value="member" ${v==='member'?'selected':''}>群成员</option>
+    <option value="admin" ${v==='admin'?'selected':''}>群管理</option>
+    <option value="owner" ${v==='owner'?'selected':''}>群主</option>
+    <option value="superuser" ${v==='superuser'?'selected':''}>超级用户</option>`;
+  const optScene = (v)=>`<option value="all" ${v==='all'?'selected':''}>全部</option>
+    <option value="group" ${v==='group'?'selected':''}>群聊</option>
+    <option value="private" ${v==='private'?'selected':''}>私聊</option>`;
+
+  const globalTop = from(data.top);
+  const gWl = from(globalTop.whitelist);
+  const gBl = from(globalTop.blacklist);
+
+  const globalHTML = `
+    <div id="perm-global" class="perm-global-block panel" style="margin-bottom: 16px;">
+      <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between;">
+        <div style="font-weight:600;">🌐 全局权限</div>
+        <label class="perm-field">
+          <input type="checkbox" class="perm-enabled" ${globalTop.enabled===false?'':'checked'}>
+          <span>默认启用</span>
+        </label>
+      </div>
+      <div class="panel-body">
+        <div class="perm-plugin-inline-config">
+          <label class="perm-field">
+            <span>👤 默认权限等级</span>
+            <select class="perm-level">${optLevel(String(globalTop.level||'all'))}</select>
+          </label>
+          <label class="perm-field">
+            <span>💬 默认使用场景</span>
+            <select class="perm-scene">${optScene(String(globalTop.scene||'all'))}</select>
+          </label>
+        </div>
+        <div class="perm-lists-section" style="margin-top:8px;">
+          <div class="perm-list-group">
+            <label class="perm-list-label">🤍 白名单用户</label>
+            <input type="text" class="perm-list-input perm-wl-users" placeholder="用户ID，多个用逗号分隔" value="${esc(toCSV(gWl.users))}">
+          </div>
+          <div class="perm-list-group">
+            <label class="perm-list-label">🤍 白名单群组</label>
+            <input type="text" class="perm-list-input perm-wl-groups" placeholder="群号，多个用逗号分隔" value="${esc(toCSV(gWl.groups))}">
+          </div>
+          <div class="perm-list-group">
+            <label class="perm-list-label">🖤 黑名单用户</label>
+            <input type="text" class="perm-list-input perm-bl-users" placeholder="用户ID，多个用逗号分隔" value="${esc(toCSV(gBl.users))}">
+          </div>
+          <div class="perm-list-group">
+            <label class="perm-list-label">🖤 黑名单群组</label>
+            <input type="text" class="perm-list-input perm-bl-groups" placeholder="群号，多个用逗号分隔" value="${esc(toCSV(gBl.groups))}">
+          </div>
+        </div>
+      </div>
+    </div>`;
+
+  const sub = from(data.sub_plugins);
+  const pluginNames = Object.keys(sub).sort((a,b)=>a.localeCompare(b));
+
+  const rows = pluginNames.map((pn, index)=>{
+    const node = from(sub[pn]);
+    const top = from(node.top);
+    const cmds = from(node.commands);
+    const wl = from(top.whitelist);
+    const bl = from(top.blacklist);
+
+    const cmdRows = Object.keys(cmds||{}).sort((a,b)=>a.localeCompare(b)).map(cn=>{
+      const c=from(cmds[cn]);
+      const cwl=from(c.whitelist);
+      const cbl=from(c.blacklist);
+      return `<div class="perm-command-item" data-command="${esc(cn)}">
+        <div class="perm-command-header">
+          <div class="perm-command-name">📌 ${esc(cn)}</div>
+          <div class="perm-command-inline-config">
+            <label class="perm-field">
+              <input type="checkbox" class="perm-enabled" ${c.enabled===false?'':'checked'}>
+              <span>启用</span>
+            </label>
+            <label class="perm-field">
+              <span>👤 等级</span>
+              <select class="perm-level">${optLevel(String(c.level||'all'))}</select>
+            </label>
+            <label class="perm-field">
+              <span>💬 场景</span>
+              <select class="perm-scene">${optScene(String(c.scene||'all'))}</select>
+            </label>
+          </div>
+        </div>
+        <div class="perm-command-lists">
+          <div class="perm-list-group">
+            <label class="perm-list-label">🤍 白名单用户</label>
+            <input type="text" class="perm-list-input perm-wl-users" placeholder="多个用逗号分隔" value="${esc(toCSV(cwl.users))}">
+          </div>
+          <div class="perm-list-group">
+            <label class="perm-list-label">🤍 白名单群组</label>
+            <input type="text" class="perm-list-input perm-wl-groups" placeholder="多个用逗号分隔" value="${esc(toCSV(cwl.groups))}">
+          </div>
+          <div class="perm-list-group">
+            <label class="perm-list-label">🖤 黑名单用户</label>
+            <input type="text" class="perm-list-input perm-bl-users" placeholder="多个用逗号分隔" value="${esc(toCSV(cbl.users))}">
+          </div>
+          <div class="perm-list-group">
+            <label class="perm-list-label">🖤 黑名单群组</label>
+            <input type="text" class="perm-list-input perm-bl-groups" placeholder="多个用逗号分隔" value="${esc(toCSV(cbl.groups))}">
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+
+    return `<div class="perm-accordion-item" data-plugin="${esc(pn)}">
+      <div class="perm-accordion-header" data-index="${index}">
+        <div class="perm-accordion-title">
+          <span class="perm-accordion-icon">▶️</span>
+          <span>🔌 ${esc(pn)}</span>
+        </div>
+        <label class="perm-field" onclick="event.stopPropagation()">
+          <input type="checkbox" class="perm-enabled" ${top.enabled===false?'':'checked'}>
+          <span>默认启用</span>
+        </label>
+      </div>
+      <div class="perm-accordion-content">
+        <div class="perm-accordion-body">
+          <div class="perm-plugin-inline-config">
+            <label class="perm-field">
+              <span>👤 默认权限等级</span>
+              <select class="perm-level">${optLevel(String(top.level||'all'))}</select>
+            </label>
+            <label class="perm-field">
+              <span>💬 默认使用场景</span>
+              <select class="perm-scene">${optScene(String(top.scene||'all'))}</select>
+            </label>
+          </div>
+          <div class="perm-lists-section">
+            <div class="perm-list-group">
+              <label class="perm-list-label">🤍 白名单用户</label>
+              <input type="text" class="perm-list-input perm-wl-users" placeholder="用户ID，多个用逗号分隔" value="${esc(toCSV(wl.users))}">
+            </div>
+            <div class="perm-list-group">
+              <label class="perm-list-label">🤍 白名单群组</label>
+              <input type="text" class="perm-list-input perm-wl-groups" placeholder="群号，多个用逗号分隔" value="${esc(toCSV(wl.groups))}">
+            </div>
+            <div class="perm-list-group">
+              <label class="perm-list-label">🖤 黑名单用户</label>
+              <input type="text" class="perm-list-input perm-bl-users" placeholder="用户ID，多个用逗号分隔" value="${esc(toCSV(bl.users))}">
+            </div>
+            <div class="perm-list-group">
+              <label class="perm-list-label">🖤 黑名单群组</label>
+              <input type="text" class="perm-list-input perm-bl-groups" placeholder="群号，多个用逗号分隔" value="${esc(toCSV(bl.groups))}">
+            </div>
+          </div>
+          ${Object.keys(cmds||{}).length ? `
+            <div class="perm-commands-section">
+              <div class="perm-commands-title">📋 命令权限配置 (${Object.keys(cmds||{}).length}条命令)</div>
+              <div class="perm-commands-list">${cmdRows}</div>
+            </div>
+          ` : '<div class="empty-state" style="padding: 40px 20px;">💤 该插件暂无命令</div>'}
+        </div>
+      </div>
+    </div>`;
+  });
+
+  const pluginsHTML = rows.join('') || '<div class="empty-state">暂无子插件</div>';
+  wrap.innerHTML = globalHTML + pluginsHTML;
+
+  // 折叠面板交互（仅插件块）
+  wrap.querySelectorAll('.perm-accordion-header').forEach(header => {
+    header.addEventListener('click', function(e) {
+      const item = this.closest('.perm-accordion-item');
+      const content = item.querySelector('.perm-accordion-content');
+      const isActive = this.classList.contains('active');
+      wrap.querySelectorAll('.perm-accordion-header').forEach(h => {
+        h.classList.remove('active');
+        h.closest('.perm-accordion-item')?.querySelector('.perm-accordion-content')?.classList.remove('active');
+      });
+      if (!isActive) {
+        this.classList.add('active');
+        content.classList.add('active');
+      }
+    });
+  });
+};
+
+collectPermissionsFromUI = function(){
+  const wrap=document.getElementById('permissions-list');
+  if(!wrap){
+    try{ const txt=$('#permissions-json')?.value||'{}'; return JSON.parse(txt); }catch{ return {}; }
+  }
+  const out={ top: { enabled:true, level:'all', scene:'all', whitelist:{users:[],groups:[]}, blacklist:{users:[],groups:[]} }, sub_plugins: {} };
+  const sv=(s)=> String(s||'').split(',').map(x=>x.trim()).filter(Boolean);
+  // 全局
+  const g = document.getElementById('perm-global') || wrap;
+  try{
+    const gTop = {};
+    gTop.enabled = g.querySelector('.perm-enabled')?.checked ?? true;
+    gTop.level = g.querySelector('.perm-level')?.value || 'all';
+    gTop.scene = g.querySelector('.perm-scene')?.value || 'all';
+    const wl={ users:[], groups:[] }, bl={ users:[], groups:[] };
+    wl.users = sv(g.querySelector('.perm-wl-users')?.value);
+    wl.groups = sv(g.querySelector('.perm-wl-groups')?.value);
+    bl.users = sv(g.querySelector('.perm-bl-users')?.value);
+    bl.groups = sv(g.querySelector('.perm-bl-groups')?.value);
+    gTop.whitelist = wl; gTop.blacklist = bl;
+    out.top = gTop;
+  }catch{}
+  // 子插件
+  wrap.querySelectorAll('.perm-accordion-item').forEach(item=>{
+    const pn = item.getAttribute('data-plugin')||''; if(!pn) return;
+    const node = {};
+    const header = item.querySelector('.perm-accordion-header');
+    const body = item.querySelector('.perm-accordion-body');
+    const top={};
+    top.enabled = header.querySelector('.perm-enabled')?.checked ?? true;
+    top.level = body.querySelector('.perm-plugin-inline-config .perm-level')?.value || 'all';
+    top.scene = body.querySelector('.perm-plugin-inline-config .perm-scene')?.value || 'all';
+    const wl={ users:[], groups:[] }, bl={ users:[], groups:[] };
+    const listsSection = body.querySelector('.perm-lists-section');
+    if(listsSection){
+      wl.users = sv(listsSection.querySelector('.perm-wl-users')?.value);
+      wl.groups = sv(listsSection.querySelector('.perm-wl-groups')?.value);
+      bl.users = sv(listsSection.querySelector('.perm-bl-users')?.value);
+      bl.groups = sv(listsSection.querySelector('.perm-bl-groups')?.value);
+    }
+    top.whitelist = wl; top.blacklist = bl; node.top = top;
+    const cmds={};
+    body.querySelectorAll('.perm-command-item').forEach(cmdEl=>{
+      const cn = cmdEl.getAttribute('data-command')||''; if(!cn) return;
+      const c={};
+      c.enabled = cmdEl.querySelector('.perm-command-inline-config .perm-enabled')?.checked ?? true;
+      c.level = cmdEl.querySelector('.perm-command-inline-config .perm-level')?.value || 'all';
+      c.scene = cmdEl.querySelector('.perm-command-inline-config .perm-scene')?.value || 'all';
+      const cwl={ users:[], groups:[] }, cbl={ users:[], groups:[] };
+      const cmdLists = cmdEl.querySelector('.perm-command-lists');
+      if(cmdLists){
+        const groups = cmdLists.querySelectorAll('.perm-list-group');
+        cwl.users = sv(groups[0]?.querySelector('.perm-wl-users')?.value);
+        cwl.groups = sv(groups[1]?.querySelector('.perm-wl-groups')?.value);
+        cbl.users = sv(groups[2]?.querySelector('.perm-bl-users')?.value);
+        cbl.groups = sv(groups[3]?.querySelector('.perm-bl-groups')?.value);
+      }
+      c.whitelist = cwl; c.blacklist = cbl; cmds[cn] = c;
+    });
+    if(Object.keys(cmds).length) node.commands = cmds;
+    out.sub_plugins[pn] = node;
+  });
+  return out;
+};
+
 window.switchTab = switchTab;
 window.runScheduledTask = async function(){
   try{
