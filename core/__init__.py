@@ -21,7 +21,8 @@ from .commands.membership.membership import *  # noqa: F401,F403
 
 # 挂载 Web 控制台（根据配置启用）
 try:
-    from .console.server import setup_web_console as _setup
+    # 注意：console 在插件根目录，需回到上级再导入
+    from ..console.server import setup_web_console as _setup
 
     _setup()
 except Exception as e:

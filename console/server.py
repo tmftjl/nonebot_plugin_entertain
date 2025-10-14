@@ -13,7 +13,7 @@ from nonebot.adapters.onebot.v11 import Message
 from nonebot.log import logger
 
 from ..system_config import load_cfg, save_cfg
-from ..commands.membership.membership_service import (
+from ..core.commands.membership.membership_service import (
     _add_duration,
     _now_utc,
     _read_data,
@@ -218,7 +218,7 @@ def setup_web_console() -> None:
         @router.post("/job/run")
         async def api_run_job(_: dict = Depends(_auth)):
             try:
-                from ..commands.membership.membership import _check_and_process  # type: ignore
+                from ..core.commands.membership.membership import _check_and_process  # type: ignore
                 r, l = await _check_and_process()
                 return {"reminded": r, "left": l}
             except Exception as e:
@@ -239,4 +239,3 @@ def setup_web_console() -> None:
         logger.info("core Web 控制台已挂载 /membership")
     except Exception as e:
         logger.warning(f"membership Web 控制台挂载失败: {e}")
-
