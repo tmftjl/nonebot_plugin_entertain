@@ -221,15 +221,14 @@ function renderStatsDetails(today){
   }catch{}
 }
 
-async function loadPermissions(){ try{ showLoading(true); const p=await apiCall('/permissions'); state.permissions=p; const ta=$('#permissions-json'); if(ta) ta.value=JSON.stringify(p,null,2); renderPermissionsList(); } catch(e){ showToast('加载权限失败: '+(e&&e.message?e.message:e),'error'); } finally{ showLoading(false);} }
-
 // 新的手风琴式权限列表渲染
 function renderPermissionsList(){
   const wrap=document.getElementById('permissions-list');
   if(!wrap) return;
   const data = state.permissions || {};
-  const plugins = Object.keys(data).sort((a,b)=>a.localeCompare(b));
-  if(!plugins.length){ wrap.innerHTML = '<div class="empty-state">💤 暂无权限数据</div>'; return; }
+  const sub = (data.sub_plugins||{});
+  const plugins = Object.keys(sub).sort((a,b)=>a.localeCompare(b));
+  if(!plugins.length && !data.top){ wrap.innerHTML = '<div class="empty-state">💤 暂无权限数据</div>'; return; }
   
   const optLevel = (v)=>`<option value="all" ${v==='all'?'selected':''}>所有人</option>
     <option value="member" ${v==='member'?'selected':''}>群成员</option>
@@ -242,9 +241,54 @@ function renderPermissionsList(){
   const toCSV=(arr)=>Array.isArray(arr)?arr.join(','):(arr||'');
   const from=(x)=> (x && typeof x==='object')?x:{};
   const esc=(s)=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  // 全局权限块（顶上一个总的控制）
+  const globalTop = from(data.top);
+  const gWl = from(globalTop.whitelist);
+  const gBl = from(globalTop.blacklist);
+  const globalHTML = `
+    <div id="perm-global" class="perm-global-block panel" style="margin-bottom: 16px;">
+      <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between;">
+        <div style="font-weight:600;">🌐 全局权限</div>
+        <label class="perm-field">
+          <input type="checkbox" class="perm-enabled" ${globalTop.enabled===false?'':'checked'}>
+          <span>默认启用</span>
+        </label>
+      </div>
+      <div class="panel-body">
+        <div class="perm-plugin-inline-config">
+          <label class="perm-field">
+            <span>👤 默认权限等级</span>
+            <select class="perm-level">${optLevel(String(globalTop.level||'all'))}</select>
+          </label>
+          <label class="perm-field">
+            <span>💬 默认使用场景</span>
+            <select class="perm-scene">${optScene(String(globalTop.scene||'all'))}</select>
+          </label>
+        </div>
+        <div class="perm-lists-section" style="margin-top:8px;">
+          <div class="perm-list-group">
+            <label class="perm-list-label">🤍 白名单用�?/label>
+            <input type="text" class="perm-list-input perm-wl-users" placeholder="用户ID，多个用逗号分隔" value="${esc(toCSV(gWl.users))}">
+          </div>
+          <div class="perm-list-group">
+            <label class="perm-list-label">🤍 白名单群�?/label>
+            <input type="text" class="perm-list-input perm-wl-groups" placeholder="群号，多个用逗号分隔" value="${esc(toCSV(gWl.groups))}">
+          </div>
+          <div class="perm-list-group">
+            <label class="perm-list-label">🖤 黑名单用�?/label>
+            <input type="text" class="perm-list-input perm-bl-users" placeholder="用户ID，多个用逗号分隔" value="${esc(toCSV(gBl.users))}">
+          </div>
+          <div class="perm-list-group">
+            <label class="perm-list-label">🖤 黑名单群�?/label>
+            <input type="text" class="perm-list-input perm-bl-groups" placeholder="群号，多个用逗号分隔" value="${esc(toCSV(gBl.groups))}">
+          </div>
+        </div>
+      </div>
+    </div>`;
   
   const rows = plugins.map((pn, index)=>{
-    const node = from(data[pn]);
+    const node = from(sub[pn]);
     const top = from(node.top);
     const cmds = from(node.commands);
     const wl = from(top.whitelist);
@@ -348,7 +392,8 @@ function renderPermissionsList(){
     </div>`;
   });
   
-  wrap.innerHTML = rows.join('');
+  const pluginsHTML = rows.join('') || '<div class="empty-state">暂无子插�?/div>';
+  wrap.innerHTML = globalHTML + pluginsHTML;
   
   // 绑定手风琴点击事件
   wrap.querySelectorAll('.perm-accordion-header').forEach(header => {
@@ -378,7 +423,23 @@ function collectPermissionsFromUI(){
   if(!wrap){
     try{ const txt=$('#permissions-json')?.value||'{}'; return JSON.parse(txt); }catch{ return {}; }
   }
-  const out={};
+  const out={ top: { enabled:true, level:'all', scene:'all', whitelist:{users:[],groups:[]}, blacklist:{users:[],groups:[]} }, sub_plugins: {} };
+  // 收集全局(top)设置
+  try{
+    const g = document.getElementById('perm-global') || wrap;
+    const gTop = {};
+    const sv=(s)=> String(s||'').split(',').map(x=>x.trim()).filter(Boolean);
+    gTop.enabled = g.querySelector('.perm-enabled')?.checked ?? true;
+    gTop.level = g.querySelector('.perm-level')?.value || 'all';
+    gTop.scene = g.querySelector('.perm-scene')?.value || 'all';
+    const wl={ users:[], groups:[] }, bl={ users:[], groups:[] };
+    wl.users = sv(g.querySelector('.perm-wl-users')?.value);
+    wl.groups = sv(g.querySelector('.perm-wl-groups')?.value);
+    bl.users = sv(g.querySelector('.perm-bl-users')?.value);
+    bl.groups = sv(g.querySelector('.perm-bl-groups')?.value);
+    gTop.whitelist = wl; gTop.blacklist = bl;
+    out.top = gTop;
+  }catch{}
   wrap.querySelectorAll('.perm-accordion-item').forEach(item=>{
     const pn = item.getAttribute('data-plugin')||'';
     if(!pn) return;
@@ -434,7 +495,7 @@ function collectPermissionsFromUI(){
     });
     
     if(Object.keys(cmds).length) node.commands = cmds;
-    out[pn] = node;
+    out.sub_plugins[pn] = node;
   });
   return out;
 }
@@ -775,7 +836,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
 });
 
 // ---- Override permissions UI for flat schema (top + sub_plugins) ----
-renderPermissionsList = function(){
+const __legacy_renderPermissionsList = function(){
   const wrap=document.getElementById('permissions-list');
   if(!wrap) return;
   const data = state.permissions || {};
@@ -962,7 +1023,7 @@ renderPermissionsList = function(){
   });
 };
 
-collectPermissionsFromUI = function(){
+const __legacy_collectPermissionsFromUI = function(){
   const wrap=document.getElementById('permissions-list');
   if(!wrap){
     try{ const txt=$('#permissions-json')?.value||'{}'; return JSON.parse(txt); }catch{ return {}; }
