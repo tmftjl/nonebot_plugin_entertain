@@ -13,7 +13,7 @@ from nonebot.adapters.onebot.v11 import Message
 from nonebot.log import logger
 
 from ..system_config import load_cfg, save_cfg
-from ..membership_service import (
+from ..commands.membership.membership_service import (
     _add_duration,
     _now_utc,
     _read_data,
@@ -36,7 +36,7 @@ def _contact_suffix() -> str:
 
 
 def setup_web_console() -> None:
-    """挂载 Web 控制台与接口（UTF-8 中文注释）。"""
+    """挂载 Web 控制台与接口（中文注释，UTF-8）。"""
     try:
         if not bool(load_cfg().get("member_renewal_console_enable", False)):
             return
@@ -227,7 +227,6 @@ def setup_web_console() -> None:
         # 静态资源与控制台页面（使用 console/web 目录）
         static_dir = Path(__file__).parent / "web"
         if not static_dir.exists():
-            # 兼容旧路径（如果未来迁移）
             static_dir = Path(__file__).resolve().parents[2] / "console" / "web"
         app.mount("/membership/static", StaticFiles(directory=str(static_dir)), name="core_static")
 

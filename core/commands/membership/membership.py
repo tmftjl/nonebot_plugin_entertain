@@ -17,7 +17,7 @@ from nonebot.permission import SUPERUSER
 
 from ...framework.registry import Plugin
 from ...system_config import load_cfg
-from ...membership_service import (
+from .membership_service import (
     _add_duration,
     _choose_bots,
     _days_remaining,
@@ -335,4 +335,3 @@ async def _check_and_process() -> Tuple[int, int]:
     if changed:
         _write_data(data)
     return reminders, left
-
