@@ -12,7 +12,7 @@ from nonebot.adapters.onebot.v11 import Bot
 from nonebot.log import logger
 from zoneinfo import ZoneInfo
 
-from ...system_config import load_cfg
+from ..core.system_config import load_cfg
 
 
 # 有效的时间单位
@@ -125,4 +125,3 @@ def _choose_bots(preferred_id: Optional[str]) -> List[Bot]:
         bots.append(bots_map[preferred_id])
     bots.extend([b for sid, b in bots_map.items() if sid != preferred_id])
     return bots
-

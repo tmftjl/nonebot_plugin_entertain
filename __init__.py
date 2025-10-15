@@ -58,7 +58,7 @@ _load_subplugins_via_nonebot()
 def _load_system_via_nonebot() -> None:
     """加载内部 commands 目录下的系统插件（交给 NoneBot 处理）。"""
     try:
-        base = Path(__file__).parent / "core/commands"
+        base = Path(__file__).parent / "commands"
         if base.exists():
             load_plugins(str(base))
     except Exception:

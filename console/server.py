@@ -107,13 +107,13 @@ def setup_web_console() -> None:
         # 权限读取
         @router.get("/permissions")
         async def api_get_permissions():
-            from ..framework.config import load_permissions
+            from ..core.framework.config import load_permissions
             return load_permissions()
 
         # 权限更新
         @router.put("/permissions")
         async def api_update_permissions(payload: Dict[str, Any]):
-            from ..framework.config import save_permissions
+            from ..core.framework.config import save_permissions
             try:
                 save_permissions(payload)
                 return {"success": True, "message": "权限配置已更新（需手动重载生效）"}
@@ -123,7 +123,7 @@ def setup_web_console() -> None:
         # 优化权限文件（排序、规范化）
         @router.post("/permissions/optimize")
         async def api_optimize_permissions():
-            from ..framework.config import optimize_permissions
+            from ..core.framework.config import optimize_permissions
             try:
                 changed, new_data = optimize_permissions()
                 return {"success": True, "changed": bool(changed), "data": new_data}
@@ -218,7 +218,7 @@ def setup_web_console() -> None:
         @router.post("/job/run")
         async def api_run_job(_: dict = Depends(_auth)):
             try:
-                from ..core.commands.membership.membership import _check_and_process  # type: ignore
+                from ..commands.membership.membership import _check_and_process  # type: ignore
                 r, l = await _check_and_process()
                 return {"reminded": r, "left": l}
             except Exception as e:

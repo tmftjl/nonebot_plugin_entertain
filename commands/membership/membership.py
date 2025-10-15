@@ -14,8 +14,8 @@ from nonebot.log import logger
 from nonebot.matcher import Matcher
 from nonebot.permission import SUPERUSER
 from nonebot.plugin import PluginMetadata
-from ...framework.registry import Plugin
-from ...system_config import load_cfg
+from ...core.framework.registry import Plugin
+from ...core.system_config import load_cfg
 from ...console.membership_service import (
     _add_duration,
     _choose_bots,
