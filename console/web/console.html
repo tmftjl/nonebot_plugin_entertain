@@ -252,31 +252,34 @@
         <!-- 配置管理 -->
         <section id="tab-config" class="tab-content">
           <h2 class="page-title">⚙️ 配置管理中心</h2>
-          <div class="panel">
-            <div class="panel-header">
-              <h3 class="panel-title">🔧 配置管理</h3>
-              <div class="toolbar-right">
-                <select id="config-selector" class="input" aria-label="选择配置">
-                  <option value="">选择配置项...</option>
-                </select>
-                <button id="switch-config-view-btn" class="btn btn-secondary">📝 切换视图</button>
-                <button id="save-config-btn" class="btn btn-primary">💾 保存配置</button>
-              </div>
-            </div>
 
-            <!-- 可视化编辑视图 -->
-            <div id="config-visual-editor" class="config-visual-editor" style="display:none;">
-              <div class="config-form-container">
-                <div class="empty-state">请先选择一个配置项</div>
-              </div>
-            </div>
-
-            <!-- JSON编辑视图 -->
-            <div id="config-json-editor" class="config-editor">
-              <textarea id="config-json" class="json-editor" rows="25" placeholder="在此处编辑JSON配置..." aria-label="配置编辑器"></textarea>
-            </div>
+          <!-- 插件配置列表 -->
+          <div id="config-plugins-list" class="config-plugins-grid">
+            <div class="empty-state">正在加载配置...</div>
           </div>
         </section>
+
+        <!-- 配置编辑弹窗 -->
+        <div id="config-edit-modal" class="modal hidden" role="dialog" aria-labelledby="config-modal-title" aria-modal="true">
+          <div class="modal-dialog modal-dialog-large">
+            <div class="modal-header">
+              <div>
+                <h3 id="config-modal-title" class="modal-title">编辑配置</h3>
+                <p id="config-modal-subtitle" class="modal-subtitle"></p>
+              </div>
+              <button id="config-modal-close" class="modal-close" title="关闭" aria-label="关闭弹窗">✖</button>
+            </div>
+            <div class="modal-body">
+              <div id="config-form-container" class="config-form-container">
+                <!-- 动态生成的配置表单 -->
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button id="config-modal-cancel" class="btn btn-secondary">取消</button>
+              <button id="config-modal-save" class="btn btn-primary">💾 保存配置</button>
+            </div>
+          </div>
+        </div>
       </main>
     </div>
   </div>

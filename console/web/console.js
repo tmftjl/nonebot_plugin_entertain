@@ -616,27 +616,64 @@ async function savePermissions(){
   } catch(e){ showToast('保存失败: '+(e&&e.message?e.message:e),'error'); }
   finally{ showLoading(false);} }
 // 配置管理相关
-let configViewMode = 'json'; // 'json' or 'visual'
-let selectedConfigKey = '';
+let currentEditingConfig = null;
+
+// 配置项中文描述映射
+const CONFIG_DESCRIPTIONS = {
+  // 通用配置描述
+  'enabled': '是否启用此配置项',
+  'enable': '是否启用此功能',
+  'debug': '是否开启调试模式',
+  'log_level': '日志输出级别',
+  'max_retry': '最大重试次数',
+  'timeout': '超时时间（秒）',
+  'interval': '执行间隔（秒）',
+  'port': '服务端口号',
+  'host': '服务主机地址',
+  'api_key': 'API密钥',
+  'secret_key': '密钥',
+  'token': '访问令牌',
+  'url': '接口地址',
+  'path': '文件路径',
+  'prefix': '命令前缀',
+  'suffix': '命令后缀',
+  'max_length': '最大长度',
+  'min_length': '最小长度',
+  'cache_time': '缓存时间（秒）',
+  'rate_limit': '速率限制（次/秒）',
+
+  // 根据实际配置添加更多描述
+  'whitelist': '白名单列表',
+  'blacklist': '黑名单列表',
+  'admin_list': '管理员列表',
+  'superusers': '超级用户列表',
+};
+
+// 获取配置项的中文描述
+function getConfigDescription(key) {
+  // 先查找精确匹配
+  if (CONFIG_DESCRIPTIONS[key]) {
+    return CONFIG_DESCRIPTIONS[key];
+  }
+
+  // 尝试模糊匹配
+  const lowerKey = key.toLowerCase();
+  for (const [k, v] of Object.entries(CONFIG_DESCRIPTIONS)) {
+    if (lowerKey.includes(k)) {
+      return v;
+    }
+  }
+
+  // 如果没有描述，返回格式化的key
+  return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+}
 
 async function loadConfig(){
   try{
     showLoading(true);
-    const c=await apiCall('/config');
-    state.config=c;
-    $('#config-json').value = JSON.stringify(c, null, 2);
-
-    // 填充配置选择器
-    const selector = $('#config-selector');
-    if(selector) {
-      selector.innerHTML = '<option value="">选择配置项...</option>';
-      Object.keys(c || {}).forEach(key => {
-        const opt = document.createElement('option');
-        opt.value = key;
-        opt.textContent = key;
-        selector.appendChild(opt);
-      });
-    }
+    const c = await apiCall('/config');
+    state.config = c;
+    renderConfigPluginsList();
   } catch(e){
     showToast('加载配置失败: '+(e&&e.message?e.message:e),'error');
   } finally{
@@ -644,191 +681,261 @@ async function loadConfig(){
   }
 }
 
-async function saveConfig(){
-  try{
-    let cfg;
-    if(configViewMode === 'visual' && selectedConfigKey) {
-      // 从可视化编辑器收集数据
-      cfg = {...state.config};
-      const visualData = collectConfigFromVisualEditor(selectedConfigKey);
-      cfg[selectedConfigKey] = visualData;
-    } else {
-      // 从JSON编辑器获取
-      const txt=$('#config-json').value;
-      cfg=JSON.parse(txt||'{}');
-    }
+function renderConfigPluginsList() {
+  const container = $('#config-plugins-list');
+  if (!container) return;
 
-    showLoading(true);
-    await apiCall('/config',{method:'PUT', body: JSON.stringify(cfg)});
-    showToast('配置已保存，重新加载中...','success');
-    state.config=cfg;
+  const configs = state.config || {};
+  const configKeys = Object.keys(configs);
 
-    // 重新加载配置
-    await loadConfig();
-
-    // 如果在可视化模式，重新渲染当前选中的配置
-    if(configViewMode === 'visual' && selectedConfigKey) {
-      renderConfigVisualEditor(selectedConfigKey);
-    }
-  } catch(e){
-    showToast('保存失败: '+(e&&e.message?e.message:e),'error');
-  } finally{
-    showLoading(false);
-  }
-}
-
-function switchConfigView() {
-  configViewMode = configViewMode === 'json' ? 'visual' : 'json';
-  const jsonEditor = $('#config-json-editor');
-  const visualEditor = $('#config-visual-editor');
-  const switchBtn = $('#switch-config-view-btn');
-
-  if(configViewMode === 'visual') {
-    jsonEditor.style.display = 'none';
-    visualEditor.style.display = 'block';
-    if(switchBtn) switchBtn.textContent = '📝 JSON视图';
-
-    // 如果已选择配置项，则渲染可视化编辑器
-    if(selectedConfigKey) {
-      renderConfigVisualEditor(selectedConfigKey);
-    }
-  } else {
-    jsonEditor.style.display = 'block';
-    visualEditor.style.display = 'none';
-    if(switchBtn) switchBtn.textContent = '📝 可视化视图';
-  }
-}
-
-function onConfigSelectorChange(e) {
-  selectedConfigKey = e.target.value;
-  if(configViewMode === 'visual' && selectedConfigKey) {
-    renderConfigVisualEditor(selectedConfigKey);
-  }
-}
-
-function renderConfigVisualEditor(configKey) {
-  const container = document.querySelector('#config-visual-editor .config-form-container');
-  if(!container) return;
-
-  const configData = state.config?.[configKey];
-  if(!configData) {
-    container.innerHTML = '<div class="empty-state">未找到该配置项</div>';
+  if (configKeys.length === 0) {
+    container.innerHTML = '<div class="empty-state">暂无配置项</div>';
     return;
   }
 
-  // 渲染配置表单
-  const html = renderConfigForm(configKey, configData);
+  const html = configKeys.map(key => {
+    const value = configs[key];
+    const itemCount = typeof value === 'object' && value !== null ?
+      Object.keys(value).length : 0;
+
+    return `
+      <div class="config-plugin-card" data-config-key="${escapeHtml(key)}">
+        <div class="config-plugin-icon">⚙️</div>
+        <div class="config-plugin-info">
+          <div class="config-plugin-name">${escapeHtml(key)}</div>
+          <div class="config-plugin-meta">${itemCount} 个配置项</div>
+        </div>
+        <button class="config-plugin-edit-btn" data-config-key="${escapeHtml(key)}">
+          <span>编辑</span>
+          <span class="icon">✏️</span>
+        </button>
+      </div>
+    `;
+  }).join('');
+
   container.innerHTML = html;
+
+  // 绑定编辑按钮点击事件
+  container.querySelectorAll('.config-plugin-edit-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const key = btn.getAttribute('data-config-key');
+      openConfigEditModal(key);
+    });
+  });
+
+  // 绑定卡片点击事件
+  container.querySelectorAll('.config-plugin-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const key = card.getAttribute('data-config-key');
+      openConfigEditModal(key);
+    });
+  });
 }
 
-function renderConfigForm(key, data) {
-  if(typeof data !== 'object' || data === null) {
-    // 简单值
-    return `<div class="config-form-row">
-      <label class="config-label">${escapeHtml(key)}</label>
-      <input type="text" class="config-input" data-key="${escapeHtml(key)}" value="${escapeHtml(String(data))}">
-    </div>`;
+function openConfigEditModal(configKey) {
+  currentEditingConfig = configKey;
+  const configData = state.config?.[configKey];
+
+  const modal = $('#config-edit-modal');
+  const title = $('#config-modal-title');
+  const subtitle = $('#config-modal-subtitle');
+  const container = $('#config-form-container');
+
+  if (!modal || !container) return;
+
+  title.textContent = `编辑 ${configKey}`;
+  subtitle.textContent = getConfigDescription(configKey);
+
+  // 渲染配置表单
+  const formHtml = renderConfigForm(configData, configKey);
+  container.innerHTML = formHtml;
+
+  modal.classList.remove('hidden');
+}
+
+function closeConfigEditModal() {
+  const modal = $('#config-edit-modal');
+  if (modal) modal.classList.add('hidden');
+  currentEditingConfig = null;
+}
+
+function renderConfigForm(data, parentKey = '') {
+  if (typeof data !== 'object' || data === null) {
+    return renderConfigField(parentKey, data);
   }
 
-  // 对象或数组
-  let html = `<div class="config-section">`;
+  let html = '';
 
-  if(Array.isArray(data)) {
-    html += `<div class="config-section-title">📋 ${escapeHtml(key)} (数组)</div>`;
+  if (Array.isArray(data)) {
+    html += `<div class="config-section">`;
+    html += `<div class="config-section-header">
+      <span class="config-section-icon">📋</span>
+      <span class="config-section-title">列表配置</span>
+    </div>`;
+
     data.forEach((item, index) => {
-      if(typeof item === 'object' && item !== null) {
+      if (typeof item === 'object' && item !== null) {
         html += `<div class="config-array-item">
-          <div class="config-array-item-title">项目 ${index + 1}</div>
-          ${renderObjectFields(item, `${key}.${index}`)}
+          <div class="config-array-header">
+            <span class="config-array-label">项目 ${index + 1}</span>
+          </div>
+          <div class="config-array-body">
+            ${renderConfigForm(item, `${parentKey}[${index}]`)}
+          </div>
         </div>`;
       } else {
-        html += `<div class="config-form-row">
-          <label class="config-label">项目 ${index + 1}</label>
-          <input type="text" class="config-input" data-key="${escapeHtml(key)}.${index}" value="${escapeHtml(String(item))}">
-        </div>`;
+        html += renderConfigField(`${parentKey}[${index}]`, item, `项目 ${index + 1}`);
       }
     });
+    html += `</div>`;
   } else {
-    html += `<div class="config-section-title">⚙️ ${escapeHtml(key)}</div>`;
-    html += renderObjectFields(data, key);
+    // 对象类型
+    const entries = Object.entries(data);
+    entries.forEach(([key, value]) => {
+      const fullKey = parentKey ? `${parentKey}.${key}` : key;
+
+      if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        // 嵌套对象，创建折叠区域
+        html += `<div class="config-nested-section">
+          <div class="config-nested-header">
+            <span class="config-nested-icon">📁</span>
+            <span class="config-nested-title">${escapeHtml(key)}</span>
+            <span class="config-nested-desc">${getConfigDescription(key)}</span>
+          </div>
+          <div class="config-nested-body">
+            ${renderConfigForm(value, fullKey)}
+          </div>
+        </div>`;
+      } else {
+        html += renderConfigField(fullKey, value, key);
+      }
+    });
   }
 
-  html += `</div>`;
   return html;
 }
 
-function renderObjectFields(obj, parentKey) {
-  let html = '';
-  Object.entries(obj).forEach(([k, v]) => {
-    const fullKey = parentKey ? `${parentKey}.${k}` : k;
+function renderConfigField(fullKey, value, displayKey = null) {
+  const key = displayKey || fullKey.split('.').pop().split('[')[0];
+  const description = getConfigDescription(key);
+  const escapedKey = escapeHtml(fullKey);
+  const type = typeof value;
 
-    if(typeof v === 'boolean') {
-      html += `<div class="config-form-row">
-        <label class="config-label">${escapeHtml(k)}</label>
-        <label class="config-checkbox-label">
-          <input type="checkbox" class="config-checkbox" data-key="${escapeHtml(fullKey)}" ${v?'checked':''}>
-          <span>${v?'启用':'禁用'}</span>
-        </label>
-      </div>`;
-    } else if(typeof v === 'number') {
-      html += `<div class="config-form-row">
-        <label class="config-label">${escapeHtml(k)}</label>
-        <input type="number" class="config-input" data-key="${escapeHtml(fullKey)}" value="${v}">
-      </div>`;
-    } else if(typeof v === 'string') {
-      html += `<div class="config-form-row">
-        <label class="config-label">${escapeHtml(k)}</label>
-        <input type="text" class="config-input" data-key="${escapeHtml(fullKey)}" value="${escapeHtml(v)}">
-      </div>`;
-    } else if(Array.isArray(v)) {
-      html += `<div class="config-form-row">
-        <label class="config-label">${escapeHtml(k)} (列表)</label>
-        <input type="text" class="config-input" data-key="${escapeHtml(fullKey)}" value="${escapeHtml(v.join(', '))}" placeholder="用逗号分隔多个值">
-      </div>`;
-    } else if(typeof v === 'object' && v !== null) {
-      html += `<div class="config-nested">
-        <div class="config-nested-title">${escapeHtml(k)}</div>
-        ${renderObjectFields(v, fullKey)}
-      </div>`;
-    }
-  });
-  return html;
-}
+  let inputHtml = '';
 
-function collectConfigFromVisualEditor(configKey) {
-  const container = document.querySelector('#config-visual-editor .config-form-container');
-  if(!container) return state.config?.[configKey];
-
-  const inputs = container.querySelectorAll('[data-key]');
-  const result = JSON.parse(JSON.stringify(state.config?.[configKey] || {}));
-
-  inputs.forEach(input => {
-    const key = input.getAttribute('data-key');
-    if(!key) return;
-
-    // 移除配置键前缀
-    const path = key.replace(new RegExp(`^${configKey}\\.?`), '');
-    if(!path) return;
-
-    let value;
-    if(input.type === 'checkbox') {
-      value = input.checked;
-    } else if(input.type === 'number') {
-      value = parseFloat(input.value) || 0;
+  if (type === 'boolean') {
+    // 使用美观的开关
+    inputHtml = `
+      <label class="config-switch">
+        <input type="checkbox" data-config-key="${escapedKey}" ${value ? 'checked' : ''}>
+        <span class="config-switch-slider"></span>
+        <span class="config-switch-label">${value ? '已启用' : '已禁用'}</span>
+      </label>
+    `;
+  } else if (type === 'number') {
+    inputHtml = `
+      <input type="number"
+             class="config-input"
+             data-config-key="${escapedKey}"
+             value="${value}"
+             placeholder="请输入数字">
+    `;
+  } else if (Array.isArray(value)) {
+    inputHtml = `
+      <input type="text"
+             class="config-input"
+             data-config-key="${escapedKey}"
+             value="${escapeHtml(value.join(', '))}"
+             placeholder="多个值用逗号分隔">
+      <div class="config-field-hint">多个值请用逗号分隔</div>
+    `;
+  } else {
+    // 字符串类型
+    const valueStr = String(value || '');
+    if (valueStr.length > 50) {
+      inputHtml = `
+        <textarea class="config-textarea"
+                  data-config-key="${escapedKey}"
+                  rows="3"
+                  placeholder="请输入${description}">${escapeHtml(valueStr)}</textarea>
+      `;
     } else {
-      value = input.value;
-      // 尝试解析为数组
-      if(value.includes(',')) {
-        const arr = value.split(',').map(s => s.trim()).filter(Boolean);
-        if(arr.length > 0) value = arr;
-      }
+      inputHtml = `
+        <input type="text"
+               class="config-input"
+               data-config-key="${escapedKey}"
+               value="${escapeHtml(valueStr)}"
+               placeholder="请输入${description}">
+      `;
     }
+  }
 
-    // 设置嵌套值
-    setNestedValue(result, path, value);
-  });
+  return `
+    <div class="config-field-row">
+      <div class="config-field-label">
+        <span class="config-field-name">${escapeHtml(key)}</span>
+        <span class="config-field-desc">${description}</span>
+      </div>
+      <div class="config-field-input">
+        ${inputHtml}
+      </div>
+    </div>
+  `;
+}
 
-  return result;
+async function saveConfigModal() {
+  if (!currentEditingConfig) return;
+
+  try {
+    showLoading(true);
+
+    // 收集表单数据
+    const container = $('#config-form-container');
+    if (!container) return;
+
+    const inputs = container.querySelectorAll('[data-config-key]');
+    const updatedConfig = JSON.parse(JSON.stringify(state.config[currentEditingConfig]));
+
+    inputs.forEach(input => {
+      const fullKey = input.getAttribute('data-config-key');
+      const path = fullKey.split(/[.\[\]]+/).filter(Boolean);
+
+      let value;
+      if (input.type === 'checkbox') {
+        value = input.checked;
+      } else if (input.type === 'number') {
+        value = parseFloat(input.value) || 0;
+      } else {
+        value = input.value;
+        // 尝试解析为数组
+        if (value.includes(',')) {
+          const arr = value.split(',').map(s => s.trim()).filter(Boolean);
+          if (arr.length > 0) value = arr;
+        }
+      }
+
+      // 设置嵌套值
+      setNestedValue(updatedConfig, path.join('.'), value);
+    });
+
+    // 更新配置
+    const newConfig = {...state.config};
+    newConfig[currentEditingConfig] = updatedConfig;
+
+    // 保存到服务器
+    await apiCall('/config', {method: 'PUT', body: JSON.stringify(newConfig)});
+
+    state.config = newConfig;
+    showToast('配置已保存并重新加载','success');
+
+    closeConfigEditModal();
+    await loadConfig();
+  } catch(e) {
+    showToast('保存失败: ' + (e && e.message ? e.message : e), 'error');
+  } finally {
+    showLoading(false);
+  }
 }
 
 function setNestedValue(obj, path, value) {
@@ -867,13 +974,14 @@ function bindEvents(){
   $('#perm-json-close')?.addEventListener('click', closePermJsonModal);
   $('#perm-json-cancel')?.addEventListener('click', closePermJsonModal);
   $('#perm-json-save')?.addEventListener('click', savePermJson);
-  $('#save-config-btn')?.addEventListener('click', saveConfig);
-  $('#switch-config-view-btn')?.addEventListener('click', switchConfigView);
-  $('#config-selector')?.addEventListener('change', onConfigSelectorChange);
+  $('#config-modal-close')?.addEventListener('click', closeConfigEditModal);
+  $('#config-modal-cancel')?.addEventListener('click', closeConfigEditModal);
+  $('#config-modal-save')?.addEventListener('click', saveConfigModal);
   $('#group-search')?.addEventListener('input', e=>{ state.keyword=e.target.value.trim(); renderGroupsTable(); });
   $('#status-filter')?.addEventListener('change', e=>{ state.filter=e.target.value; renderGroupsTable(); });
   $('#select-all')?.addEventListener('change', e=> $$('.group-checkbox').forEach(cb=> cb.checked=e.target.checked));
   $('#refresh-btn')?.addEventListener('click', ()=>{ const active=$('.nav-item.active'); if(active) switchTab(active.dataset.tab); });
+
   const tbl=$('#groups-table-body');
   if(tbl){
     tbl.addEventListener('click', async (e)=>{
@@ -919,6 +1027,16 @@ function bindEvents(){
   }
   $('#stats-keyword')?.addEventListener('input', e=>{ state.statsKeyword=e.target.value.trim(); renderStatsDetails(state.stats?.today||{}); });
   $('#stats-sort')?.addEventListener('change', e=>{ state.statsSort=e.target.value; renderStatsDetails(state.stats?.today||{}); });
+
+  // 配置表单中的开关切换事件（使用事件委托）
+  document.addEventListener('change', (e) => {
+    if (e.target.matches('.config-switch input[type="checkbox"]')) {
+      const label = e.target.closest('.config-switch').querySelector('.config-switch-label');
+      if (label) {
+        label.textContent = e.target.checked ? '已启用' : '已禁用';
+      }
+    }
+  });
 }
 
 // 生成续费码
