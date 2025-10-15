@@ -4,7 +4,6 @@ import re
 from datetime import datetime, timezone
 from typing import Tuple
 
-from nonebot import require
 from nonebot.adapters.onebot.v11 import (
     GroupMessageEvent,
     Message,
@@ -241,7 +240,7 @@ async def _(_: Matcher):
 
 # 定时检查（Cron）
 try:
-    require("nonebot_plugin_apscheduler")
+    # 直接尝试导入调度器，若未安装或未加载则捕获异常并跳过
     from nonebot_plugin_apscheduler import scheduler
 
     cfg = load_cfg()
@@ -263,7 +262,7 @@ try:
             replace_existing=True,
         )
 except Exception:
-    logger.warning("nonebot-plugin-apscheduler 未安装，跳过计划任务")
+    logger.warning("nonebot-plugin-apscheduler 未安装或未加载，跳过计划任务")
 
 
 async def _check_and_process() -> Tuple[int, int]:
@@ -348,4 +347,3 @@ async def _check_and_process() -> Tuple[int, int]:
     if changed:
         _write_data(data)
     return reminders, left
-

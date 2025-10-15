@@ -1,4 +1,7 @@
 """System command packages.
 
-Leave empty to avoid importing submodules before NoneBot loads them as plugins.
+Imported via module-name loader to ensure plugin context. Import subpackages
+here so their commands register during plugin load.
 """
+
+from . import membership as _  # noqa: F401
