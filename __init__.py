@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from nonebot import get_driver, load_plugins
+from nonebot import get_driver, load_plugins, load_plugin
 from nonebot.plugin import PluginMetadata
 
 
