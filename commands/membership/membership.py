@@ -16,7 +16,7 @@ from nonebot.permission import SUPERUSER
 from nonebot.plugin import PluginMetadata
 from ...framework.registry import Plugin
 from ...system_config import load_cfg
-from .membership_service import (
+from ...console.membership_service import (
     _add_duration,
     _choose_bots,
     _days_remaining,

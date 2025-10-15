@@ -13,7 +13,7 @@ from nonebot.adapters.onebot.v11 import Message
 from nonebot.log import logger
 
 from ..core.system_config import load_cfg, save_cfg
-from ..core.commands.membership.membership_service import (
+from .membership_service import (
     _add_duration,
     _now_utc,
     _read_data,
