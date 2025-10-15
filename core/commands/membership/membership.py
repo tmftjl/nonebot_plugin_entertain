@@ -31,7 +31,7 @@ from .membership_service import (
 )
 
 
-# 系统模块命令注册（中文注释，UTF-8 编码）
+# 系统命令注册（中文、UTF-8、精简注释）
 P = Plugin(name="core", category="system", enabled=True, level="all", scene="all")
 
 
@@ -49,19 +49,21 @@ login_cmd = P.on_regex(
 
 @login_cmd.handle()
 async def _(matcher: Matcher, event: MessageEvent):
-    # 仅允许私聊使用登录命令
     if not isinstance(event, PrivateMessageEvent):
         await matcher.finish("请在私聊使用该命令")
     token = str(int(_now_utc().timestamp()))[-6:]
     cfg = load_cfg()
-    console_host = str(cfg.get("member_renewal_console_host", "http://localhost:8080") or "http://localhost:8080")
+    console_host = str(
+        cfg.get("member_renewal_console_host", "http://localhost:8080")
+        or "http://localhost:8080"
+    )
     login_url = f"{console_host}/membership/console?token={token}"
     await matcher.finish(Message(f"控制台登录地址：{login_url}"))
 
 
-# 生成续费码（管理员）
+# 生成续费码（超级用户）
 gen_code_cmd = P.on_regex(
-    r"^ww生成续费(\\d+)(天|月|年)$",
+    r"^ww生成续费(\d+)(天|月|年)$",
     name="gen_code",
     priority=10,
     permission=SUPERUSER,
@@ -73,11 +75,10 @@ gen_code_cmd = P.on_regex(
 
 @gen_code_cmd.handle()
 async def _(matcher: Matcher, event: MessageEvent):
-    # 仅允许私聊生成续费码
     if not isinstance(event, PrivateMessageEvent):
-        await matcher.finish("为安全起见，请在私聊中生成续费码")
+        await matcher.finish("为安全起见，请在私聊生成续费码")
     matched = event.get_plaintext()
-    m = re.match(r"^ww生成续费(\\d+)(天|月|年)$", matched)
+    m = re.match(r"^ww生成续费(\d+)(天|月|年)$", matched)
     assert m
     length = int(m.group(1))
     unit = m.group(2)
@@ -91,12 +92,17 @@ async def _(matcher: Matcher, event: MessageEvent):
     }
     _write_data(data)
 
-    await matcher.finish(Message(f"已生成续费码（默认一次性）：{code}\\n请将其发送到需要开通/续费的群聊中（首次开通也使用此码）"))
+    await matcher.finish(
+        Message(
+            f"已生成续费码（默认一次性）：{code}\n"
+            "请将其发送到需要开通/续费的群聊中（首次开通也使用此码）"
+        )
+    )
 
 
-# 使用续费码（群内）
+# 使用续费码（群聊）
 redeem_cmd = P.on_regex(
-    r"^ww续费(\\d+)(天|月|年)-([A-Za-z0-9_]+)$",
+    r"^ww续费(\d+)(天|月|年)-([A-Za-z0-9_]+)$",
     name="redeem",
     priority=5,
     enabled=True,
@@ -107,11 +113,10 @@ redeem_cmd = P.on_regex(
 
 @redeem_cmd.handle()
 async def _(matcher: Matcher, event: MessageEvent):
-    # 仅允许群聊使用续费码
     if not isinstance(event, GroupMessageEvent):
         await matcher.finish("续费码只能在群聊中使用哦")
     matched = event.get_plaintext()
-    m = re.match(r"^ww续费(\\d+)(天|月|年)-([A-Za-z0-9_]+)$", matched)
+    m = re.match(r"^ww续费(\d+)(天|月|年)-([A-Za-z0-9_]+)$", matched)
     assert m
     parsed_len = int(m.group(1))
     parsed_unit = m.group(2)
@@ -155,7 +160,9 @@ async def _(matcher: Matcher, event: MessageEvent):
     data["generatedCodes"].pop(code, None)
     _write_data(data)
 
-    await matcher.finish(Message(f"本群会员已成功续期 {parsed_len}{parsed_unit}，到期时间：{_format_cn(new_expiry)}"))
+    await matcher.finish(
+        Message(f"本群会员已成功续费{parsed_len}{parsed_unit}，到期时间：{_format_cn(new_expiry)}")
+    )
 
 
 # 到期查询（群聊）
@@ -193,10 +200,10 @@ async def _(_: Matcher, event: MessageEvent):
         status = "今天到期"
     else:
         status = f"有效(剩余{days}天)"
-    await check_group.finish(Message(f"本群会员状态：{status}\\n到期：{_format_cn(expiry)}"))
+    await check_group.finish(Message(f"本群会员状态：{status}\n到期：{_format_cn(expiry)}"))
 
 
-# 引导提示（低优先级，不拦截）
+# 引导提示（不拦截）
 prompt = P.on_regex(
     r"^ww(拉群|续费)$",
     name="prompt",
@@ -209,7 +216,9 @@ prompt = P.on_regex(
 
 @prompt.handle()
 async def _(_: Matcher):
-    await prompt.finish("如需首次开通或续费，请联系管理员购买续费码（会员开通码），在群内直接发送即可生效。")
+    await prompt.finish(
+        "如需首次开通或续费，请联系管理员购买续费码（会员开通码），在群内直接发送即可生效"
+    )
 
 
 # 手动检查
@@ -230,7 +239,7 @@ async def _(_: Matcher):
     await manual_check.finish(f"已提醒{r}个群，退出{l}个群")
 
 
-# 定时检查（根据配置的 Cron 时间）
+# 定时检查（Cron）
 try:
     require("nonebot_plugin_apscheduler")
     from nonebot_plugin_apscheduler import scheduler
@@ -258,9 +267,9 @@ except Exception:
 
 
 async def _check_and_process() -> Tuple[int, int]:
-    """检查到期并提醒或退群。
+    """检查群到期，提醒或退群
 
-    返回 (已提醒数量, 已退出数量)
+    返回 (提醒数量, 退群数量)
     """
     data = _read_data()
     cfg = load_cfg()
@@ -289,7 +298,7 @@ async def _check_and_process() -> Tuple[int, int]:
 
         days = _days_remaining(expiry)
 
-        # 已过期处理
+        # 已过期
         if days < 0 and status != "expired":
             if bool(cfg.get("member_renewal_auto_leave_on_expire", True)):
                 preferred = v.get("managed_by_bot")
@@ -312,9 +321,13 @@ async def _check_and_process() -> Tuple[int, int]:
             if last != today:
                 preferred = v.get("managed_by_bot")
                 if days == 0:
-                    content = "本群会员今天到期。请尽快联系管理员购买续费码（首次开通与续费同用），并在群内发送完成续费。"
+                    content = (
+                        "本群会员今天到期。请尽快联系管理员购买续费码（首次开通与续费同用），并在群内发送完成续费"
+                    )
                 else:
-                    content = f"本群会员将在 {days} 天后到期。请尽快联系管理员购买续费码（首次开通与续费同用），并在群内发送完成续费。"
+                    content = (
+                        f"本群会员将在 {days} 天后到期。请尽快联系管理员购买续费码（首次开通与续费同用），并在群内发送完成续费"
+                    )
                 suffix = str(cfg.get("member_renewal_contact_suffix", "") or "").strip()
                 if suffix and suffix not in content:
                     content = content + " " + suffix
@@ -335,3 +348,4 @@ async def _check_and_process() -> Tuple[int, int]:
     if changed:
         _write_data(data)
     return reminders, left
+

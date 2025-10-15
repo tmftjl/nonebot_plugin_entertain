@@ -19,7 +19,7 @@ from ...system_config import load_cfg
 UNITS = ("天", "月", "年")
 
 
-# ----- 时间与时区工具 -----
+# 时间与时区工具
 
 
 def _tz():
@@ -29,7 +29,7 @@ def _tz():
         return ZoneInfo(tzname)
     except Exception:
         logger.warning(
-            f"membership: invalid or unavailable timezone '{tzname}', fallback to +08:00"
+            f"membership: 无效或不可用的时区 '{tzname}'，回退到 +08:00"
         )
         return timezone(timedelta(hours=8))
 
@@ -56,15 +56,13 @@ def _days_remaining(expiry: datetime) -> int:
     return (local_expiry.date() - today).days
 
 
-# ----- 简单的本地 JSON 存储 -----
+# 本地 JSON 存储
 
 _PLUGIN_DIR = Path(__file__).parent
-# 数据文件与框架模块位于同一目录
 _NEW_DATA_FILE = _PLUGIN_DIR / "memberships.json"
 
 
 def _ensure_file() -> None:
-    # 确保数据路径存在；若文件缺失则初始化（不做旧版本迁移）
     try:
         _NEW_DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
         if not _NEW_DATA_FILE.exists():
@@ -87,7 +85,6 @@ def _read_data() -> Dict[str, Any]:
 
 def _write_data(obj: Dict[str, Any]) -> None:
     _ensure_file()
-    # 原子写入
     tmp = _NEW_DATA_FILE.with_suffix(".tmp")
     tmp.write_text(json.dumps(obj, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(_NEW_DATA_FILE)
@@ -97,7 +94,7 @@ def _add_duration(start: datetime, length: int, unit: str) -> datetime:
     if unit == "天":
         return start + timedelta(days=length)
     if unit == "月":
-        # 简单按 30 天计算
+        # 简化：按 30 天计算 1 个月
         return start + timedelta(days=30 * length)
     if unit == "年":
         return start + timedelta(days=365 * length)
@@ -111,7 +108,7 @@ def _ensure_generated_codes(obj: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def generate_unique_code(length: int, unit: str) -> str:
-    # 使用加密随机和统一配置
+    # 生成唯一续费码：前缀 + 时长 + 单位 + 随机码
     cfg = load_cfg()
     prefix = str(cfg.get("member_renewal_code_prefix", "ww续费") or "ww续费")
     n = int(cfg.get("member_renewal_code_random_len", 6) or 6)
