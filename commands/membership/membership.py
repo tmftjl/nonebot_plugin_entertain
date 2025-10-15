@@ -45,7 +45,7 @@ P = Plugin(name="core", category="system", enabled=True, level="all", scene="all
 
 # 控制台登录
 login_cmd = P.on_regex(
-    r"^控制台登录$",
+    r"^今汐登录$",
     name="console_login",
     priority=10,
     permission=SUPERUSER,
@@ -71,7 +71,7 @@ async def _(matcher: Matcher, event: MessageEvent):
 
 # 生成续费码（超级用户）
 gen_code_cmd = P.on_regex(
-    r"^ww生成续费(\d+)(天|月|年)$",
+    r"^ww生成续费码(\d+)(天|月|年)$",
     name="gen_code",
     priority=10,
     permission=SUPERUSER,
@@ -86,7 +86,7 @@ async def _(matcher: Matcher, event: MessageEvent):
     if not isinstance(event, PrivateMessageEvent):
         await matcher.finish("为安全起见，请在私聊生成续费码")
     matched = event.get_plaintext()
-    m = re.match(r"^ww生成续费(\d+)(天|月|年)$", matched)
+    m = re.match(r"^ww生成续费码(\d+)(天|月|年)$", matched)
     assert m
     length = int(m.group(1))
     unit = m.group(2)
@@ -249,7 +249,6 @@ async def _(_: Matcher):
 
 # 定时检查（Cron）
 try:
-    # 直接尝试导入调度器，若未安装或未加载则捕获异常并跳过
     from nonebot_plugin_apscheduler import scheduler
 
     cfg = load_cfg()

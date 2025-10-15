@@ -25,26 +25,24 @@ from .membership_service import (
 
 
 def _auth(request: Request) -> dict:
-    """极简认证（仅示例）。"""
     ip = request.client.host if request and request.client else ""
     return {"role": "admin", "token_tail": "", "ip": ip, "request": request}
 
 
 def _contact_suffix() -> str:
     cfg = load_cfg()
-    return str(cfg.get("member_renewal_contact_suffix", " 咨询/加入交流QQ群：757463664 联系群管") or "")
+    return str(cfg.get("member_renewal_contact_suffix", " 咨询/加入交流QQ群 757463664 联系群管") or "")
 
 
 def setup_web_console() -> None:
-    """挂载 Web 控制台与接口（中文注释，UTF-8）。"""
     try:
         if not bool(load_cfg().get("member_renewal_console_enable", False)):
             return
 
         app = get_app()
-        router = APIRouter(prefix="/membership", tags=["core"])
+        router = APIRouter(prefix="/member_renewal", tags=["member_renewal"])
 
-        # 提醒群聊
+        # 提醒群（不再需要 bot_ids）
         @router.post("/remind_multi")
         async def api_remind_multi(payload: Dict[str, Any], request: Request, ctx: dict = Depends(_auth)):
             try:
@@ -58,7 +56,7 @@ def setup_web_console() -> None:
             live = get_bots()
             bot = next(iter(live.values()), None)
             if not bot:
-                raise HTTPException(500, "没有可用的 Bot 可发送提醒")
+                raise HTTPException(500, "无可用 Bot 可发送提醒")
             try:
                 await bot.send_group_msg(group_id=gid, message=Message(content))
             except Exception as e:
@@ -66,7 +64,7 @@ def setup_web_console() -> None:
                 raise HTTPException(500, f"发送提醒失败: {e}")
             return {"sent": 1}
 
-        # 退群
+        # 退群（不再需要 bot_ids）
         @router.post("/leave_multi")
         async def api_leave_multi(payload: Dict[str, Any], request: Request, ctx: dict = Depends(_auth)):
             try:
@@ -76,7 +74,7 @@ def setup_web_console() -> None:
             live = get_bots()
             bot = next(iter(live.values()), None)
             if not bot:
-                raise HTTPException(500, "没有可用的 Bot 可退群")
+                raise HTTPException(500, "无可用 Bot 可退群")
             try:
                 await bot.set_group_leave(group_id=gid, is_dismiss=False)
             except Exception as e:
@@ -103,39 +101,27 @@ def setup_web_console() -> None:
             except Exception as e:
                 logger.error(f"获取统计失败: {e}")
                 raise HTTPException(500, f"获取统计失败: {e}")
-
-        # 权限读取
+        # 权限
         @router.get("/permissions")
         async def api_get_permissions():
             from ..core.framework.config import load_permissions
             return load_permissions()
 
-        # 权限更新
         @router.put("/permissions")
         async def api_update_permissions(payload: Dict[str, Any]):
             from ..core.framework.config import save_permissions
             try:
+                # Persist new permissions only; runtime reload should be triggered manually
                 save_permissions(payload)
                 return {"success": True, "message": "权限配置已更新（需手动重载生效）"}
             except Exception as e:
                 raise HTTPException(500, f"更新权限失败: {e}")
 
-        # 优化权限文件（排序、规范化）
-        @router.post("/permissions/optimize")
-        async def api_optimize_permissions():
-            from ..core.framework.config import optimize_permissions
-            try:
-                changed, new_data = optimize_permissions()
-                return {"success": True, "changed": bool(changed), "data": new_data}
-            except Exception as e:
-                raise HTTPException(500, f"优化失败: {e}")
-
-        # 配置读取
+        # 配置
         @router.get("/config")
         async def api_get_config():
             return load_cfg()
 
-        # 配置更新
         @router.put("/config")
         async def api_update_config(payload: Dict[str, Any]):
             try:
@@ -144,7 +130,7 @@ def setup_web_console() -> None:
             except Exception as e:
                 raise HTTPException(500, f"更新配置失败: {e}")
 
-        # 数据读取
+        # 数据
         @router.get("/data")
         async def api_get_all(_: dict = Depends(_auth)):
             return _read_data()
@@ -172,6 +158,7 @@ def setup_web_console() -> None:
             rec["used_count"] = 0
             expire_days = int(payload.get("expire_days") or cfg.get("member_renewal_code_expire_days", 0) or 0)
             if expire_days > 0:
+                # 使用 UNITS[0] 对应的单位（通常为“天”）
                 rec["expire_at"] = _add_duration(_now_utc(), expire_days, UNITS[0]).isoformat()
             data["generatedCodes"][code] = rec
             _write_data(data)
@@ -214,28 +201,26 @@ def setup_web_console() -> None:
             data = _ensure_generated_codes(_read_data())
             return data.get("generatedCodes", {})
 
-        # 运行定时任务（调用内部检查逻辑）
+        # 运行定时任务
         @router.post("/job/run")
         async def api_run_job(_: dict = Depends(_auth)):
             try:
-                from ..commands.membership.membership import _check_and_process  # type: ignore
+                from .commands import _check_and_process  # type: ignore
                 r, l = await _check_and_process()
                 return {"reminded": r, "left": l}
             except Exception as e:
                 raise HTTPException(500, f"执行失败: {e}")
 
-        # 静态资源与控制台页面（使用 console/web 目录）
+        # 静态资源与控制台页面
         static_dir = Path(__file__).parent / "web"
-        if not static_dir.exists():
-            static_dir = Path(__file__).resolve().parents[2] / "console" / "web"
-        app.mount("/membership/static", StaticFiles(directory=str(static_dir)), name="core_static")
+        app.mount("/member_renewal/static", StaticFiles(directory=str(static_dir)), name="member_renewal_static")
 
         @router.get("/console")
         async def console(_: dict = Depends(_auth)):
-            path = static_dir / "console.html"
+            path = Path(__file__).parent / "web" / "console.html"
             return FileResponse(path, media_type="text/html")
 
         app.include_router(router)
-        logger.info("core Web 控制台已挂载 /membership")
+        logger.info("member_renewal Web 控制台已挂载 /member_renewal")
     except Exception as e:
-        logger.warning(f"membership Web 控制台挂载失败: {e}")
+        logger.warning(f"member_renewal Web 控制台挂载失败: {e}")
