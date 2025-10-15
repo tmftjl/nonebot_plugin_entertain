@@ -10,7 +10,7 @@ _CFG = register_namespaced_config("entertain", "doro", {})
 _DORO = P.on_regex(
     r"^#?(?:抽取|随机)?(?:今日)?doro结局$",
     name="draw",
-    priority=13,
+    priority=12,
     block=True,
 )
 

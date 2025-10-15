@@ -93,7 +93,7 @@ async def _sanitize_message_to_cq(bot: Bot, msg: Message) -> str:
     return str(Message(out))
 
 
-set_welcome = P.on_regex(r"^(?:#)?设置欢迎(?:\s*(.+))?$", name="set", block=True, priority=13)
+set_welcome = P.on_regex(r"^(?:#)?设置欢迎(?:\s*(.+))?$", name="set", block=True, priority=12)
 
 
 @set_welcome.handle()
@@ -114,7 +114,7 @@ async def _(matcher: Matcher, bot: Bot, event: MessageEvent, groups: tuple = Reg
     await matcher.finish("已更新本群欢迎语")
 
 
-show_welcome = P.on_regex(r"^(?:#)?查看欢迎$", name="show", block=True, priority=13)
+show_welcome = P.on_regex(r"^(?:#)?查看欢迎$", name="show", block=True, priority=12)
 
 
 @show_welcome.handle()
@@ -130,7 +130,7 @@ async def _(matcher: Matcher, event: MessageEvent):
     await matcher.finish(Message(f"当前欢迎已{status}\n") + Message(rec.get("content", "")))
 
 
-enable_welcome = P.on_regex(r"^(?:#)?开启欢迎$", name="enable", block=True, priority=13)
+enable_welcome = P.on_regex(r"^(?:#)?开启欢迎$", name="enable", block=True, priority=12)
 
 
 @enable_welcome.handle()
@@ -146,7 +146,7 @@ async def _(matcher: Matcher, event: MessageEvent):
     await matcher.finish("已开启本群欢迎")
 
 
-disable_welcome = P.on_regex(r"^(?:#)?关闭欢迎$", name="disable", block=True, priority=13)
+disable_welcome = P.on_regex(r"^(?:#)?关闭欢迎$", name="disable", block=True, priority=12)
 
 
 @disable_welcome.handle()
@@ -162,7 +162,7 @@ async def _(matcher: Matcher, event: MessageEvent):
     await matcher.finish("已关闭本群欢迎")
 
 
-welcome_notice = on_notice(priority=50, permission=P.permission())
+welcome_notice = on_notice(priority=12, permission=P.permission())
 
 
 @welcome_notice.handle()

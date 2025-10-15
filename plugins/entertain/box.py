@@ -66,6 +66,20 @@ _CFG = register_namespaced_config(
     },
 )
 
+# Persist defaults on first load and provide a safe getter
+def _cfg_get(key: str, default=None):
+    try:
+        cfg = _CFG.load()
+        return cfg.get(key, default)
+    except Exception:
+        return default
+
+# Initialize to persist defaults on startup
+try:
+    _ = _CFG.load()
+except Exception:
+    pass
+
 
 box_matcher = P.on_regex(
     r"^(?:#|/)?(?:盒|开盒)\s*(\d+)?$",
@@ -112,7 +126,7 @@ async def _handle_box(
         group_id = str(event.group_id)
 
     # only-admin restriction
-    if _CFG.get("only_admin") and isinstance(event, GroupMessageEvent):
+    if _cfg_get("only_admin") and isinstance(event, GroupMessageEvent):
         try:
             mem = await bot.get_group_member_info(group_id=int(event.group_id), user_id=int(event.user_id))
             if str(mem.get("role")) not in {"owner", "admin"}:
@@ -124,7 +138,15 @@ async def _handle_box(
 
     # blacklist
     try:
-        if str(target_id) in {str(x) for x in _CFG.get("box_blacklist", []) or []}:
+        bl = _cfg_get("box_blacklist", [])
+        if str(target_id) in {str(x) for x in (bl or [])}:
+            await matcher.finish("该用户无法被开盒")
+            return
+    except Exception:
+        pass
+    
+    try:
+        if str(target_id) in {str(x) for x in (_cfg_get("box_blacklist", []) or [])}:
             await matcher.finish("该用户无法被开盒")
             return
     except Exception:
@@ -430,11 +452,11 @@ _notice_increase = on_notice()
 @_notice_increase.handle()
 async def _on_increase(bot: Bot, event: GroupIncreaseNoticeEvent):  # type: ignore[valid-type]
     try:
-        if not _CFG.get("increase_box"):
+        if not _cfg_get("increase_box"):
             return
         group_id = str(event.group_id)
-        if _CFG.get("auto_box_groups"):
-            if str(group_id) not in {str(g) for g in _CFG.get("auto_box_groups", [])}:
+        if _cfg_get("auto_box_groups"):
+            if str(group_id) not in {str(g) for g in _cfg_get("auto_box_groups", [])}:
                 return
         user_id = str(event.user_id)
         msg = await _do_box(bot, target_id=user_id, group_id=group_id)
@@ -450,13 +472,13 @@ _notice_decrease = on_notice()
 @_notice_decrease.handle()
 async def _on_decrease(bot: Bot, event: GroupDecreaseNoticeEvent):  # type: ignore[valid-type]
     try:
-        if not _CFG.get("decrease_box"):
+        if not _cfg_get("decrease_box"):
             return
         if str(event.sub_type) != "leave":
             return
         group_id = str(event.group_id)
-        if _CFG.get("auto_box_groups"):
-            if str(group_id) not in {str(g) for g in _CFG.get("auto_box_groups", [])}:
+        if _cfg_get("auto_box_groups"):
+            if str(group_id) not in {str(g) for g in _cfg_get("auto_box_groups", [])}:
                 return
         user_id = str(event.user_id)
         msg = await _do_box(bot, target_id=user_id, group_id=group_id)

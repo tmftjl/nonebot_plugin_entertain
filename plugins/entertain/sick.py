@@ -13,7 +13,7 @@ _CFG = register_namespaced_config("entertain", "sick", {})
 _SICK = P.on_regex(
     r"^(?:#|/)?发病语录$",
     name="get",
-    priority=13,
+    priority=12,
     block=True,
 )
 
@@ -37,8 +37,7 @@ async def _(matcher: Matcher, event: MessageEvent):
         msg = Message(MessageSegment.text(f"# 发病语录\n> {yl}"))
     # 改为 @ 回复：引用消息并@原发送者
     msg = Message(
-        MessageSegment.reply(event.message_id)
-        + MessageSegment.at(event.user_id)
+        MessageSegment.at(event.user_id)
         + MessageSegment.text(f"\n{yl}")
     )
     await matcher.finish(msg)

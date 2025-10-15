@@ -32,7 +32,7 @@ from . import update_gallery as update_gallery  # 注册更新命令
 P = Plugin(name="df")
 from ...core.api import upsert_command_defaults as _up_def
 _up_def('df', 'poke')
-for _c in ('pictures_face','pictures_list','contact','reply'):
+for _c in ('pictures_local','pictures_face','pictures_list','contact','reply'):
     try:
         _up_def('df', _c)
     except Exception:
@@ -113,7 +113,7 @@ async def _hitokoto(api: str) -> Optional[str]:
 _PIC = P.on_regex(
     _build_picture_regex(),
     name="pictures_api",
-    priority=13,
+    priority=12,
     block=True,
 )
 
@@ -138,10 +138,31 @@ async def _(matcher: Matcher, event: MessageEvent):
     await matcher.finish()
 
 
+# 本地图库：来张/看看/随机 + 名称（优先于外部API）
+_LOCAL_PIC = P.on_regex(
+    r"^#?(?:来张|看看|随机)\s*(\S+)$",
+    name="pictures_local",
+    priority=12,
+    block=False,
+)
+
+
+@_LOCAL_PIC.handle()
+async def _(matcher: Matcher, event: MessageEvent):
+    if not _cfg.get("random_picture_open", True):
+        return
+    m = re.match(r"^#?(?:来张|看看|随机)\s*(\S+)$", str(event.get_message()))
+    if not m:
+        return
+    name = m.group(1)
+    if name in face_list():
+        await matcher.finish(Message(_pick_face_image(name)))
+
+
 # 表情：通用匹配，运行时校验
 _FACE = P.on_regex(
     r"^#?(?:表情|表情包|表情图)(\S+)$",
-    priority=13,
+    priority=12,
     block=False,
     name="pictures_face",
 )
@@ -161,7 +182,7 @@ async def _(matcher: Matcher, event: MessageEvent):
 
 _LIST = P.on_regex(
     r"^#?DF(?:随机)?表情包列表$",
-    priority=13,
+    priority=12,
     block=True,
     name="pictures_list",
 )
