@@ -65,7 +65,7 @@ async def _(matcher: Matcher, event: MessageEvent):
         cfg.get("member_renewal_console_host", "http://localhost:8080")
         or "http://localhost:8080"
     )
-    login_url = f"{console_host}/membership/console?token={token}"
+    login_url = f"{console_host}/member_renewal/console?token={token}"
     await matcher.finish(Message(f"控制台登录地址：{login_url}"))
 
 

@@ -81,7 +81,7 @@ cmd = P.on_regex(r"^#?<示例>$", name="command_name", priority=13, block=True)
   - 使用续费码：`ww续费<数字><天|月|年>-<随机码>`（群聊）
   - 查询到期：`ww到期`（群聊）
   - 手动检查：`ww检查会员`（管理员）
-- Web 控制台：`/membership/console`（需在系统配置中开启 `member_renewal_console_enable`）
+- Web 控制台：`/member_renewal/console`（需在系统配置中开启 `member_renewal_console_enable`）
 
 编码与注释
 - 全部源文件使用 UTF-8 编码
