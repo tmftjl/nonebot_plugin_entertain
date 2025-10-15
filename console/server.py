@@ -42,6 +42,50 @@ def setup_web_console() -> None:
         app = get_app()
         router = APIRouter(prefix="/member_renewal", tags=["member_renewal"])
 
+        # 内部：根据系统配置重置/移除会员检查定时任务
+        async def _membership_job():
+            try:
+                from ..commands.membership.membership import _check_and_process  # type: ignore
+
+                r, l = await _check_and_process()
+                logger.info(f"[membership] 定时检查完成，提醒={r}，退出={l}")
+            except Exception as e:
+                logger.exception(f"[membership] 定时检查失败: {e}")
+
+        def _reschedule_membership_job() -> None:
+            try:
+                # 可选依赖：未安装则跳过
+                from nonebot_plugin_apscheduler import scheduler  # type: ignore
+
+                cfg = load_cfg()
+                enable = bool(cfg.get("member_renewal_enable_scheduler", True))
+                if not enable:
+                    try:
+                        scheduler.remove_job("membership_check")  # type: ignore
+                    except Exception:
+                        pass
+                    return
+
+                hour = int(cfg.get("member_renewal_schedule_hour", 12) or 12)
+                minute = int(cfg.get("member_renewal_schedule_minute", 0) or 0)
+                second = int(cfg.get("member_renewal_schedule_second", 0) or 0)
+                # 使用与插件相同的任务 ID，避免重复；存在则替换
+                scheduler.add_job(  # type: ignore
+                    _membership_job,
+                    trigger="cron",
+                    hour=hour,
+                    minute=minute,
+                    second=second,
+                    id="membership_check",
+                    replace_existing=True,
+                )
+                logger.info(
+                    f"[membership] 定时任务已重载为 {hour:02d}:{minute:02d}:{second:02d}"
+                )
+            except Exception:
+                # 未安装调度器或运行环境不支持时静默跳过
+                pass
+
         # 提醒群（不再需要 bot_ids）
         @router.post("/remind_multi")
         async def api_remind_multi(payload: Dict[str, Any], request: Request, ctx: dict = Depends(_auth)):
@@ -109,11 +153,20 @@ def setup_web_console() -> None:
 
         @router.put("/permissions")
         async def api_update_permissions(payload: Dict[str, Any]):
-            from ..core.framework.config import save_permissions
+            from ..core.framework.config import save_permissions, optimize_permissions
+            from ..core.framework.perm import reload_permissions
             try:
-                # Persist new permissions only; runtime reload should be triggered manually
                 save_permissions(payload)
-                return {"success": True, "message": "权限配置已更新（需手动重载生效）"}
+                # 规范化并立即重载到内存
+                try:
+                    optimize_permissions()
+                except Exception:
+                    pass
+                try:
+                    reload_permissions()
+                except Exception:
+                    pass
+                return {"success": True, "message": "权限配置已更新并生效"}
             except Exception as e:
                 raise HTTPException(500, f"更新权限失败: {e}")
 
@@ -126,7 +179,9 @@ def setup_web_console() -> None:
         async def api_update_config(payload: Dict[str, Any]):
             try:
                 save_cfg(payload)
-                return {"success": True, "message": "配置已更新"}
+                # 重载定时任务（若安装了调度器）
+                _reschedule_membership_job()
+                return {"success": True, "message": "配置已更新并应用"}
             except Exception as e:
                 raise HTTPException(500, f"更新配置失败: {e}")
 
@@ -205,7 +260,7 @@ def setup_web_console() -> None:
         @router.post("/job/run")
         async def api_run_job(_: dict = Depends(_auth)):
             try:
-                from .commands import _check_and_process  # type: ignore
+                from ..commands.membership.membership import _check_and_process  # type: ignore
                 r, l = await _check_and_process()
                 return {"reminded": r, "left": l}
             except Exception as e:

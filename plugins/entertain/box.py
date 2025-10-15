@@ -156,6 +156,28 @@ async def _handle_box(
     await matcher.finish(msg)
 
 
+# 兼容：命令前后带 @ 时，纯文本会残留空格，导致上面的正则无法完整匹配
+# 新增一个更宽松的匹配（允许前后空白），优先级略低，复用同一条权限“box”
+box_matcher_compat = P.on_regex(
+    r"^\s*(?:#|/)?(?:盒|开盒)\s*(\d+)?\s*$",
+    name="box",
+    priority=13,
+    block=True,
+    permission=P.permission_cmd("box"),
+)
+
+
+@box_matcher_compat.handle()
+async def _handle_box_compat(
+    matcher: Matcher,
+    bot: Bot,
+    event: MessageEvent,
+    groups: Tuple[Optional[str]] = RegexGroup(),
+) -> None:
+    # 直接复用原处理逻辑
+    await _handle_box(matcher, bot, event, groups)
+
+
 async def _do_box(bot: Bot, *, target_id: str, group_id: Optional[str]) -> Message:
     # get stranger info
     try:
