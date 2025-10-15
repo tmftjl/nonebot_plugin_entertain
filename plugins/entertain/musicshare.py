@@ -16,7 +16,6 @@ from nonebot.matcher import Matcher
 from nonebot.params import RegexGroup
 from nonebot.exception import FinishedException
 from ...core.api import Plugin
-from ...core.api import register_namespaced_config
 
 
 try:
@@ -63,8 +62,7 @@ USER_RESULTS: Dict[str, Tuple[Platform, List[Song]]] = {}
 
 
 # Regex definitions
-P = Plugin(name="entertain")
-_CFG = register_namespaced_config("entertain", "musicshare", {})
+P = Plugin(name="musicshare")
 search_matcher = P.on_regex(
     r"^#?点歌(?:(qq|酷狗|网易云|wyy|kugou|netease))?\s*(.*)$",
     name="search",
@@ -83,7 +81,7 @@ def _platform_alias_to_key(alias: Optional[str]) -> Platform:
         return "qq"
     if a in {"酷狗", "kugou"}:
         return "kugou"
-    if a in {"网易", "wyy", "netease"}:
+    if a in {"网易云", "wyy", "netease"}:
         return "wangyiyun"
     return "wangyiyun"
 
@@ -128,66 +126,146 @@ async def _search_songs(platform: Platform, keyword: str) -> List[Song]:
         if platform == "qq":
             url = (
                 "http://datukuai.top:1450/djs/API/QQ_Music/api.php"
-                f"?type=search&msg={quote_plus(keyword)}"
+                f"?msg={quote_plus(keyword)}&limit=30"
             )
             r = await client.get(url)
             r.raise_for_status()
             data = r.json()
-            list_ = data.get("data", []) or []
+            items = data.get("data") or []
             results: List[Song] = []
-            for item in list_:
+            for item in items:
                 name = item.get("song") or "未知歌曲"
-                artist = item.get("singer") or "未知歌手"
-                link = item.get("url") or None
-                mid = item.get("mid") or None
-                cover = item.get("cover") or None
+                artist = item.get("singers") or "未知歌手"
+                mid = item.get("mid")
+                cover = item.get("picture")
                 results.append(
                     Song(
-                        id=str(mid or ""),
+                        id=str(item.get("id") or mid or name),
                         name=name,
                         artist=artist,
                         cover=cover,
-                        link=link,
+                        link=f"https://y.qq.com/n/ryqq/songDetail/{mid}" if mid else None,
                         mid=mid,
                     )
                 )
             return results
 
-        # 默认网易云
-        url = (
-            "https://music.163.com/api/search/get/web"
-            f"?type=1&s={quote_plus(keyword)}&limit=20&offset=0"
-        )
+        # wangyiyun
+        url = f"http://datukuai.top:3000/search?keywords={quote_plus(keyword)}"
         r = await client.get(url)
         r.raise_for_status()
         data = r.json()
-        songs = (data.get("result", {}) or {}).get("songs", []) or []
+        songs = (data.get("result") or {}).get("songs") or []
         results: List[Song] = []
-        for item in songs:
-            name = item.get("name") or "未知歌曲"
-            artist = ", ".join(a.get("name") for a in item.get("artists", []) or []) or "未知歌手"
-            song_id = item.get("id")
-            album = item.get("album") or {}
-            cover = album.get("picUrl") or None
-            link = f"https://music.163.com/#/song?id={song_id}" if song_id else None
-            results.append(Song(id=str(song_id or ""), name=name, artist=artist, cover=cover, link=link))
+        for s in songs:
+            sid = str(s.get("id"))
+            name = s.get("name") or "未知歌曲"
+            artists = s.get("artists") or []
+            artist = artists[0].get("name") if artists else "未知歌手"
+            cover = None
+            if s.get("al") and s["al"].get("picUrl"):
+                cover = s["al"]["picUrl"]
+            link = f"https://music.163.com/#/song?id={sid}"
+            results.append(Song(id=sid, name=name, artist=artist, cover=cover, link=link))
         return results
 
 
 async def _resolve_audio_url(platform: Platform, song: Song) -> Optional[str]:
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        if platform == "kugou" and song.hash:
-            api = f"https://www.kugou.com/yy/index.php?r=play/getdata&hash={song.hash}"
-            r = await client.get(api)
-            r.raise_for_status()
-            data = r.json().get("data") or {}
-            return data.get("play_url") or None
-        if platform == "qq" and song.mid:
-            # 直接返回搜索接口提供的 url（若有）
-            return song.link
-        if platform == "wangyiyun" and song.id:
-            # 网易云需要客户端代理或第三方解析，退回到链接
+    timeout = httpx.Timeout(10.0, connect=10.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        try:
+            if platform == "wangyiyun":
+                # Prefer public NCM API endpoint if available
+                try:
+                    r = await client.get(
+                        f"http://datukuai.top:3000/song/url?id={song.id}"
+                    )
+                    if r.status_code == 200:
+                        j = r.json()
+                        data = (j.get("data") or [{}])[0]
+                        url = data.get("url")
+                        if url:
+                            return url
+                except Exception:
+                    pass
+
+                # Fallback to official API (requires cookie), optional via env var
+                wy_ck = os.getenv("MUSIC_WYY_COOKIE", "")
+                payload = {
+                    "ids": f"[{song.id}]",
+                    "level": "standard",
+                    "encodeType": "mp3",
+                }
+                headers = {
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 12; Build/SKQ1.211230.001)",
+                }
+                if wy_ck:
+                    headers["Cookie"] = f"MUSIC_U={wy_ck}"
+                r = await client.post(
+                    "https://music.163.com/api/song/enhance/player/url/v1",
+                    data="&".join(f"{k}={v}" for k, v in payload.items()),
+                    headers=headers,
+                )
+                if r.status_code == 200:
+                    j = r.json()
+                    data = (j.get("data") or [{}])[0]
+                    return data.get("url")
+                # Final fallback for NCM: public outer URL (may redirect)
+                return f"http://music.163.com/song/media/outer/url?id={song.id}"
+
+            if platform == "qq":
+                url = (
+                    "http://datukuai.top:1450/djs/API/QQ_Music/api.php"
+                    f"?msg={quote_plus(song.name)}&n=1&q=7"
+                )
+                r = await client.get(url)
+                r.raise_for_status()
+                j = r.json()
+                audio = (j.get("data") or {}).get("music")
+                if audio:
+                    return audio
+                # Fallback: try using QQ mid when available
+                if song.mid:
+                    try:
+                        r2 = await client.get(
+                            "http://datukuai.top:1450/djs/API/QQ_Music/api.php"
+                            f"?msg={quote_plus(song.mid)}&n=1&q=7"
+                        )
+                        r2.raise_for_status()
+                        j2 = r2.json()
+                        audio2 = (j2.get("data") or {}).get("music")
+                        if audio2:
+                            return audio2
+                    except Exception:
+                        pass
+                return None
+
+            if platform == "kugou":
+                url = (
+                    "https://wenxin110.top/api/kugou_music"
+                    f"?msg={quote_plus(song.name)}&n=1"
+                )
+                r = await client.get(url)
+                r.raise_for_status()
+                text = r.text
+                # The API returns a messy text; try to extract lines
+                cleaned = (
+                    text.replace("±", "")
+                    .replace("\\", "")
+                    .replace("img=", "")
+                    .replace("播放地址", "")
+                    .replace("\r", "")
+                )
+                parts = [p for p in cleaned.split("\n") if p.strip()]
+                # Heuristic: expect [pic, name, artist, url]
+                if len(parts) >= 4:
+                    return parts[3].strip()
+                return None
+        except Exception as e:  # pragma: no cover - network errors
+            logger.warning(f"resolve audio url failed: {e}")
             return None
+
     return None
 
 
@@ -213,6 +291,7 @@ async def _download_audio_via_ffmpeg(url: str, name_hint: str) -> Optional[Path]
     container_base_path = Path("/root/data/temp/musicshare")
 
     try:
+        # 确保主机上的临时目录存在
         host_base_path.mkdir(parents=True, exist_ok=True)
     except Exception as e:
         logger.error(f"Failed to create temp directory on host {host_base_path}: {e}")
@@ -243,6 +322,7 @@ async def _download_audio_via_ffmpeg(url: str, name_hint: str) -> Optional[Path]
         ua,
         "-i",
         url,
+        # 输出 MP3 并设置采样率/码率
         "-vn",
         "-acodec",
         "libmp3lame",
@@ -295,75 +375,92 @@ async def _download_audio_via_ffmpeg(url: str, name_hint: str) -> Optional[Path]
 
 
 def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    candidates = [
-        r"C:\\Windows\\Fonts\\msyh.ttc",
-        r"C:\\Windows\\Fonts\\simhei.ttf",
-        r"C:\\Windows\\Fonts\\msyh.ttf",
-        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
-        "/System/Library/Fonts/STHeiti Medium.ttc",
-        "/System/Library/Fonts/PingFang.ttc",
-    ]
-    for path in candidates:
-        if os.path.exists(path):
-            try:
-                return ImageFont.truetype(path, size)
-            except Exception:
-                continue
-    return ImageFont.load_default()
+    """Load only the bundled `font.ttf` from this plugin's resources.
+
+    No fallback. If loading fails, raises an error explicitly.
+    """
+    res_dir = Path(__file__).parent / "resource"
+    font_path = res_dir / "font.ttf"
+    try:
+        return ImageFont.truetype(str(font_path), size)
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to load bundled font at {font_path}. Ensure 'font.ttf' exists and is valid. Error: {e}"
+        )
 
 
 def _make_song_list_image_grid(platform: Platform, keyword: str, songs: List[Song]) -> bytes:
-    title = f"点歌 · {_platform_name_human(platform)}"
-    subtitle = f"关键词：{keyword}"
-    footer_text = "发送序号选择（例如：#1）"
-    max_items = min(len(songs), 8)
-    columns = 2
-    rows = (max_items + columns - 1) // columns
+    """A cleaner two-column song list image without covers."""
+    title = f"为你在{_platform_name_human(platform)}找到以下歌曲"
+    subtitle = f"关键词: {keyword}"
 
-    bg_color = (248, 248, 250)
-    fg_color = (30, 30, 30)
-    accent_color = (65, 140, 240)
-
-    pad_x, pad_y = 24, 22
-    grid_gap_x, grid_gap_y = 18, 18
-    card_inner_pad = 16
+    # Layout settings
+    pad_x, pad_y = 28, 24
+    grid_gap_x, grid_gap_y = 18, 12
+    bg_color = (246, 248, 251)
+    fg_color = (34, 34, 34)
+    accent_color = (80, 120, 200)
     card_bg = (255, 255, 255)
-    card_border = (225, 225, 230)
-    col_width = 400
-    card_height = 100
-    badge_r = 16
-    text_left_offset = 20
+    card_border = (230, 234, 240)
 
-    width = pad_x * 2 + col_width * columns + grid_gap_x * (columns - 1)
-    font_title = _load_font(40)
-    font_subtitle = _load_font(22)
+    font_title = _load_font(30)
+    font_subtitle = _load_font(20)
     font_item = _load_font(22)
     font_footer = _load_font(18)
 
-    # footer size for final height
-    footer_h = text_size(footer_text, font_footer)[1]
+    max_items = min(20, len(songs))
 
-    def text_size(t: str, f: ImageFont.ImageFont) -> Tuple[int, int]:
-        im = Image.new("L", (10, 10))
-        d = ImageDraw.Draw(im)
-        return d.textlength(t, font=f), f.getbbox("Hg")[3]
+    # Measurement helpers
+    dummy = Image.new("RGB", (1, 1))
+    draw = ImageDraw.Draw(dummy)
+
+    def text_size(text: str, font: ImageFont.ImageFont) -> Tuple[int, int]:
+        bbox = draw.textbbox((0, 0), text, font=font)
+        return bbox[2] - bbox[0], bbox[3] - bbox[1]
 
     title_w, title_h = text_size(title, font_title)
     sub_w, sub_h = text_size(subtitle, font_subtitle)
 
-    rendered: List[Tuple[str, int, int]] = []
-    col_width_text = col_width - card_inner_pad * 2 - badge_r * 2 - text_left_offset
-    for idx, s in enumerate(songs[:max_items]):
-        text = f"{idx + 1}. {s.name} - {s.artist}"
-        max_chars = max(10, col_width_text // 18)
-        if len(text) > max_chars:
-            text = text[: max_chars - 1] + "…"
-        _, h = text_size(text, font_item)
-        rendered.append((text, 0, h))
+    columns = 2
+    col_min_width = 420
+    grid_width = max(columns * col_min_width + (columns - 1) * grid_gap_x, title_w, sub_w)
+    footer_text = "回复序号点歌，例如：1 或 #1"
+    footer_w, footer_h = text_size(footer_text, font_footer)
+    grid_width = max(grid_width, footer_w)
+
+    # Wrap to fit column
+    def wrap_to_width(text: str, font: ImageFont.ImageFont, max_w: int) -> str:
+        if text_size(text, font)[0] <= max_w:
+            return text
+        ell = "…"
+        lo, hi = 0, len(text)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            t = text[:mid] + ell
+            if text_size(t, font)[0] <= max_w:
+                lo = mid + 1
+            else:
+                hi = mid
+        mid = max(1, lo - 1)
+        return text[:mid] + ell
+
+    card_inner_pad = 12
+    badge_r = 12
+    text_left_offset = badge_r * 2 + 10
+    col_width = (grid_width - (columns - 1) * grid_gap_x) // columns
+
+    # pre-measure cards
+    card_height = 48
+    rendered = []
+    for i in range(max_items):
+        line = f"{i+1}. {songs[i].name} - {songs[i].artist}"
+        wrapped = wrap_to_width(line, font_item, col_width - card_inner_pad * 2 - text_left_offset)
+        w, h = text_size(wrapped, font_item)
+        card_height = max(card_height, h + card_inner_pad * 2)
+        rendered.append((wrapped, w, h))
 
     rows = (max_items + columns - 1) // columns
+    width = pad_x * 2 + grid_width
     height = (
         pad_y * 2
         + title_h
@@ -393,8 +490,10 @@ def _make_song_list_image_grid(platform: Platform, keyword: str, songs: List[Son
         x1 = x0 + col_width
         y1 = y0 + card_height
 
+        # card
         d.rounded_rectangle([(x0, y0), (x1, y1)], radius=10, fill=card_bg, outline=card_border)
 
+        # badge
         cx = x0 + card_inner_pad + badge_r
         cy = y0 + card_height // 2
         d.ellipse([(cx - badge_r, cy - badge_r), (cx + badge_r, cy + badge_r)], fill=accent_color)
@@ -402,10 +501,12 @@ def _make_song_list_image_grid(platform: Platform, keyword: str, songs: List[Son
         tw, th = text_size(num_text, font_footer)
         d.text((cx - tw / 2, cy - th / 2), num_text, fill=(255, 255, 255), font=font_footer)
 
+        # text
         text_x = x0 + card_inner_pad + text_left_offset
         text_y = y0 + (card_height - rendered[idx][2]) // 2
         d.text((text_x, text_y), rendered[idx][0], fill=fg_color, font=font_item)
 
+    # footer
     d.text((pad_x, cur_y + rows * (card_height + grid_gap_y) - grid_gap_y + 10), footer_text, fill=(120, 120, 120), font=font_footer)
 
     buf = io.BytesIO()
@@ -425,7 +526,7 @@ async def _(matcher: Matcher, event: MessageEvent, groups: Tuple[Optional[str], 
         songs = await _search_songs(platform, keyword)
     except Exception:
         logger.exception("search songs failed")
-        await matcher.finish("搜索歌曲时发生错误，请稍后再试")
+        await matcher.finish("搜索歌曲时发生错误，请稍后再试。")
         return
 
     if not songs:
@@ -451,19 +552,21 @@ async def _(matcher: Matcher, event: MessageEvent, groups: Tuple[str] = RegexGro
     try:
         index = int(index_str) - 1
     except Exception:
-        await matcher.finish("无效的歌曲序号，请检查后重试")
+        await matcher.finish("无效的歌曲序号，请检查后重试。")
         return
 
     platform, songs = USER_RESULTS[user_id]
     if index < 0 or index >= len(songs):
-        await matcher.finish("无效的歌曲序号，请检查后重试")
+        await matcher.finish("无效的歌曲序号，请检查后重试。")
         return
 
     song = songs[index]
     await matcher.send(f"正在获取：{song.name} - {song.artist}，请稍等...")
 
+    # 先尝试返回直链（若失败则后续返回跳转链接）
     audio_url = await _resolve_audio_url(platform, song)
 
+    # 若已转码并生成可用文件，直接 finish 发送，终止后续流程
     if audio_url:
         try:
             local_path = await _download_audio_via_ffmpeg(
@@ -474,12 +577,14 @@ async def _(matcher: Matcher, event: MessageEvent, groups: Tuple[str] = RegexGro
                     MessageSegment.record(local_path.resolve().as_uri())
                 )
         except FinishedException:
+            # 上层已经 finish，继续抛出
             raise
         except Exception as ee:
             logger.warning(f"本地转码发送失败: {ee}")
 
+    # 最后返回 URL（平台直链或平台页）
     fallback = audio_url or song.link
     if fallback:
         await matcher.finish(f"{song.name} - {song.artist}\n{fallback}")
     else:
-        await matcher.finish("播放失败：未能获取歌曲播放地址")
+        await matcher.finish("播放失败：未能获取歌曲播放地址。")

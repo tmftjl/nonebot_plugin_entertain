@@ -68,3 +68,22 @@ try:
 except Exception:
     # Keep other plugins working even if this optional feature fails to init
     pass
+
+# Explicitly import all system commands under core/commands
+try:
+    # 1) Import package-level aggregator (may already import some commands)
+    from .core import commands as _system_commands  # noqa: F401
+
+    # 2) Recursively import all modules in core.commands to ensure side-effect registration
+    import importlib, pkgutil
+
+    _pkg_name = f"{__name__}.core.commands"
+    _pkg = importlib.import_module(_pkg_name)
+    for _finder, _modname, _ispkg in pkgutil.walk_packages(_pkg.__path__, _pkg_name + "."):
+        try:
+            importlib.import_module(_modname)
+        except Exception:
+            # best-effort import; ignore failures to avoid breaking plugin load
+            pass
+except Exception:
+    pass

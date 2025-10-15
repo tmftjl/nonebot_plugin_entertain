@@ -20,7 +20,7 @@ P = Plugin(name="entertain")
 
 
 _REG = P.on_regex(
-    r"^#*注册时间\s*(\d*)$",
+    r"^#注册时间$",
     name="query",
     priority=13,
     block=True,

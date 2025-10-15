@@ -15,12 +15,23 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 from nonebot import get_driver
 from nonebot.adapters.onebot.v11 import Message, MessageEvent, MessageSegment
 from nonebot.matcher import Matcher
+from nonebot.plugin import PluginMetadata
 
 from ...core.api import Plugin
-from ...core.api import register_namespaced_config
 from ...core.api import plugin_data_dir, plugin_resource_dir
 
 
+__plugin_meta__ = PluginMetadata(
+    name="今日运势",
+    description="生成每日运势图片（支持 #/ 前缀）",
+    usage="命令：今日运势 / 抽签",
+    type="application",
+    homepage="",
+    supported_adapters={"~onebot.v11"},
+)
+
+
+# ---------- Paths & Globals ----------
 DATA_DIR = plugin_data_dir("entertain")
 JRYS_DEFS_FILE = DATA_DIR / "jrys_data.json"
 USER_DATA_FILE = DATA_DIR / "user_fortunes.json"
@@ -30,9 +41,9 @@ _USER_FORTUNES: Dict[str, Dict[str, Any]] = {}
 
 
 P = Plugin(name="entertain")
-_CFG = register_namespaced_config("entertain", "fortune", {})
 
 
+# ---------- Fonts ----------
 def _load_fonts():
     def _load(size: int) -> ImageFont.FreeTypeFont:
         try:
@@ -54,6 +65,7 @@ def _load_fonts():
 FONT_MAIN, FONT_LARGE, FONT_MEDIUM, FONT_SMALL, FONT_TINY = _load_fonts()
 
 
+# ---------- Data I/O ----------
 async def _load_fortune_defs() -> None:
     global _JRYS_DATA
     if JRYS_DEFS_FILE.exists():
@@ -98,6 +110,7 @@ async def _on_shutdown():
     await _save_user_fortunes()
 
 
+# ---------- Utils ----------
 def _num_to_chinese(num: int) -> str:
     digits = "零一二三四五六七八九"
     if 1 <= num <= 9:
@@ -112,6 +125,7 @@ def _num_to_chinese(num: int) -> str:
 
 
 async def _get_background_image() -> Image.Image | None:
+    # Optional local API for random background
     local_api_url = "http://127.0.0.1:1520/api/wuthering_waves/role_image/random"
     try:
         async with httpx.AsyncClient() as client:
@@ -123,6 +137,7 @@ async def _get_background_image() -> Image.Image | None:
 
 
 def _sanitize_stars(s: str) -> str:
+    # Keep only typical star characters
     return "".join(ch for ch in (s or "") if ch in {"★", "☆"})
 
 
@@ -167,7 +182,7 @@ def _draw_star_rating(
             vertices.append((cx + radius * math.cos(ang), y + radius * math.sin(ang)))
         if ch == "★":
             draw.polygon(vertices, fill=fill_color)
-        else:
+        else:  # ☆ hollow
             draw.polygon(vertices, outline=stroke_color, width=stroke_width)
         current_x += star_size + spacing
 
@@ -181,6 +196,7 @@ def _generate_fortune_canvas(
     else:
         bg = ImageOps.fit(background, (CANVAS_WIDTH, CANVAS_HEIGHT), Image.Resampling.LANCZOS)
 
+    # semi-transparent white overlay for readability on any background
     overlay = Image.new("RGBA", (CANVAS_WIDTH, CANVAS_HEIGHT), (255, 255, 255, 180))
     bg = Image.alpha_composite(bg.convert("RGBA"), overlay)
     draw = ImageDraw.Draw(bg)
@@ -242,9 +258,9 @@ def _get_or_create_today_fortune(user_id: str) -> Tuple[Dict[str, Any], bool]:
 
 
 fortune_cmd = P.on_regex(
-    r"^(?:[/#])?(?:今日运势|运势|抽签)$",
+    r"^(#|/)?(?:今日运势|运势|抽签)$",
     name="today",
-    priority=5,
+    priority=13,
     block=True,
 )
 
@@ -263,6 +279,7 @@ async def _(matcher: Matcher, event: MessageEvent):
     except Exception as e:
         await matcher.finish(f"生成失败：{e}")
 
+    # Try to fetch background image
     bg_img = await _get_background_image()
     final_img = _generate_fortune_canvas(nickname, data, background=bg_img)
     image_seg = MessageSegment.image(_pil_to_base64_image(final_img))

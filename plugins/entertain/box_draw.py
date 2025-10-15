@@ -1,76 +1,82 @@
+from __future__ import annotations
+
 import io
 import random
+from io import BytesIO
 from pathlib import Path
-from typing import Optional
 
 from PIL import Image, ImageDraw, ImageFont
-from io import BytesIO
-import emoji
 
-from ...core.api import plugin_resource_dir
+try:
+    import emoji  # type: ignore
+except Exception:  # pragma: no cover
+    emoji = None  # type: ignore
 
+
+RESOURCE_DIR: Path = Path(__file__).resolve().parent / "resource"
+FONT_PATH: Path = RESOURCE_DIR / "可爱字体.ttf"
+EMOJI_FONT_PATH: Path = RESOURCE_DIR / "NotoColorEmoji.ttf"
 
 FONT_SIZE = 35
 TEXT_PADDING = 10
-AVATAR_SIZE = None
+AVATAR_SIZE = None  # use text height
 BORDER_THICKNESS = 10
 BORDER_COLOR_RANGE = (64, 255)
 CORNER_RADIUS = 30
 
 
-def _resolve_font_paths() -> tuple[Path, Path]:
-    res_dir = plugin_resource_dir("entertain")
-    # Prefer cute font filename; fall back to font.ttf
-    cute = res_dir / "可爱字体.ttf"
-    if not cute.exists():
-        cute = res_dir / "font.ttf"
-    emoji_font = res_dir / "NotoColorEmoji.ttf"
-    return cute, emoji_font
-
-
-def _load_fonts() -> tuple[ImageFont.FreeTypeFont, ImageFont.FreeTypeFont]:
-    cute_path, emoji_path = _resolve_font_paths()
+def _load_font(path: Path, size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     try:
-        cute_font = ImageFont.truetype(str(cute_path), FONT_SIZE)
+        return ImageFont.truetype(str(path), size)
     except Exception:
-        cute_font = ImageFont.load_default()
-    try:
-        emoji_font = ImageFont.truetype(str(emoji_path), FONT_SIZE)
-    except Exception:
-        emoji_font = ImageFont.load_default()
-    return cute_font, emoji_font
+        return ImageFont.load_default()
 
 
-def create_image(avatar: bytes, reply: list) -> bytes:
-    cute_font, emoji_font = _load_fonts()
+cute_font = _load_font(FONT_PATH, FONT_SIZE)
+emoji_font = _load_font(EMOJI_FONT_PATH, FONT_SIZE)
+
+
+def create_image(avatar: bytes, reply: list[str]) -> bytes:
     reply_str = "\n".join(reply)
+
+    # measure text using a temporary image
     temp_img = Image.new("RGBA", (1, 1))
     temp_draw = ImageDraw.Draw(temp_img)
-    no_emoji_reply = "".join(
-        "一" if getattr(emoji, "is_emoji", lambda c: c in getattr(emoji, "EMOJI_DATA", {}))(c) else c
-        for c in reply_str
-    )
+
+    # Replace emoji with placeholder of same advance for measurement when emoji lib present
+    if emoji is not None:
+        no_emoji_reply = "".join("一" if getattr(emoji, "is_emoji", None) and emoji.is_emoji(c) else c for c in reply_str)
+    else:
+        no_emoji_reply = reply_str
+
     text_bbox = temp_draw.textbbox((0, 0), no_emoji_reply, font=cute_font)
-    text_width, text_height = (
-        int(text_bbox[2] - text_bbox[0]),
-        int(text_bbox[3] - text_bbox[1]),
-    )
+    text_width = int(text_bbox[2] - text_bbox[0])
+    text_height = int(text_bbox[3] - text_bbox[1])
     img_height = text_height + 2 * TEXT_PADDING
 
-    avatar_img = Image.open(BytesIO(avatar))
+    # avatar sizing
+    avatar_img = Image.open(BytesIO(avatar)).convert("RGBA")
     avatar_size = AVATAR_SIZE if AVATAR_SIZE else text_height
-    avatar_img = avatar_img.resize((avatar_size, avatar_size))
+    avatar_img = avatar_img.resize((max(1, avatar_size), max(1, avatar_size)))
+
     img_width = avatar_img.width + text_width + 2 * TEXT_PADDING
 
+    # compose base image
     img = Image.new("RGBA", (img_width, img_height), color=(255, 255, 255, 255))
-    mask = Image.new("L", (avatar_size, avatar_size), 0)
-    draw = ImageDraw.Draw(mask)
-    draw.rounded_rectangle([(0, 0), (avatar_size, avatar_size)], CORNER_RADIUS, fill=255)
+
+    # rounded avatar mask
+    mask = Image.new("L", (avatar_img.width, avatar_img.height), 0)
+    draw_mask = ImageDraw.Draw(mask)
+    draw_mask.rounded_rectangle(
+        [(0, 0), (avatar_img.width, avatar_img.height)], CORNER_RADIUS, fill=255
+    )
     avatar_img.putalpha(mask)
-    img.paste(avatar_img, (0, (img_height - avatar_size) // 2), mask)
+    img.paste(avatar_img, (0, (img_height - avatar_img.height) // 2), mask)
 
-    _draw_multi(img, reply_str, cute_font, emoji_font, avatar_img.width + TEXT_PADDING, TEXT_PADDING)
+    # render text to the right of avatar
+    _draw_multi(img, reply_str, avatar_img.width + TEXT_PADDING, TEXT_PADDING)
 
+    # border with random color
     border_color = (
         random.randint(*BORDER_COLOR_RANGE),
         random.randint(*BORDER_COLOR_RANGE),
@@ -83,32 +89,39 @@ def create_image(avatar: bytes, reply: list) -> bytes:
     )
     border_img.paste(img, (BORDER_THICKNESS, BORDER_THICKNESS))
 
-    img_byte_arr = io.BytesIO()
-    border_img.save(img_byte_arr, format="PNG")
-    img_byte_arr = img_byte_arr.getvalue()
-    return img_byte_arr
+    buf = io.BytesIO()
+    border_img.save(buf, format="PNG")
+    return buf.getvalue()
 
 
-def _draw_multi(img, text, cute_font, emoji_font, text_x=10, text_y=10):
+def _draw_multi(img: Image.Image, text: str, text_x: int = 10, text_y: int = 10) -> Image.Image:
     lines = text.split("\n")
     current_y = text_y
     draw = ImageDraw.Draw(img)
-    line_color = (
-        random.randint(0, 128),
-        random.randint(0, 128),
-        random.randint(0, 128),
-        random.randint(240, 255),
-    )
+
     for line in lines:
+        line_color = (
+            random.randint(0, 128),
+            random.randint(0, 128),
+            random.randint(0, 128),
+            random.randint(240, 255),
+        )
         current_x = text_x
         for char in line:
-            if char in getattr(emoji, "EMOJI_DATA", {}):
+            is_emoji = False
+            if emoji is not None:
+                try:
+                    # emoji.EMOJI_DATA exists in emoji>=2.0
+                    is_emoji = char in getattr(emoji, "EMOJI_DATA", {})
+                except Exception:
+                    is_emoji = False
+            if is_emoji:
                 draw.text((current_x, current_y + 10), char, font=emoji_font, fill=line_color)
                 bbox = emoji_font.getbbox(char)
             else:
                 draw.text((current_x, current_y), char, font=cute_font, fill=line_color)
                 bbox = cute_font.getbbox(char)
-            current_x += bbox[2] - bbox[0]
+            current_x += (bbox[2] - bbox[0])
         current_y += 40
     return img
 

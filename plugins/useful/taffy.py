@@ -52,7 +52,7 @@ def _fmt_bytes(b: Optional[int]) -> str:
 
 
 P = Plugin(name="useful")
-taffy_cmd = P.on_regex(r"^#?查询统计\s*(.*)$", name="query", block=True, priority=100)
+taffy_cmd = P.on_regex(r"^#?查询流量\s*(.*)$", name="query", block=True, priority=13)
 
 
 @taffy_cmd.handle()
