@@ -70,33 +70,33 @@
         <!-- 仪表盘 -->
         <section id="tab-dashboard" class="tab-content active">
           <h2 class="page-title">📊 仪表盘总览</h2>
-          <div class="stats-cards">
-            <div class="stat-card" role="status" aria-label="活跃群组统计">
-              <div class="stat-icon">👥</div>
-              <div class="stat-info">
-                <div class="stat-label">活跃群组</div>
-                <div id="stat-active-groups" class="stat-value">-</div>
+          <div class="stats-cards-compact">
+            <div class="stat-card-compact" role="status" aria-label="活跃群组统计">
+              <div class="stat-icon-compact">👥</div>
+              <div class="stat-info-compact">
+                <div class="stat-label-compact">活跃群组</div>
+                <div id="stat-active-groups" class="stat-value-compact">-</div>
               </div>
             </div>
-            <div class="stat-card" role="status" aria-label="有效会员统计">
-              <div class="stat-icon">💎</div>
-              <div class="stat-info">
-                <div class="stat-label">有效会员</div>
-                <div id="stat-valid-members" class="stat-value success">-</div>
+            <div class="stat-card-compact success" role="status" aria-label="有效会员统计">
+              <div class="stat-icon-compact">💎</div>
+              <div class="stat-info-compact">
+                <div class="stat-label-compact">有效会员</div>
+                <div id="stat-valid-members" class="stat-value-compact">-</div>
               </div>
             </div>
-            <div class="stat-card" role="status" aria-label="即将到期统计">
-              <div class="stat-icon">⚠️</div>
-              <div class="stat-info">
-                <div class="stat-label">即将到期</div>
-                <div id="stat-expiring-soon" class="stat-value warning">-</div>
+            <div class="stat-card-compact warning" role="status" aria-label="即将到期统计">
+              <div class="stat-icon-compact">⚠️</div>
+              <div class="stat-info-compact">
+                <div class="stat-label-compact">即将到期</div>
+                <div id="stat-expiring-soon" class="stat-value-compact">-</div>
               </div>
             </div>
-            <div class="stat-card" role="status" aria-label="已到期统计">
-              <div class="stat-icon">⏰</div>
-              <div class="stat-info">
-                <div class="stat-label">已到期</div>
-                <div id="stat-expired" class="stat-value danger">-</div>
+            <div class="stat-card-compact danger" role="status" aria-label="已到期统计">
+              <div class="stat-icon-compact">⏰</div>
+              <div class="stat-info-compact">
+                <div class="stat-label-compact">已到期</div>
+                <div id="stat-expired" class="stat-value-compact">-</div>
               </div>
             </div>
           </div>
@@ -183,42 +183,39 @@
         <!-- 消息统计 -->
         <section id="tab-stats" class="tab-content">
           <h2 class="page-title">📈 消息统计分析</h2>
-          
-          <!-- 统计概览 -->
-          <div class="stats-overview">
-            <div class="stat-box" role="status">
-              <div class="stat-box-label">📨 今日总消息</div>
-              <div id="stats-today-total" class="stat-box-value">-</div>
+
+          <!-- 统计概览 - 改为紧凑卡片 -->
+          <div class="stats-overview-compact">
+            <div class="stat-box-compact" role="status">
+              <div class="stat-box-icon">📨</div>
+              <div class="stat-box-info">
+                <div class="stat-box-label">今日总消息</div>
+                <div id="stats-today-total" class="stat-box-value">-</div>
+              </div>
             </div>
-            <div class="stat-box" role="status">
-              <div class="stat-box-label">👥 群聊消息</div>
-              <div id="stats-group-total" class="stat-box-value">-</div>
+            <div class="stat-box-compact" role="status">
+              <div class="stat-box-icon">👥</div>
+              <div class="stat-box-info">
+                <div class="stat-box-label">群聊消息</div>
+                <div id="stats-group-total" class="stat-box-value">-</div>
+              </div>
             </div>
-            <div class="stat-box" role="status">
-              <div class="stat-box-label">💬 私聊消息</div>
-              <div id="stats-private-total" class="stat-box-value">-</div>
+            <div class="stat-box-compact" role="status">
+              <div class="stat-box-icon">💬</div>
+              <div class="stat-box-info">
+                <div class="stat-box-label">私聊消息</div>
+                <div id="stats-private-total" class="stat-box-value">-</div>
+              </div>
             </div>
           </div>
-          
-          <!-- 详细数据面板 -->
-          <div class="panel" style="margin-top:20px;">
-            <h3 class="panel-title">📊 今日明细数据</h3>
-            <div class="table-container">
-              <table class="data-table">
-                <thead>
-                  <tr>
-                    <th>🤖 Bot</th>
-                    <th>📤 总发送</th>
-                    <th>👥 群聊总数</th>
-                    <th>🎯 群聊目标(次数)</th>
-                    <th>💬 私聊总数</th>
-                    <th>🎯 私聊目标(次数)</th>
-                  </tr>
-                </thead>
-                <tbody id="stats-detail-body">
-                  <tr><td colspan="6" class="text-center">📭 暂无数据</td></tr>
-                </tbody>
-              </table>
+
+          <!-- Bot消息统计 - 手风琴折叠式 -->
+          <div class="panel" style="margin-top:16px;">
+            <div class="panel-header">
+              <h3 class="panel-title">📊 Bot明细数据</h3>
+            </div>
+            <div id="stats-bots-accordion" class="stats-accordion">
+              <div class="empty-state">📭 暂无数据</div>
             </div>
           </div>
         </section>

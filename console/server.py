@@ -170,18 +170,33 @@ def setup_web_console() -> None:
             except Exception as e:
                 raise HTTPException(500, f"更新权限失败: {e}")
 
-        # 配置
+        # 配置 - 获取所有插件配置
         @router.get("/config")
         async def api_get_config():
-            return load_cfg()
+            """获取所有插件的配置（从内存缓存中）"""
+            from ..core.framework.config import get_all_plugin_configs
+            return get_all_plugin_configs()
 
         @router.put("/config")
         async def api_update_config(payload: Dict[str, Any]):
+            """更新配置 - 支持单个插件或批量更新"""
             try:
-                save_cfg(payload)
-                # 重载定时任务（若安装了调度器）
-                _reschedule_membership_job()
-                return {"success": True, "message": "配置已更新并应用"}
+                # 检查payload是否包含多个插件配置
+                if "system" in payload or len(payload) > 1:
+                    # 批量更新模式
+                    from ..core.framework.config import save_all_plugin_configs
+                    success, errors = save_all_plugin_configs(payload)
+                    if not success:
+                        raise HTTPException(500, f"部分配置更新失败: {errors}")
+                    # 重载定时任务（若更新了system配置）
+                    if "system" in payload:
+                        _reschedule_membership_job()
+                    return {"success": True, "message": "配置已更新并应用"}
+                else:
+                    # 向后兼容：单个system配置更新
+                    save_cfg(payload)
+                    _reschedule_membership_job()
+                    return {"success": True, "message": "配置已更新并应用"}
             except Exception as e:
                 raise HTTPException(500, f"更新配置失败: {e}")
 

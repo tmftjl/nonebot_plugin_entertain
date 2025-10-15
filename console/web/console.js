@@ -189,16 +189,20 @@ function renderStatsOverviewAll(today){
 function renderStatsDetails(today){
   try{
     const bots = today?.bots || {};
-    const tbody = document.getElementById('stats-detail-body'); if(!tbody) return;
+    const container = document.getElementById('stats-bots-accordion');
+    if(!container) return;
+
     let rows = Object.entries(bots).map(([id,s])=>{
       const g=s.group||{}; const p=s.private||{};
       return { id, total:s.total_sent||0, gCount:g.count||0, pCount:p.count||0, gT:g.targets||{}, pT:p.targets||{} };
     });
+
     // 过滤
     const kw = (state.statsKeyword||'').trim();
     if(kw){
       rows = rows.filter(r=> r.id.includes(kw) || Object.keys(r.gT).some(k=>k.includes(kw)) || Object.keys(r.pT).some(k=>k.includes(kw)) );
     }
+
     // 排序
     switch(state.statsSort){
       case 'total_asc': rows.sort((a,b)=> a.total-b.total); break;
@@ -209,16 +213,79 @@ function renderStatsDetails(today){
       case 'total_desc':
       default: rows.sort((a,b)=> b.total-a.total); break;
     }
-    const fmt=(o)=>{ try{ const arr=Object.entries(o||{}); if(!arr.length) return '-'; return arr.map(([k,v])=>`${k}(${v})`).join(', ');}catch{return '-';} };
-    tbody.innerHTML = rows.length? rows.map(r=>`<tr>
-      <td>${r.id}</td>
-      <td>${r.total}</td>
-      <td>${r.gCount}</td>
-      <td>${fmt(r.gT)}</td>
-      <td>${r.pCount}</td>
-      <td>${fmt(r.pT)}</td>
-    </tr>`).join('') : '<tr><td colspan="6" class="text-center">无数据</td></tr>';
-  }catch{}
+
+    if(!rows.length) {
+      container.innerHTML = '<div class="empty-state">📭 暂无数据</div>';
+      return;
+    }
+
+    // 渲染手风琴式Bot列表
+    const formatTargets = (targets) => {
+      const entries = Object.entries(targets||{});
+      if(!entries.length) return '无数据';
+      return entries.map(([id, count])=>`<div class="stats-target-item"><span class="id">${id}</span><span class="count">${count}</span></div>`).join('');
+    };
+
+    const html = rows.map((bot, index)=>`
+      <div class="stats-bot-item">
+        <div class="stats-bot-header" data-index="${index}">
+          <div class="stats-bot-title">
+            <span class="stats-bot-icon">▶️</span>
+            <span>🤖 Bot ${bot.id}</span>
+          </div>
+          <div class="stats-bot-summary">
+            <span>总计: <strong>${bot.total}</strong></span>
+            <span>群聊: <strong>${bot.gCount}</strong></span>
+            <span>私聊: <strong>${bot.pCount}</strong></span>
+          </div>
+        </div>
+        <div class="stats-bot-content">
+          <div class="stats-bot-body">
+            <div class="stats-targets-grid">
+              <div class="stats-target-section">
+                <div class="stats-target-title">👥 群聊消息详情</div>
+                <div class="stats-target-list">
+                  ${formatTargets(bot.gT)}
+                </div>
+              </div>
+              <div class="stats-target-section">
+                <div class="stats-target-title">💬 私聊消息详情</div>
+                <div class="stats-target-list">
+                  ${formatTargets(bot.pT)}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `).join('');
+
+    container.innerHTML = html;
+
+    // 绑定手风琴点击事件
+    container.querySelectorAll('.stats-bot-header').forEach(header => {
+      header.addEventListener('click', function() {
+        const item = this.closest('.stats-bot-item');
+        const content = item.querySelector('.stats-bot-content');
+        const isActive = this.classList.contains('active');
+
+        // 关闭其他项
+        container.querySelectorAll('.stats-bot-header').forEach(h => {
+          h.classList.remove('active');
+          const c = h.closest('.stats-bot-item').querySelector('.stats-bot-content');
+          c.classList.remove('active');
+        });
+
+        // 切换当前项
+        if (!isActive) {
+          this.classList.add('active');
+          content.classList.add('active');
+        }
+      });
+    });
+  } catch(err){
+    console.error('renderStatsDetails error:', err);
+  }
 }
 
 // 新的手风琴式权限列表渲染
@@ -562,16 +629,29 @@ function bindEvents(){
   $('#codes-list')?.addEventListener('click', async (e)=>{ const btn=e.target.closest('.btn-copy'); if(!btn) return; const code=btn.dataset.code||''; const ok=await copyText(code); showToast(ok?'续费码已复制':'复制失败', ok?'success':'error'); });
 
   // 统计筛选/排序控件
-  const kw = document.createElement('input'); kw.id='stats-keyword'; kw.className='input'; kw.placeholder='按 Bot过滤';
+  const kw = document.createElement('input'); kw.id='stats-keyword'; kw.className='input'; kw.placeholder='🔍 按Bot过滤';
   const sel = document.createElement('select'); sel.id='stats-sort'; sel.className='input'; sel.innerHTML = `
-    <option value="total_desc">按总发送(降序)</option>
-    <option value="total_asc">按总发送(升序)</option>
-    <option value="bot_asc">按Bot(升序)</option>
-    <option value="bot_desc">按Bot(降序)</option>
-    <option value="group_desc">按群聊数(降序)</option>
-    <option value="private_desc">按私聊数(降序)</option>`;
+    <option value="total_desc">📊 按总发送(降序)</option>
+    <option value="total_asc">📊 按总发送(升序)</option>
+    <option value="bot_asc">🤖 按Bot(升序)</option>
+    <option value="bot_desc">🤖 按Bot(降序)</option>
+    <option value="group_desc">👥 按群聊数(降序)</option>
+    <option value="private_desc">💬 按私聊数(降序)</option>`;
   const statsTab = document.getElementById('tab-stats');
-  if(statsTab){ const panel = statsTab.querySelector('.panel .table-container'); if(panel){ const bar=document.createElement('div'); bar.className='toolbar'; bar.style.margin='0 0 8px 0'; bar.appendChild(kw); bar.appendChild(sel); panel.parentElement.insertBefore(bar, panel); } }
+  if(statsTab){
+    const panel = statsTab.querySelector('.panel');
+    if(panel){
+      const bar=document.createElement('div');
+      bar.className='toolbar';
+      bar.style.margin='0 0 12px 0';
+      bar.appendChild(kw);
+      bar.appendChild(sel);
+      const panelHeader = panel.querySelector('.panel-header');
+      if(panelHeader){
+        panelHeader.parentElement.insertBefore(bar, panelHeader.nextSibling);
+      }
+    }
+  }
   $('#stats-keyword')?.addEventListener('input', e=>{ state.statsKeyword=e.target.value.trim(); renderStatsDetails(state.stats?.today||{}); });
   $('#stats-sort')?.addEventListener('change', e=>{ state.statsSort=e.target.value; renderStatsDetails(state.stats?.today||{}); });
 }
