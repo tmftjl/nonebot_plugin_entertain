@@ -253,33 +253,23 @@
         <section id="tab-config" class="tab-content">
           <h2 class="page-title">⚙️ 配置管理中心</h2>
 
-          <!-- 插件配置列表 -->
-          <div id="config-plugins-list" class="config-plugins-grid">
-            <div class="empty-state">正在加载配置...</div>
+          <div class="panel">
+            <!-- 标签页导航 -->
+            <div id="config-tabs-nav" class="config-tabs-nav">
+              <div class="empty-state">正在加载配置...</div>
+            </div>
+
+            <!-- 标签页内容区域 -->
+            <div id="config-tabs-content" class="config-tabs-content">
+              <div class="empty-state">请选择一个配置项</div>
+            </div>
+
+            <!-- 底部操作栏 -->
+            <div class="config-footer">
+              <button id="config-save-btn" class="btn btn-primary">💾 保存当前配置</button>
+            </div>
           </div>
         </section>
-
-        <!-- 配置编辑弹窗 -->
-        <div id="config-edit-modal" class="modal hidden" role="dialog" aria-labelledby="config-modal-title" aria-modal="true">
-          <div class="modal-dialog modal-dialog-large">
-            <div class="modal-header">
-              <div>
-                <h3 id="config-modal-title" class="modal-title">编辑配置</h3>
-                <p id="config-modal-subtitle" class="modal-subtitle"></p>
-              </div>
-              <button id="config-modal-close" class="modal-close" title="关闭" aria-label="关闭弹窗">✖</button>
-            </div>
-            <div class="modal-body">
-              <div id="config-form-container" class="config-form-container">
-                <!-- 动态生成的配置表单 -->
-              </div>
-            </div>
-            <div class="modal-footer">
-              <button id="config-modal-cancel" class="btn btn-secondary">取消</button>
-              <button id="config-modal-save" class="btn btn-primary">💾 保存配置</button>
-            </div>
-          </div>
-        </div>
       </main>
     </div>
   </div>

@@ -617,6 +617,7 @@ async function savePermissions(){
   finally{ showLoading(false);} }
 // 配置管理相关
 let currentEditingConfig = null;
+let currentActiveConfigTab = null;
 
 // 配置项中文描述映射
 const CONFIG_DESCRIPTIONS = {
@@ -673,7 +674,7 @@ async function loadConfig(){
     showLoading(true);
     const c = await apiCall('/config');
     state.config = c;
-    renderConfigPluginsList();
+    renderConfigTabs();
   } catch(e){
     showToast('加载配置失败: '+(e&&e.message?e.message:e),'error');
   } finally{
@@ -681,83 +682,75 @@ async function loadConfig(){
   }
 }
 
-function renderConfigPluginsList() {
-  const container = $('#config-plugins-list');
-  if (!container) return;
+// 渲染标签页导航和内容
+function renderConfigTabs() {
+  const navContainer = $('#config-tabs-nav');
+  const contentContainer = $('#config-tabs-content');
+
+  if (!navContainer || !contentContainer) return;
 
   const configs = state.config || {};
-  const configKeys = Object.keys(configs);
+  const configKeys = Object.keys(configs).sort((a, b) => a.localeCompare(b));
 
   if (configKeys.length === 0) {
-    container.innerHTML = '<div class="empty-state">暂无配置项</div>';
+    navContainer.innerHTML = '<div class="empty-state">暂无配置项</div>';
+    contentContainer.innerHTML = '<div class="empty-state">暂无配置数据</div>';
     return;
   }
 
-  const html = configKeys.map(key => {
-    const value = configs[key];
-    const itemCount = typeof value === 'object' && value !== null ?
-      Object.keys(value).length : 0;
+  // 渲染标签导航
+  const tabsHtml = configKeys.map(key => `
+    <div class="config-tab-item" data-config-key="${escapeHtml(key)}">
+      ${escapeHtml(key)}
+    </div>
+  `).join('');
+  navContainer.innerHTML = tabsHtml;
 
+  // 渲染所有标签页内容
+  const contentsHtml = configKeys.map(key => {
+    const configData = configs[key];
+    const formHtml = renderConfigForm(configData, key);
     return `
-      <div class="config-plugin-card" data-config-key="${escapeHtml(key)}">
-        <div class="config-plugin-icon">⚙️</div>
-        <div class="config-plugin-info">
-          <div class="config-plugin-name">${escapeHtml(key)}</div>
-          <div class="config-plugin-meta">${itemCount} 个配置项</div>
+      <div class="config-content-section" data-config-key="${escapeHtml(key)}">
+        <div class="config-section-header">
+          <span class="config-section-icon">⚙️</span>
+          <span class="config-section-title">${escapeHtml(key)}</span>
         </div>
-        <button class="config-plugin-edit-btn" data-config-key="${escapeHtml(key)}">
-          <span>编辑</span>
-          <span class="icon">✏️</span>
-        </button>
+        <div class="config-items-grid">
+          ${formHtml}
+        </div>
       </div>
     `;
   }).join('');
+  contentContainer.innerHTML = contentsHtml;
 
-  container.innerHTML = html;
-
-  // 绑定编辑按钮点击事件
-  container.querySelectorAll('.config-plugin-edit-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const key = btn.getAttribute('data-config-key');
-      openConfigEditModal(key);
+  // 绑定标签点击事件
+  navContainer.querySelectorAll('.config-tab-item').forEach(tab => {
+    tab.addEventListener('click', () => {
+      const key = tab.getAttribute('data-config-key');
+      switchConfigTab(key);
     });
   });
 
-  // 绑定卡片点击事件
-  container.querySelectorAll('.config-plugin-card').forEach(card => {
-    card.addEventListener('click', () => {
-      const key = card.getAttribute('data-config-key');
-      openConfigEditModal(key);
-    });
+  // 默认激活第一个标签
+  if (configKeys.length > 0) {
+    switchConfigTab(configKeys[0]);
+  }
+}
+
+// 切换标签页
+function switchConfigTab(configKey) {
+  currentActiveConfigTab = configKey;
+
+  // 更新标签激活状态
+  $$('.config-tab-item').forEach(tab => {
+    tab.classList.toggle('active', tab.getAttribute('data-config-key') === configKey);
   });
-}
 
-function openConfigEditModal(configKey) {
-  currentEditingConfig = configKey;
-  const configData = state.config?.[configKey];
-
-  const modal = $('#config-edit-modal');
-  const title = $('#config-modal-title');
-  const subtitle = $('#config-modal-subtitle');
-  const container = $('#config-form-container');
-
-  if (!modal || !container) return;
-
-  title.textContent = `编辑 ${configKey}`;
-  subtitle.textContent = getConfigDescription(configKey);
-
-  // 渲染配置表单
-  const formHtml = renderConfigForm(configData, configKey);
-  container.innerHTML = formHtml;
-
-  modal.classList.remove('hidden');
-}
-
-function closeConfigEditModal() {
-  const modal = $('#config-edit-modal');
-  if (modal) modal.classList.add('hidden');
-  currentEditingConfig = null;
+  // 更新内容显示
+  $$('.config-content-section').forEach(section => {
+    section.classList.toggle('active', section.getAttribute('data-config-key') === configKey);
+  });
 }
 
 function renderConfigForm(data, parentKey = '') {
@@ -884,18 +877,22 @@ function renderConfigField(fullKey, value, displayKey = null) {
   `;
 }
 
-async function saveConfigModal() {
-  if (!currentEditingConfig) return;
+// 保存当前标签页的配置
+async function saveCurrentConfig() {
+  if (!currentActiveConfigTab) {
+    showToast('请选择要保存的配置项', 'warning');
+    return;
+  }
 
   try {
     showLoading(true);
 
-    // 收集表单数据
-    const container = $('#config-form-container');
-    if (!container) return;
+    // 查找当前激活标签页的内容区域
+    const section = document.querySelector(`.config-content-section[data-config-key="${currentActiveConfigTab}"]`);
+    if (!section) return;
 
-    const inputs = container.querySelectorAll('[data-config-key]');
-    const updatedConfig = JSON.parse(JSON.stringify(state.config[currentEditingConfig]));
+    const inputs = section.querySelectorAll('[data-config-key]');
+    const updatedConfig = JSON.parse(JSON.stringify(state.config[currentActiveConfigTab]));
 
     inputs.forEach(input => {
       const fullKey = input.getAttribute('data-config-key');
@@ -921,16 +918,17 @@ async function saveConfigModal() {
 
     // 更新配置
     const newConfig = {...state.config};
-    newConfig[currentEditingConfig] = updatedConfig;
+    newConfig[currentActiveConfigTab] = updatedConfig;
 
     // 保存到服务器
     await apiCall('/config', {method: 'PUT', body: JSON.stringify(newConfig)});
 
     state.config = newConfig;
-    showToast('配置已保存并重新加载','success');
+    showToast(`配置 "${currentActiveConfigTab}" 已保存并重新加载`, 'success');
 
-    closeConfigEditModal();
     await loadConfig();
+    // 重新切换到当前标签
+    setTimeout(() => switchConfigTab(currentActiveConfigTab), 100);
   } catch(e) {
     showToast('保存失败: ' + (e && e.message ? e.message : e), 'error');
   } finally {
@@ -974,9 +972,7 @@ function bindEvents(){
   $('#perm-json-close')?.addEventListener('click', closePermJsonModal);
   $('#perm-json-cancel')?.addEventListener('click', closePermJsonModal);
   $('#perm-json-save')?.addEventListener('click', savePermJson);
-  $('#config-modal-close')?.addEventListener('click', closeConfigEditModal);
-  $('#config-modal-cancel')?.addEventListener('click', closeConfigEditModal);
-  $('#config-modal-save')?.addEventListener('click', saveConfigModal);
+  $('#config-save-btn')?.addEventListener('click', saveCurrentConfig);
   $('#group-search')?.addEventListener('input', e=>{ state.keyword=e.target.value.trim(); renderGroupsTable(); });
   $('#status-filter')?.addEventListener('change', e=>{ state.filter=e.target.value; renderGroupsTable(); });
   $('#select-all')?.addEventListener('change', e=> $$('.group-checkbox').forEach(cb=> cb.checked=e.target.checked));
