@@ -55,33 +55,14 @@ def _load_subplugins_via_nonebot() -> None:
 
 _load_subplugins_via_nonebot()
 
-# 初始化内置系统功能（非子插件）
-try:
-    from . import core as _core  # noqa: F401
-except Exception:
-    pass
+def _load_system_via_nonebot() -> None:
+    """加载内部 commands 目录下的系统插件（交给 NoneBot 处理）。"""
+    try:
+        base = Path(__file__).parent / "core/commands"
+        if base.exists():
+            load_plugins(str(base))
+    except Exception:
+        # 避免因单个插件失败影响整体加载
+        pass
 
-# 显式导入 core/commands 下所有系统命令
-try:
-    from .core import commands as _system_commands  # noqa: F401
-
-    import importlib, pkgutil
-    from nonebot.log import logger as _nb_logger
-
-    _pkg_name = f"{__name__}.core.commands"
-    _pkg = importlib.import_module(_pkg_name)
-    for _finder, _modname, _ispkg in pkgutil.walk_packages(_pkg.__path__, _pkg_name + "."):
-        try:
-            importlib.import_module(_modname)
-            try:
-                _nb_logger.debug(f"root: loaded system command module {_modname}")
-            except Exception:
-                pass
-        except Exception as e:
-            try:
-                _nb_logger.warning(f"root: failed to import system command module {_modname}: {e}")
-            except Exception:
-                pass
-except Exception:
-    pass
-
+_load_system_via_nonebot()
