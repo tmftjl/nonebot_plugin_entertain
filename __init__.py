@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from nonebot import get_driver, load_plugins, load_plugin
+from nonebot import get_driver, load_plugins
 from nonebot.plugin import PluginMetadata
 
 
@@ -65,21 +65,4 @@ def _load_system_via_nonebot() -> None:
         # 避免因单个插件失败影响整体加载
         pass
 
-def _load_system_via_nonebot2() -> None:
-    """Load core.commands as plugin by module name, fallback to path scan."""
-    # Try module-name loading to ensure package __init__ runs in plugin context
-    try:
-        load_plugin(f"{__name__}.core.commands")
-        return
-    except Exception:
-        pass
-
-    # Fallback: scan the directory
-    try:
-        base = Path(__file__).parent / "core" / "commands"
-        if base.exists():
-            load_plugins(str(base))
-    except Exception:
-        pass
-
-_load_system_via_nonebot2()
+_load_system_via_nonebot()

@@ -13,7 +13,7 @@ from nonebot.adapters.onebot.v11 import (
 from nonebot.log import logger
 from nonebot.matcher import Matcher
 from nonebot.permission import SUPERUSER
-
+from nonebot.plugin import PluginMetadata
 from ...framework.registry import Plugin
 from ...system_config import load_cfg
 from .membership_service import (
@@ -28,6 +28,15 @@ from .membership_service import (
     generate_unique_code,
     _ensure_generated_codes,
 )
+
+# 插件元信息（中文，UTF-8）
+__plugin_meta__ = PluginMetadata(
+    name="会员与控制台",
+    description="群会员到期提醒/自动退群，续费码生成与兑换，简易 Web 控制台",
+    usage="命令：控制台登录 / ww生成续费<数字><天|月|年> / ww续费<数字><天|月|年>-<随机码> / ww到期",
+    type="application",
+)
+
 
 
 # 系统命令注册（中文、UTF-8、精简注释）
