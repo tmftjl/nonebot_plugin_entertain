@@ -178,11 +178,22 @@ async function loadStatsData(){
 
 function renderStatsOverviewAll(today){
   try{
-    const bots=today.bots||{}; let total=0, gsum=0, psum=0;
-    Object.values(bots).forEach(s=>{ if(!s) return; total+=s.total_sent||0; gsum+=(s.group?.count)||0; psum+=(s.private?.count)||0;});
+    const bots=today.bots||{}; let total=0, gsum=0, psum=0, gcount=0, pcount=0;
+    Object.values(bots).forEach(s=>{
+      if(!s) return;
+      total+=s.total_sent||0;
+      const gTargets = s.group?.targets || {};
+      const pTargets = s.private?.targets || {};
+      gsum+=(s.group?.count)||0;
+      psum+=(s.private?.count)||0;
+      gcount += Object.keys(gTargets).length;
+      pcount += Object.keys(pTargets).length;
+    });
     (document.getElementById('stats-today-total')).textContent = String(total);
     (document.getElementById('stats-group-total')).textContent = String(gsum);
     (document.getElementById('stats-private-total')).textContent = String(psum);
+    (document.getElementById('stats-group-count')).textContent = String(gcount);
+    (document.getElementById('stats-private-count')).textContent = String(pcount);
   } catch{}
 }
 
@@ -222,8 +233,26 @@ function renderStatsDetails(today){
     // 渲染手风琴式Bot列表
     const formatTargets = (targets) => {
       const entries = Object.entries(targets||{});
-      if(!entries.length) return '无数据';
-      return entries.map(([id, count])=>`<div class="stats-target-item"><span class="id">${id}</span><span class="count">${count}</span></div>`).join('');
+      if(!entries.length) return '<div class="empty-state-mini">暂无数据</div>';
+
+      // 按消息数量排序
+      entries.sort((a, b) => b[1] - a[1]);
+
+      // 如果数量太多，只显示前10个，其他的折叠
+      const showLimit = 10;
+      const mainEntries = entries.slice(0, showLimit);
+      const moreEntries = entries.slice(showLimit);
+
+      let html = mainEntries.map(([id, count])=>
+        `<div class="stats-target-item"><span class="id">${id}</span><span class="count">${count}</span></div>`
+      ).join('');
+
+      if(moreEntries.length > 0) {
+        const moreCount = moreEntries.reduce((sum, [, count]) => sum + count, 0);
+        html += `<div class="stats-target-more">... 还有 ${moreEntries.length} 个对象 (共 ${moreCount} 条消息)</div>`;
+      }
+
+      return html;
     };
 
     const html = rows.map((bot, index)=>`
@@ -235,21 +264,21 @@ function renderStatsDetails(today){
           </div>
           <div class="stats-bot-summary">
             <span>总计: <strong>${bot.total}</strong></span>
-            <span>群聊: <strong>${bot.gCount}</strong></span>
-            <span>私聊: <strong>${bot.pCount}</strong></span>
+            <span>群聊: <strong>${bot.gCount}</strong> (${Object.keys(bot.gT).length}个群)</span>
+            <span>私聊: <strong>${bot.pCount}</strong> (${Object.keys(bot.pT).length}人)</span>
           </div>
         </div>
         <div class="stats-bot-content">
           <div class="stats-bot-body">
             <div class="stats-targets-grid">
               <div class="stats-target-section">
-                <div class="stats-target-title">👥 群聊消息详情</div>
+                <div class="stats-target-title">👥 群聊消息详情 (共${Object.keys(bot.gT).length}个群)</div>
                 <div class="stats-target-list">
                   ${formatTargets(bot.gT)}
                 </div>
               </div>
               <div class="stats-target-section">
-                <div class="stats-target-title">💬 私聊消息详情</div>
+                <div class="stats-target-title">💬 私聊消息详情 (共${Object.keys(bot.pT).length}人)</div>
                 <div class="stats-target-list">
                   ${formatTargets(bot.pT)}
                 </div>
@@ -586,8 +615,242 @@ async function savePermissions(){
     const ta=$('#permissions-json'); if(ta) ta.value=JSON.stringify(cfg,null,2);
   } catch(e){ showToast('保存失败: '+(e&&e.message?e.message:e),'error'); }
   finally{ showLoading(false);} }
-async function loadConfig(){ try{ showLoading(true); const c=await apiCall('/config'); state.config=c; $('#config-json').value = JSON.stringify(c, null, 2); } catch(e){ showToast('加载配置失败: '+(e&&e.message?e.message:e),'error'); } finally{ showLoading(false);} }
-async function saveConfig(){ try{ const txt=$('#config-json').value; const cfg=JSON.parse(txt||'{}'); showLoading(true); await apiCall('/config',{method:'PUT', body: JSON.stringify(cfg)}); showToast('配置已保存','success'); state.config=cfg; } catch(e){ showToast('保存失败: '+(e&&e.message?e.message:e),'error'); } finally{ showLoading(false);} }
+// 配置管理相关
+let configViewMode = 'json'; // 'json' or 'visual'
+let selectedConfigKey = '';
+
+async function loadConfig(){
+  try{
+    showLoading(true);
+    const c=await apiCall('/config');
+    state.config=c;
+    $('#config-json').value = JSON.stringify(c, null, 2);
+
+    // 填充配置选择器
+    const selector = $('#config-selector');
+    if(selector) {
+      selector.innerHTML = '<option value="">选择配置项...</option>';
+      Object.keys(c || {}).forEach(key => {
+        const opt = document.createElement('option');
+        opt.value = key;
+        opt.textContent = key;
+        selector.appendChild(opt);
+      });
+    }
+  } catch(e){
+    showToast('加载配置失败: '+(e&&e.message?e.message:e),'error');
+  } finally{
+    showLoading(false);
+  }
+}
+
+async function saveConfig(){
+  try{
+    let cfg;
+    if(configViewMode === 'visual' && selectedConfigKey) {
+      // 从可视化编辑器收集数据
+      cfg = {...state.config};
+      const visualData = collectConfigFromVisualEditor(selectedConfigKey);
+      cfg[selectedConfigKey] = visualData;
+    } else {
+      // 从JSON编辑器获取
+      const txt=$('#config-json').value;
+      cfg=JSON.parse(txt||'{}');
+    }
+
+    showLoading(true);
+    await apiCall('/config',{method:'PUT', body: JSON.stringify(cfg)});
+    showToast('配置已保存，重新加载中...','success');
+    state.config=cfg;
+
+    // 重新加载配置
+    await loadConfig();
+
+    // 如果在可视化模式，重新渲染当前选中的配置
+    if(configViewMode === 'visual' && selectedConfigKey) {
+      renderConfigVisualEditor(selectedConfigKey);
+    }
+  } catch(e){
+    showToast('保存失败: '+(e&&e.message?e.message:e),'error');
+  } finally{
+    showLoading(false);
+  }
+}
+
+function switchConfigView() {
+  configViewMode = configViewMode === 'json' ? 'visual' : 'json';
+  const jsonEditor = $('#config-json-editor');
+  const visualEditor = $('#config-visual-editor');
+  const switchBtn = $('#switch-config-view-btn');
+
+  if(configViewMode === 'visual') {
+    jsonEditor.style.display = 'none';
+    visualEditor.style.display = 'block';
+    if(switchBtn) switchBtn.textContent = '📝 JSON视图';
+
+    // 如果已选择配置项，则渲染可视化编辑器
+    if(selectedConfigKey) {
+      renderConfigVisualEditor(selectedConfigKey);
+    }
+  } else {
+    jsonEditor.style.display = 'block';
+    visualEditor.style.display = 'none';
+    if(switchBtn) switchBtn.textContent = '📝 可视化视图';
+  }
+}
+
+function onConfigSelectorChange(e) {
+  selectedConfigKey = e.target.value;
+  if(configViewMode === 'visual' && selectedConfigKey) {
+    renderConfigVisualEditor(selectedConfigKey);
+  }
+}
+
+function renderConfigVisualEditor(configKey) {
+  const container = document.querySelector('#config-visual-editor .config-form-container');
+  if(!container) return;
+
+  const configData = state.config?.[configKey];
+  if(!configData) {
+    container.innerHTML = '<div class="empty-state">未找到该配置项</div>';
+    return;
+  }
+
+  // 渲染配置表单
+  const html = renderConfigForm(configKey, configData);
+  container.innerHTML = html;
+}
+
+function renderConfigForm(key, data) {
+  if(typeof data !== 'object' || data === null) {
+    // 简单值
+    return `<div class="config-form-row">
+      <label class="config-label">${escapeHtml(key)}</label>
+      <input type="text" class="config-input" data-key="${escapeHtml(key)}" value="${escapeHtml(String(data))}">
+    </div>`;
+  }
+
+  // 对象或数组
+  let html = `<div class="config-section">`;
+
+  if(Array.isArray(data)) {
+    html += `<div class="config-section-title">📋 ${escapeHtml(key)} (数组)</div>`;
+    data.forEach((item, index) => {
+      if(typeof item === 'object' && item !== null) {
+        html += `<div class="config-array-item">
+          <div class="config-array-item-title">项目 ${index + 1}</div>
+          ${renderObjectFields(item, `${key}.${index}`)}
+        </div>`;
+      } else {
+        html += `<div class="config-form-row">
+          <label class="config-label">项目 ${index + 1}</label>
+          <input type="text" class="config-input" data-key="${escapeHtml(key)}.${index}" value="${escapeHtml(String(item))}">
+        </div>`;
+      }
+    });
+  } else {
+    html += `<div class="config-section-title">⚙️ ${escapeHtml(key)}</div>`;
+    html += renderObjectFields(data, key);
+  }
+
+  html += `</div>`;
+  return html;
+}
+
+function renderObjectFields(obj, parentKey) {
+  let html = '';
+  Object.entries(obj).forEach(([k, v]) => {
+    const fullKey = parentKey ? `${parentKey}.${k}` : k;
+
+    if(typeof v === 'boolean') {
+      html += `<div class="config-form-row">
+        <label class="config-label">${escapeHtml(k)}</label>
+        <label class="config-checkbox-label">
+          <input type="checkbox" class="config-checkbox" data-key="${escapeHtml(fullKey)}" ${v?'checked':''}>
+          <span>${v?'启用':'禁用'}</span>
+        </label>
+      </div>`;
+    } else if(typeof v === 'number') {
+      html += `<div class="config-form-row">
+        <label class="config-label">${escapeHtml(k)}</label>
+        <input type="number" class="config-input" data-key="${escapeHtml(fullKey)}" value="${v}">
+      </div>`;
+    } else if(typeof v === 'string') {
+      html += `<div class="config-form-row">
+        <label class="config-label">${escapeHtml(k)}</label>
+        <input type="text" class="config-input" data-key="${escapeHtml(fullKey)}" value="${escapeHtml(v)}">
+      </div>`;
+    } else if(Array.isArray(v)) {
+      html += `<div class="config-form-row">
+        <label class="config-label">${escapeHtml(k)} (列表)</label>
+        <input type="text" class="config-input" data-key="${escapeHtml(fullKey)}" value="${escapeHtml(v.join(', '))}" placeholder="用逗号分隔多个值">
+      </div>`;
+    } else if(typeof v === 'object' && v !== null) {
+      html += `<div class="config-nested">
+        <div class="config-nested-title">${escapeHtml(k)}</div>
+        ${renderObjectFields(v, fullKey)}
+      </div>`;
+    }
+  });
+  return html;
+}
+
+function collectConfigFromVisualEditor(configKey) {
+  const container = document.querySelector('#config-visual-editor .config-form-container');
+  if(!container) return state.config?.[configKey];
+
+  const inputs = container.querySelectorAll('[data-key]');
+  const result = JSON.parse(JSON.stringify(state.config?.[configKey] || {}));
+
+  inputs.forEach(input => {
+    const key = input.getAttribute('data-key');
+    if(!key) return;
+
+    // 移除配置键前缀
+    const path = key.replace(new RegExp(`^${configKey}\\.?`), '');
+    if(!path) return;
+
+    let value;
+    if(input.type === 'checkbox') {
+      value = input.checked;
+    } else if(input.type === 'number') {
+      value = parseFloat(input.value) || 0;
+    } else {
+      value = input.value;
+      // 尝试解析为数组
+      if(value.includes(',')) {
+        const arr = value.split(',').map(s => s.trim()).filter(Boolean);
+        if(arr.length > 0) value = arr;
+      }
+    }
+
+    // 设置嵌套值
+    setNestedValue(result, path, value);
+  });
+
+  return result;
+}
+
+function setNestedValue(obj, path, value) {
+  const keys = path.split('.');
+  let current = obj;
+
+  for(let i = 0; i < keys.length - 1; i++) {
+    const key = keys[i];
+    if(!(key in current)) {
+      current[key] = {};
+    }
+    current = current[key];
+  }
+
+  current[keys[keys.length - 1]] = value;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
 
 async function remindGroups(groupIds){ if(!Array.isArray(groupIds)||!groupIds.length) return; for(const gid of groupIds){ await apiCall('/remind_multi',{method:'POST', body: JSON.stringify({ group_id: gid })}); } }
 async function leaveGroups(groupIds){ if(!Array.isArray(groupIds)||!groupIds.length) return; for(const gid of groupIds){ await apiCall('/leave_multi',{method:'POST', body: JSON.stringify({ group_id: gid })}); } }
@@ -605,6 +868,8 @@ function bindEvents(){
   $('#perm-json-cancel')?.addEventListener('click', closePermJsonModal);
   $('#perm-json-save')?.addEventListener('click', savePermJson);
   $('#save-config-btn')?.addEventListener('click', saveConfig);
+  $('#switch-config-view-btn')?.addEventListener('click', switchConfigView);
+  $('#config-selector')?.addEventListener('change', onConfigSelectorChange);
   $('#group-search')?.addEventListener('input', e=>{ state.keyword=e.target.value.trim(); renderGroupsTable(); });
   $('#status-filter')?.addEventListener('change', e=>{ state.filter=e.target.value; renderGroupsTable(); });
   $('#select-all')?.addEventListener('change', e=> $$('.group-checkbox').forEach(cb=> cb.checked=e.target.checked));

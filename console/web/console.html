@@ -207,6 +207,20 @@
                 <div id="stats-private-total" class="stat-box-value">-</div>
               </div>
             </div>
+            <div class="stat-box-compact" role="status">
+              <div class="stat-box-icon">👥</div>
+              <div class="stat-box-info">
+                <div class="stat-box-label">群聊数</div>
+                <div id="stats-group-count" class="stat-box-value">-</div>
+              </div>
+            </div>
+            <div class="stat-box-compact" role="status">
+              <div class="stat-box-icon">💬</div>
+              <div class="stat-box-info">
+                <div class="stat-box-label">私聊人数</div>
+                <div id="stats-private-count" class="stat-box-value">-</div>
+              </div>
+            </div>
           </div>
 
           <!-- Bot消息统计 - 手风琴折叠式 -->
@@ -240,10 +254,25 @@
           <h2 class="page-title">⚙️ 配置管理中心</h2>
           <div class="panel">
             <div class="panel-header">
-              <h3 class="panel-title">🔧 插件配置</h3>
-              <button id="save-config-btn" class="btn btn-primary">💾 保存配置</button>
+              <h3 class="panel-title">🔧 配置管理</h3>
+              <div class="toolbar-right">
+                <select id="config-selector" class="input" aria-label="选择配置">
+                  <option value="">选择配置项...</option>
+                </select>
+                <button id="switch-config-view-btn" class="btn btn-secondary">📝 切换视图</button>
+                <button id="save-config-btn" class="btn btn-primary">💾 保存配置</button>
+              </div>
             </div>
-            <div class="config-editor">
+
+            <!-- 可视化编辑视图 -->
+            <div id="config-visual-editor" class="config-visual-editor" style="display:none;">
+              <div class="config-form-container">
+                <div class="empty-state">请先选择一个配置项</div>
+              </div>
+            </div>
+
+            <!-- JSON编辑视图 -->
+            <div id="config-json-editor" class="config-editor">
               <textarea id="config-json" class="json-editor" rows="25" placeholder="在此处编辑JSON配置..." aria-label="配置编辑器"></textarea>
             </div>
           </div>
