@@ -6,6 +6,7 @@ const state = {
   stats: null,
   permissions: null,
   config: null,
+  schemas: null,
   theme: localStorage.getItem('theme') || 'light',
   sortBy: 'days', sortDir: 'asc', filter: 'all', keyword: '',
   statsSort: 'total_desc', // total_desc | total_asc | bot_asc | bot_desc | group_desc | private_desc
@@ -664,8 +665,12 @@ function getConfigDescription(key) {
 async function loadConfig(){
   try{
     showLoading(true);
-    const c = await apiCall('/config');
-    state.config = c;
+    const [schemas, c] = await Promise.all([
+      apiCall('/config_schema').catch(()=>({})),
+      apiCall('/config').catch(()=>({})),
+    ]);
+    state.schemas = schemas || {};
+    state.config = c || {};
     renderConfigTabs();
   } catch(e){
     showToast('加载配置失败: '+(e&&e.message?e.message:e),'error');
@@ -691,11 +696,15 @@ function renderConfigTabs() {
   }
 
   // 渲染主标签导航
-  const tabsHtml = configKeys.map(key => `
-    <div class="config-tab-item" data-config-key="${escapeHtml(key)}">
-      ${escapeHtml(key)}
-    </div>
-  `).join('');
+  const tabsHtml = configKeys.map(key => {
+    const sch = (state.schemas && state.schemas[key]) || {};
+    const label = (sch && sch.title) ? sch.title : key;
+    return `
+      <div class="config-tab-item" data-config-key="${escapeHtml(key)}">
+        ${escapeHtml(label)}
+      </div>
+    `;
+  }).join('');
   navContainer.innerHTML = tabsHtml;
 
   // 渲染所有标签页内容
@@ -705,11 +714,14 @@ function renderConfigTabs() {
 
     // 如果有多个子配置项，使用二级标签页
     if (subKeys.length > 1) {
-      const subTabsHtml = subKeys.map(subKey => `
-        <div class="config-sub-tab-item" data-sub-key="${escapeHtml(subKey)}">
-          ${escapeHtml(subKey)}
-        </div>
-      `).join('');
+      const subTabsHtml = subKeys.map(subKey => {
+        const props = (state.schemas && state.schemas[key] && state.schemas[key].properties) || {};
+        const title = (props && props[subKey] && props[subKey].title) ? props[subKey].title : subKey;
+        return `
+          <div class="config-sub-tab-item" data-sub-key="${escapeHtml(subKey)}">
+            ${escapeHtml(title)}
+          </div>`;
+      }).join('');
 
       const subContentsHtml = subKeys.map(subKey => {
         const subData = getSubConfigData(configData, subKey, key);
@@ -865,8 +877,8 @@ function renderConfigForm(data, parentKey = '') {
         html += `<div class="config-nested-section">
           <div class="config-nested-header">
             <span class="config-nested-icon">📁</span>
-            <span class="config-nested-title">${escapeHtml(key)}</span>
-            <span class="config-nested-desc">${getConfigDescription(key)}</span>
+            <span class="config-nested-title">${escapeHtml(__schemaGetTitle(fullKey, key))}</span>
+            <span class="config-nested-desc">${__schemaGetDescription(fullKey)}</span>
           </div>
           <div class="config-nested-body">
             ${renderConfigForm(value, fullKey)}
@@ -881,9 +893,42 @@ function renderConfigForm(data, parentKey = '') {
   return html;
 }
 
+// --- Schema helpers for Chinese titles/descriptions ---
+function __schemaGetNode(fullKey){
+  try{
+    const plugin = currentActiveConfigTab;
+    const root = (state.schemas && state.schemas[plugin]) || null;
+    if(!root) return null;
+    let rel = String(fullKey||'');
+    if(rel.startsWith(plugin + '.')) rel = rel.slice(plugin.length + 1);
+    rel = rel.replace(/\[[0-9]+\]/g,'');
+    if(!rel) return root;
+    const parts = rel.split('.').filter(Boolean);
+    let node = root;
+    for(const p of parts){
+      const props = (node && node.properties) || {};
+      if(!props || !props[p]) return null;
+      node = props[p];
+    }
+    return node || null;
+  }catch{ return null; }
+}
+
+function __schemaGetTitle(fullKey, fallback){
+  const n = __schemaGetNode(fullKey);
+  return (n && n.title) ? n.title : (fallback || fullKey);
+}
+
+function __schemaGetDescription(fullKey){
+  const n = __schemaGetNode(fullKey);
+  if(n && n.description) return n.description;
+  return '';
+}
+
 function renderConfigField(fullKey, value, displayKey = null) {
-  const key = displayKey || fullKey.split('.').pop().split('[')[0];
-  const description = getConfigDescription(key);
+  const last = (displayKey || fullKey.split('.').pop().split('[')[0]);
+  const key = __schemaGetTitle(fullKey, last);
+  const description = __schemaGetDescription(fullKey) || getConfigDescription(last);
   const escapedKey = escapeHtml(fullKey);
   const type = typeof value;
 

@@ -3,7 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ...core.api import config_dir, plugin_resource_dir, plugin_data_dir, register_plugin_config
+from ...core.api import (
+    config_dir,
+    plugin_resource_dir,
+    plugin_data_dir,
+    register_plugin_config,
+    register_plugin_schema,
+)
 
 
 CFG_DIR = config_dir("df")
@@ -85,6 +91,143 @@ def _validate_cfg(cfg: Dict[str, Any]) -> None:
 
 # 注册插件配置
 REG = register_plugin_config("df", DEFAULT_CFG, validator=_validate_cfg)
+
+# Schema for frontend (Chinese labels and help)
+DF_SCHEMA: Dict[str, Any] = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "title": "DF 插件配置",
+    "properties": {
+        "random_picture_open": {
+            "type": "boolean",
+            "title": "启用随机图片",
+            "description": "启用后响应‘来张/看看/随机 + 关键词’等随机图片命令，以及本地表情库",
+            "default": True,
+            "x-group": "随机图片",
+            "x-order": 1,
+        },
+        "poke_repo": {
+            "type": "string",
+            "title": "表情图库仓库",
+            "description": "DF 表情图库（戳一戳图片）Git 仓库地址，用于更新本地资源",
+            "default": "https://cnb.cool/denfenglai/poke.git",
+            "x-group": "随机图片",
+            "x-order": 2,
+        },
+        "poke": {
+            "type": "object",
+            "title": "戳一戳回复",
+            "description": "配置收到戳一戳时的图片/文本回复策略",
+            "x-group": "戳一戳",
+            "x-order": 10,
+            "properties": {
+                "chuo": {
+                    "type": "boolean",
+                    "title": "启用戳一戳",
+                    "description": "是否响应戳一戳事件",
+                    "default": True,
+                    "x-order": 1,
+                },
+                "mode": {
+                    "type": "string",
+                    "title": "回复模式",
+                    "description": "random=随机 image/text/mix 三种之一；image=仅图片；text=仅文本；mix=图文",
+                    "enum": ["random", "image", "text", "mix"],
+                    "default": "random",
+                    "x-order": 2,
+                },
+                "imageType": {
+                    "type": "string",
+                    "title": "图片类型/表情名",
+                    "description": "all 表示任意本地表情；或指定某个表情目录名",
+                    "default": "all",
+                    "x-order": 3,
+                },
+                "imageBlack": {
+                    "type": "array",
+                    "title": "屏蔽表情",
+                    "description": "不参与随机的表情名称列表",
+                    "items": {"type": "string"},
+                    "default": [],
+                    "x-order": 4,
+                },
+                "textMode": {
+                    "type": "string",
+                    "title": "文本来源",
+                    "description": "hitokoto=随机一言; list=从自定义列表随机",
+                    "enum": ["hitokoto", "list"],
+                    "default": "hitokoto",
+                    "x-order": 5,
+                },
+                "hitokoto_api": {
+                    "type": "string",
+                    "title": "一言 API",
+                    "description": "当文本来源为 hitokoto 时调用的 API",
+                    "default": "https://v1.hitokoto.cn/?encode=text",
+                    "x-order": 6,
+                },
+                "textList": {
+                    "type": "array",
+                    "title": "自定义文本列表",
+                    "description": "当文本来源为 list 时，从该列表中随机选择",
+                    "items": {"type": "string"},
+                    "default": [],
+                    "x-order": 7,
+                },
+            },
+        },
+        "send_master": {
+            "type": "object",
+            "title": "转发给主人",
+            "description": "部分命令的反馈将转发给主人账号，可配置频率与提示文字",
+            "x-group": "主人转发",
+            "x-order": 20,
+            "properties": {
+                "open": {
+                    "type": "boolean",
+                    "title": "启用",
+                    "description": "是否开启转发给主人",
+                    "default": True,
+                    "x-order": 1,
+                },
+                "cd": {
+                    "type": "integer",
+                    "title": "冷却(秒)",
+                    "description": "0 表示关闭冷却",
+                    "default": 0,
+                    "minimum": 0,
+                    "x-order": 2,
+                },
+                "success": {
+                    "type": "string",
+                    "title": "成功提示",
+                    "description": "转发成功时给用户的提示语",
+                    "default": "已将信息转发给主人",
+                    "x-order": 3,
+                },
+                "failed": {
+                    "type": "string",
+                    "title": "失败提示",
+                    "description": "转发失败时给用户的提示语",
+                    "default": "发送失败，请稍后重试",
+                    "x-order": 4,
+                },
+                "reply_prefix": {
+                    "type": "string",
+                    "title": "回复前缀",
+                    "description": "主人回复用户时的前缀文字",
+                    "default": "主人回复：",
+                    "x-order": 5,
+                },
+            },
+        },
+    },
+}
+
+try:
+    register_plugin_schema("df", DF_SCHEMA)
+except Exception:
+    pass
 
 
 def ensure_dirs() -> None:

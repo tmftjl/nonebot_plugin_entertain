@@ -12,6 +12,8 @@ from .framework.perm import (
 from .framework.config import (
     register_plugin_config,
     register_namespaced_config,
+    register_plugin_schema,
+    register_namespaced_schema,
     get_plugin_config,
     save_plugin_config,
     reload_plugin_config,
@@ -47,6 +49,8 @@ __all__ = [
     # config helpers
     "register_plugin_config",
     "register_namespaced_config",
+    "register_plugin_schema",
+    "register_namespaced_schema",
     "get_plugin_config",
     "save_plugin_config",
     "reload_plugin_config",

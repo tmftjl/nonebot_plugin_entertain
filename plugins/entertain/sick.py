@@ -5,11 +5,26 @@ from nonebot.matcher import Matcher
 from nonebot.adapters.onebot.v11 import Message, MessageSegment, MessageEvent
 
 from ...core.api import Plugin
-from ...core.api import register_namespaced_config
+from ...core.api import register_namespaced_config, register_namespaced_schema
 
 
 P = Plugin(name="entertain")
 _CFG = register_namespaced_config("entertain", "sick", {})
+
+# Minimal schema for namespace visibility in UI
+try:
+    register_namespaced_schema(
+        "entertain",
+        "sick",
+        {
+            "type": "object",
+            "title": "发病语录",
+            "description": "无可配置项。发送 ‘发病语录’ 获取随机语录",
+            "properties": {},
+        },
+    )
+except Exception:
+    pass
 _SICK = P.on_regex(
     r"^(?:#|/)?发病语录$",
     name="get",

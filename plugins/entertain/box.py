@@ -10,7 +10,7 @@ from nonebot.log import logger
 from nonebot.matcher import Matcher
 from nonebot.params import RegexGroup
 
-from ...core.api import Plugin, register_namespaced_config
+from ...core.api import Plugin, register_namespaced_config, register_namespaced_schema
 
 from PIL import Image
 
@@ -65,6 +65,57 @@ _CFG = register_namespaced_config(
         "auto_box_groups": [],  # list[str] of group ids enabled for auto-box
     },
 )
+
+# Schema for frontend (Chinese labels and help)
+BOX_SCHEMA = {
+    "type": "object",
+    "title": "盒子回复",
+    "description": "开启后在加群/退群等事件中自动生成图片或文本回复",
+    "properties": {
+        "only_admin": {
+            "type": "boolean",
+            "title": "仅管理员可用",
+            "description": "限制只有管理员才能触发盒子相关功能",
+            "default": False,
+            "x-order": 1,
+        },
+        "box_blacklist": {
+            "type": "array",
+            "title": "黑名单",
+            "description": "不触发盒子回复的群号列表",
+            "items": {"type": "string"},
+            "default": [],
+            "x-order": 2,
+        },
+        "increase_box": {
+            "type": "boolean",
+            "title": "入群欢迎",
+            "description": "新成员进群时发送欢迎盒子",
+            "default": False,
+            "x-order": 3,
+        },
+        "decrease_box": {
+            "type": "boolean",
+            "title": "退群提示",
+            "description": "成员退群时发送提示盒子",
+            "default": False,
+            "x-order": 4,
+        },
+        "auto_box_groups": {
+            "type": "array",
+            "title": "自动盒子群",
+            "description": "启用自动盒子的群号列表（字符串）",
+            "items": {"type": "string"},
+            "default": [],
+            "x-order": 5,
+        },
+    },
+}
+
+try:
+    register_namespaced_schema("entertain", "box", BOX_SCHEMA)
+except Exception:
+    pass
 
 # Persist defaults on first load and provide a safe getter
 def _cfg_get(key: str, default=None):
