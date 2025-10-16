@@ -797,9 +797,8 @@ function getConfigSubKeys(data, parentKey) {
   // 如果对象的值都是对象类型（嵌套配置），则作为子标签
   const allObjectValues = keys.every(k => typeof data[k] === 'object' && data[k] !== null && !Array.isArray(data[k]));
 
-  if (allObjectValues && keys.length > 1) {
-    return keys;
-  }
+  // Don't create sub-tabs, always render as nested sections within a single view
+  // This allows the nested section CSS styling to work properly
   return [parentKey];
 }
 

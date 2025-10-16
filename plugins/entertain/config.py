@@ -81,6 +81,8 @@ ENTERTAIN_SCHEMA: Dict[str, Any] = {
             "type": "object",
             "title": "盒子回复",
             "description": "开启后在加群/退群等事件中自动生成图片或文本回复",
+            "x-order": 1,
+            "x-collapse": True,  # 前端可以折叠显示
             "properties": {
                 "only_admin": {
                     "type": "boolean",
@@ -125,6 +127,8 @@ ENTERTAIN_SCHEMA: Dict[str, Any] = {
             "type": "object",
             "title": "注册时间查询",
             "description": "设置第三方接口 key；留空则使用内置 key（不保证长期可用）",
+            "x-order": 2,
+            "x-collapse": True,  # 前端可以折叠显示
             "properties": {
                 "qq_reg_time_api_key": {
                     "type": ["string", "null"],
