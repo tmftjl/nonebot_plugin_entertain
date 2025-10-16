@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from .framework.config import register_plugin_config, register_plugin_schema
+from .api import set_plugin_display_name
 from .framework.utils import config_dir
 
 
@@ -43,6 +44,10 @@ SYSTEM_DEFAULTS: Dict[str, Any] = {
 
 # 存储为系统级配置：config/system/config.json
 _REG = register_plugin_config("system", SYSTEM_DEFAULTS, filename="config.json")
+try:
+    set_plugin_display_name("system", "系统配置")
+except Exception:
+    pass
 
 # 为前端提供的 Schema（Plan A）：描述字段中文名、说明、类型及 UI 提示
 SYSTEM_SCHEMA: Dict[str, Any] = {

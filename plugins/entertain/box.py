@@ -53,7 +53,7 @@ except Exception:  # pragma: no cover
 from .box_draw import create_image
 
 
-P = Plugin(name="entertain")
+P = Plugin(name="entertain", display_name="娱乐")
 _CFG = register_namespaced_config(
     "entertain",
     "box",

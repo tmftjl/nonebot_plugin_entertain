@@ -66,6 +66,26 @@ def _validate_entry(*, enabled=None, level=None, scene=None, wl_users=None, wl_g
     _check_list(bl_groups, "bl_groups")
 
 
+_PLUGIN_DISPLAY_NAMES: dict[str, str] = {}
+
+
+def set_plugin_display_name(plugin: str, display_name: str) -> None:
+    try:
+        n = str(plugin).strip()
+        d = str(display_name).strip()
+        if n and d:
+            _PLUGIN_DISPLAY_NAMES[n] = d
+    except Exception:
+        pass
+
+
+def get_plugin_display_names() -> dict[str, str]:
+    try:
+        return dict(_PLUGIN_DISPLAY_NAMES)
+    except Exception:
+        return {}
+
+
 class Plugin:
     """Lightweight wrapper to create matchers with unified permissions and defaults.
 
@@ -80,6 +100,7 @@ class Plugin:
         name: Optional[str] = None,
         *,
         category: str = "sub",  # "sub" 外部插件（plugins/），"system" 内置系统命令
+        display_name: Optional[str] = None,
         enabled: Optional[bool] = None,
         level: Optional[str] = None,
         scene: Optional[str] = None,
@@ -90,6 +111,12 @@ class Plugin:
     ) -> None:
         self.name = name or _infer_plugin_name()
         self.category = category if category in ("sub", "system") else "sub"
+        # record display name if provided
+        try:
+            if display_name:
+                set_plugin_display_name(self.name, str(display_name))
+        except Exception:
+            pass
         # No per-plugin config auto-creation here; plugins handle their own configs
         # Always create a plugin-level default entry; if fields provided, validate and set them
         if any(x is not None for x in (enabled, level, scene, wl_users, wl_groups, bl_users, bl_groups)):

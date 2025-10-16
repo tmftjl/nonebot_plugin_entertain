@@ -62,7 +62,7 @@ USER_RESULTS: Dict[str, Tuple[Platform, List[Song]]] = {}
 
 
 # Regex definitions
-P = Plugin(name="musicshare")
+P = Plugin(name="musicshare", display_name="点歌")
 search_matcher = P.on_regex(
     r"^#?点歌(?:(qq|酷狗|网易云|wyy|kugou|netease))?\s*(.*)$",
     name="search",

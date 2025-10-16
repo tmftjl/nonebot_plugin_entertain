@@ -16,7 +16,7 @@ from ...core.api import register_namespaced_config
 # Plugin-local configuration
 DEFAULT_CFG = {"qq_reg_time_api_key": None}
 CFG = register_namespaced_config("entertain", "reg_time", DEFAULT_CFG)
-P = Plugin(name="entertain")
+P = Plugin(name="entertain", display_name="娱乐")
 
 
 _REG = P.on_regex(

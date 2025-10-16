@@ -200,6 +200,15 @@ def setup_web_console() -> None:
             except Exception as e:
                 raise HTTPException(500, f"更新配置失败: {e}")
 
+        # 插件显示名（中文）
+        @router.get("/plugins")
+        async def api_get_plugins():
+            try:
+                from ..core.api import get_plugin_display_names
+                return get_plugin_display_names()
+            except Exception as e:
+                raise HTTPException(500, f"获取插件信息失败: {e}")
+
         # 配置 Schema - 前端渲染所需元信息（中文名/描述/类型/分组等）
         @router.get("/config_schema")
         async def api_get_config_schema():

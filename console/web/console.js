@@ -7,6 +7,7 @@ const state = {
   permissions: null,
   config: null,
   schemas: null,
+  pluginNames: {},
   theme: localStorage.getItem('theme') || 'light',
   sortBy: 'days', sortDir: 'asc', filter: 'all', keyword: '',
   statsSort: 'total_desc', // total_desc | total_asc | bot_asc | bot_desc | group_desc | private_desc
@@ -428,11 +429,12 @@ function renderPermissionsList(){
       </div>`;
     }).join('');
     
+    const display = state.pluginNames[pn] || pn;
     return `<div class="perm-accordion-item" data-plugin="${esc(pn)}">
       <div class="perm-accordion-header" data-index="${index}">
         <div class="perm-accordion-title">
           <span class="perm-accordion-icon">▶️</span>
-          <span>🔌 ${esc(pn)}</span>
+          <span>🔌 ${esc(display)}</span>
         </div>
         <label class="perm-field" onclick="event.stopPropagation()">
           <input type="checkbox" class="perm-enabled" ${top.enabled===false?'':'checked'}>
@@ -665,10 +667,12 @@ function getConfigDescription(key) {
 async function loadConfig(){
   try{
     showLoading(true);
-    const [schemas, c] = await Promise.all([
+    const [plugins, schemas, c] = await Promise.all([
+      apiCall('/plugins').catch(()=>({})),
       apiCall('/config_schema').catch(()=>({})),
       apiCall('/config').catch(()=>({})),
     ]);
+    state.pluginNames = plugins || {};
     state.schemas = schemas || {};
     state.config = c || {};
     renderConfigTabs();
@@ -697,8 +701,7 @@ function renderConfigTabs() {
 
   // 渲染主标签导航
   const tabsHtml = configKeys.map(key => {
-    const sch = (state.schemas && state.schemas[key]) || {};
-    const label = (sch && sch.title) ? sch.title : key;
+    const label = state.pluginNames[key] || key;
     return `
       <div class="config-tab-item" data-config-key="${escapeHtml(key)}">
         ${escapeHtml(label)}
@@ -711,6 +714,9 @@ function renderConfigTabs() {
   const contentsHtml = configKeys.map(key => {
     const configData = configs[key];
     const subKeys = getConfigSubKeys(configData, key);
+    // 为渲染此插件的表单临时设置 Schema 上下文
+    const __prevSchemaCtx = (typeof schemaContextPlugin !== 'undefined') ? schemaContextPlugin : null;
+    window.schemaContextPlugin = key;
 
     // 如果有多个子配置项，使用二级标签页
     if (subKeys.length > 1) {
@@ -734,21 +740,25 @@ function renderConfigTabs() {
         `;
       }).join('');
 
-      return `
+      const __section = `
         <div class="config-content-section" data-config-key="${escapeHtml(key)}">
           <div class="config-sub-tabs-nav">${subTabsHtml}</div>
           <div class="config-sub-tabs-content">${subContentsHtml}</div>
         </div>
       `;
+      window.schemaContextPlugin = __prevSchemaCtx;
+      return __section;
     } else {
       // 单个配置项，直接展示
-      return `
+      const __section = `
         <div class="config-content-section" data-config-key="${escapeHtml(key)}">
           <div class="config-items-column">
             ${renderConfigForm(configData, key)}
           </div>
         </div>
       `;
+      window.schemaContextPlugin = __prevSchemaCtx;
+      return __section;
     }
   }).join('');
   contentContainer.innerHTML = contentsHtml;
@@ -896,7 +906,7 @@ function renderConfigForm(data, parentKey = '') {
 // --- Schema helpers for Chinese titles/descriptions ---
 function __schemaGetNode(fullKey){
   try{
-    const plugin = currentActiveConfigTab;
+    const plugin = (typeof schemaContextPlugin !== 'undefined' && schemaContextPlugin) ? schemaContextPlugin : currentActiveConfigTab;
     const root = (state.schemas && state.schemas[plugin]) || null;
     if(!root) return null;
     let rel = String(fullKey||'');

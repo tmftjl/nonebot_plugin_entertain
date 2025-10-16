@@ -3,6 +3,10 @@ from __future__ import annotations
 # Public API surface for plugin authors
 
 from .framework.registry import Plugin as Plugin
+from .framework.registry import (
+    set_plugin_display_name,
+    get_plugin_display_names,
+)
 from .framework.perm import (
     permission_for,
     permission_for_cmd,
@@ -40,6 +44,8 @@ from .framework.cache import KeyValueCache as KeyValueCache
 __all__ = [
     # class
     "Plugin",
+    "set_plugin_display_name",
+    "get_plugin_display_names",
     "KeyValueCache",
     # permission helpers
     "permission_for",

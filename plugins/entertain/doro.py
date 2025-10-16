@@ -5,7 +5,7 @@ from ...core.api import Plugin
 from ...core.api import register_namespaced_config, register_namespaced_schema
 
 
-P = Plugin(name="entertain")
+P = Plugin(name="entertain", display_name="娱乐")
 _CFG = register_namespaced_config("entertain", "doro", {})
 
 # Minimal schema for namespace visibility in UI

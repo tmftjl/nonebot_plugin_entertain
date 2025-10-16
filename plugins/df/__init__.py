@@ -29,7 +29,7 @@ _updating_gallery = False
 from . import update_gallery as update_gallery  # 注册更新命令
 
 # 权限包装与默认命令项
-P = Plugin(name="df")
+P = Plugin(name="df", display_name="DF")
 from ...core.api import upsert_command_defaults as _up_def
 _up_def('df', 'poke')
 for _c in ('pictures_local','pictures_face','pictures_list','contact','reply'):
