@@ -67,6 +67,7 @@ def _validate_entry(*, enabled=None, level=None, scene=None, wl_users=None, wl_g
 
 
 _PLUGIN_DISPLAY_NAMES: dict[str, str] = {}
+_COMMAND_DISPLAY_NAMES: dict[str, dict[str, str]] = {}  # plugin -> {command -> display_name}
 
 
 def set_plugin_display_name(plugin: str, display_name: str) -> None:
@@ -82,6 +83,28 @@ def set_plugin_display_name(plugin: str, display_name: str) -> None:
 def get_plugin_display_names() -> dict[str, str]:
     try:
         return dict(_PLUGIN_DISPLAY_NAMES)
+    except Exception:
+        return {}
+
+
+def set_command_display_name(plugin: str, command: str, display_name: str) -> None:
+    """设置命令的中文显示名称"""
+    try:
+        p = str(plugin).strip()
+        c = str(command).strip()
+        d = str(display_name).strip()
+        if p and c and d:
+            if p not in _COMMAND_DISPLAY_NAMES:
+                _COMMAND_DISPLAY_NAMES[p] = {}
+            _COMMAND_DISPLAY_NAMES[p][c] = d
+    except Exception:
+        pass
+
+
+def get_command_display_names() -> dict[str, dict[str, str]]:
+    """获取所有命令的中文显示名称"""
+    try:
+        return {k: dict(v) for k, v in _COMMAND_DISPLAY_NAMES.items()}
     except Exception:
         return {}
 
@@ -149,6 +172,7 @@ class Plugin:
         pattern: str,
         *,
         name: str,
+        display_name: Optional[str] = None,
         enabled: Optional[bool] = None,
         level: Optional[str] = None,
         scene: Optional[str] = None,
@@ -158,6 +182,10 @@ class Plugin:
         bl_groups: Optional[list[str]] = None,
         **kwargs: Any,
     ) -> Matcher:
+        # 如果提供了中文名，注册它
+        if display_name:
+            set_command_display_name(self.name, name, display_name)
+
         # Upsert a command default entry; validate only when explicit fields provided
         if any(x is not None for x in (enabled, level, scene, wl_users, wl_groups, bl_users, bl_groups)):
             _validate_entry(enabled=enabled, level=level, scene=scene, wl_users=wl_users, wl_groups=wl_groups, bl_users=bl_users, bl_groups=bl_groups)

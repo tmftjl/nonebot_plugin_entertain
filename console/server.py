@@ -215,6 +215,15 @@ def setup_web_console() -> None:
             except Exception as e:
                 raise HTTPException(500, f"获取插件信息失败: {e}")
 
+        # 命令显示名（中文）
+        @router.get("/commands")
+        async def api_get_commands():
+            try:
+                from ..core.api import get_command_display_names
+                return get_command_display_names()
+            except Exception as e:
+                raise HTTPException(500, f"获取命令信息失败: {e}")
+
         # 配置 Schema - 前端渲染所需元信息（中文名/描述/类型/分组等）
         @router.get("/config_schema")
         async def api_get_config_schema():

@@ -137,6 +137,31 @@
                   <tr><td colspan="6" class="text-center">⏳ 加载中...</td></tr>
                 </tbody>
               </table>
+              <!-- 分页控件 -->
+              <div id="groups-pagination" class="pagination-container">
+                <div class="pagination-info">
+                  <span id="pagination-info-text">共 0 条记录</span>
+                </div>
+                <div class="pagination-controls">
+                  <button id="pagination-first" class="pagination-btn" title="首页" aria-label="首页">⏮</button>
+                  <button id="pagination-prev" class="pagination-btn" title="上一页" aria-label="上一页">◀</button>
+                  <span id="pagination-pages" class="pagination-pages"></span>
+                  <button id="pagination-next" class="pagination-btn" title="下一页" aria-label="下一页">▶</button>
+                  <button id="pagination-last" class="pagination-btn" title="末页" aria-label="末页">⏭</button>
+                </div>
+                <div class="pagination-size">
+                  <label>
+                    <span>每页</span>
+                    <select id="pagination-size-select" class="pagination-size-select">
+                      <option value="10">10</option>
+                      <option value="20" selected>20</option>
+                      <option value="50">50</option>
+                      <option value="100">100</option>
+                    </select>
+                    <span>条</span>
+                  </label>
+                </div>
+              </div>
             </div>
           </div>
           

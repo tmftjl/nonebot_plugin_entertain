@@ -6,6 +6,8 @@ from .framework.registry import Plugin as Plugin
 from .framework.registry import (
     set_plugin_display_name,
     get_plugin_display_names,
+    set_command_display_name,
+    get_command_display_names,
 )
 from .framework.perm import (
     permission_for,
@@ -47,6 +49,8 @@ __all__ = [
     "Plugin",
     "set_plugin_display_name",
     "get_plugin_display_names",
+    "set_command_display_name",
+    "get_command_display_names",
     "KeyValueCache",
     # permission helpers
     "permission_for",

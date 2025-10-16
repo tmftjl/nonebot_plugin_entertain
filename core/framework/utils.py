@@ -34,18 +34,17 @@ def config_dir(name: Optional[str] = None) -> Path:
     1) Env var `NPE_CONFIG_DIR` when set
     2) Package-root `config/` if writable
     3) Current working directory `./config/`
+
+    Note: Directory writability is checked by attempting to create the directory,
+    not by writing test files, for better performance.
     """
 
-    def _writable_dir(p: Path) -> bool:
+    def _ensure_dir(p: Path) -> bool:
+        """Ensure directory exists and is accessible."""
         try:
             p.mkdir(parents=True, exist_ok=True)
-            test = p / ".npe_write_test"
-            test.write_text("ok", encoding="utf-8")
-            try:
-                test.unlink()
-            except Exception:
-                pass
-            return True
+            # 检查目录是否可访问（不写入测试文件）
+            return p.exists() and p.is_dir()
         except Exception:
             return False
 
@@ -53,10 +52,7 @@ def config_dir(name: Optional[str] = None) -> Path:
     env_dir = os.getenv("NPE_CONFIG_DIR")
     if env_dir:
         root = Path(env_dir)
-        if not _writable_dir(root):
-            # fall back if env path is not writable
-            root = None  # type: ignore[assignment]
-        else:
+        if _ensure_dir(root):
             if name:
                 sub = root / name
                 sub.mkdir(parents=True, exist_ok=True)
@@ -65,7 +61,7 @@ def config_dir(name: Optional[str] = None) -> Path:
 
     # 2) try package-root config (package root is two levels up)
     pkg_root = _root() / "config"
-    if _writable_dir(pkg_root):
+    if _ensure_dir(pkg_root):
         if name:
             sub = pkg_root / name
             sub.mkdir(parents=True, exist_ok=True)

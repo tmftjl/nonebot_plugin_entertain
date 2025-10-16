@@ -8,10 +8,18 @@ const state = {
   config: null,
   schemas: null,
   pluginNames: {},
+  commandNames: {},  // 命令中文名: {plugin: {command: displayName}}
   theme: localStorage.getItem('theme') || 'light',
   sortBy: 'days', sortDir: 'asc', filter: 'all', keyword: '',
   statsSort: 'total_desc', // total_desc | total_asc | bot_asc | bot_desc | group_desc | private_desc
-  statsKeyword: ''
+  statsKeyword: '',
+  // 分页状态
+  pagination: {
+    currentPage: 1,
+    pageSize: 20,
+    totalItems: 0,
+    totalPages: 0
+  }
 };
 
 // 工具
@@ -133,7 +141,25 @@ function renderGroupsTable(){
     if(state.sortBy==='days') return (a.days-b.days)*dir;
     return 0;
   });
-  tbody.innerHTML = list.length? list.map(g=>`
+
+  // 分页计算
+  state.pagination.totalItems = list.length;
+  state.pagination.totalPages = Math.ceil(list.length / state.pagination.pageSize) || 1;
+
+  // 确保当前页在有效范围内
+  if (state.pagination.currentPage > state.pagination.totalPages) {
+    state.pagination.currentPage = state.pagination.totalPages;
+  }
+  if (state.pagination.currentPage < 1) {
+    state.pagination.currentPage = 1;
+  }
+
+  // 获取当前页的数据
+  const startIndex = (state.pagination.currentPage - 1) * state.pagination.pageSize;
+  const endIndex = startIndex + state.pagination.pageSize;
+  const pageList = list.slice(startIndex, endIndex);
+
+  tbody.innerHTML = pageList.length? pageList.map(g=>`
     <tr>
       <td><input type="checkbox" class="group-checkbox" data-gid="${g.gid}"></td>
       <td>${g.gid}</td>
@@ -146,12 +172,87 @@ function renderGroupsTable(){
         <button class="btn-action btn-leave" data-gid="${g.gid}">退群</button>
       </td>
     </tr>`).join('') : '<tr><td colspan="6" class="text-center">暂无数据</td></tr>';
+
+  // 更新分页控件
+  updatePaginationControls();
 }
 
 function renderCodes(codes){
   const el=$('#codes-list'); if(!el) return;
   const arr=Object.entries(codes||{});
   el.innerHTML = arr.length? arr.map(([code,meta])=>`<div class="code-card"><div class="code-info"><div class="code-value">${maskCode(code)}</div><div class="code-meta">${meta.length}${meta.unit} · 可用${meta.max_use||1}次</div></div><button class="btn-copy" data-code="${code}">复制</button></div>`).join('') : '<div class="empty-state">暂无可用续费码</div>';
+}
+
+// 更新分页控件
+function updatePaginationControls() {
+  const { currentPage, totalPages, totalItems, pageSize } = state.pagination;
+
+  // 更新信息文本
+  const infoText = $('#pagination-info-text');
+  if (infoText) {
+    const start = (currentPage - 1) * pageSize + 1;
+    const end = Math.min(currentPage * pageSize, totalItems);
+    infoText.textContent = totalItems > 0
+      ? `共 ${totalItems} 条记录，显示 ${start}-${end}`
+      : '共 0 条记录';
+  }
+
+  // 更新按钮状态
+  const firstBtn = $('#pagination-first');
+  const prevBtn = $('#pagination-prev');
+  const nextBtn = $('#pagination-next');
+  const lastBtn = $('#pagination-last');
+
+  if (firstBtn) firstBtn.disabled = currentPage <= 1;
+  if (prevBtn) prevBtn.disabled = currentPage <= 1;
+  if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
+  if (lastBtn) lastBtn.disabled = currentPage >= totalPages;
+
+  // 更新页码显示
+  const pagesContainer = $('#pagination-pages');
+  if (pagesContainer) {
+    const pages = [];
+    const maxVisible = 5; // 最多显示5个页码按钮
+
+    if (totalPages <= maxVisible) {
+      // 总页数少，显示所有页码
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+    } else {
+      // 总页数多，智能显示页码
+      if (currentPage <= 3) {
+        pages.push(1, 2, 3, 4, '...', totalPages);
+      } else if (currentPage >= totalPages - 2) {
+        pages.push(1, '...', totalPages - 3, totalPages - 2, totalPages - 1, totalPages);
+      } else {
+        pages.push(1, '...', currentPage - 1, currentPage, currentPage + 1, '...', totalPages);
+      }
+    }
+
+    pagesContainer.innerHTML = pages.map(page => {
+      if (page === '...') {
+        return '<span class="pagination-ellipsis">...</span>';
+      }
+      const active = page === currentPage ? 'active' : '';
+      return `<button class="pagination-page ${active}" data-page="${page}">${page}</button>`;
+    }).join('');
+  }
+}
+
+// 分页跳转函数
+function goToPage(page) {
+  const { totalPages } = state.pagination;
+  if (page < 1) page = 1;
+  if (page > totalPages) page = totalPages;
+  state.pagination.currentPage = page;
+  renderGroupsTable();
+}
+
+function changePageSize(size) {
+  state.pagination.pageSize = parseInt(size) || 20;
+  state.pagination.currentPage = 1; // 重置到第一页
+  renderGroupsTable();
 }
 
 // 统计（读取 /member_renewal/stats/today 并仅展示今天）
@@ -390,9 +491,11 @@ function renderPermissionsList(){
       const c=from(cmds[cn]);
       const cwl=from(c.whitelist);
       const cbl=from(c.blacklist);
+      // 获取命令的中文名
+      const cmdDisplay = (state.commandNames && state.commandNames[pn] && state.commandNames[pn][cn]) || cn;
       return `<div class="perm-command-item" data-command="${esc(cn)}">
         <div class="perm-command-header">
-          <div class="perm-command-name">📌 ${esc(cn)}</div>
+          <div class="perm-command-name">📌 ${esc(cmdDisplay)}</div>
           <div class="perm-command-inline-config">
             <label class="perm-field">
               <input type="checkbox" class="perm-enabled" ${c.enabled===false?'':'checked'}>
@@ -595,8 +698,12 @@ function collectPermissionsFromUI(){
 async function loadPermissions(){
   try{
     showLoading(true);
-    const p=await apiCall('/permissions');
+    const [p, commands]=await Promise.all([
+      apiCall('/permissions'),
+      apiCall('/commands').catch(()=>({}))
+    ]);
     state.permissions=p;
+    state.commandNames=commands||{};
     const ta=$('#permissions-json'); if(ta) ta.value=JSON.stringify(p,null,2);
     renderPermissionsList();
   } catch(e){ showToast('加载权限失败: '+(e&&e.message?e.message:e),'error'); }
@@ -701,7 +808,9 @@ function renderConfigTabs() {
 
   // 渲染主标签导航
   const tabsHtml = configKeys.map(key => {
-    const label = state.pluginNames[key] || key;
+    // 优先使用 schema 的 title，其次使用插件显示名，最后用 key
+    const schema = (state.schemas && state.schemas[key]) || {};
+    const label = schema.title || state.pluginNames[key] || key;
     return `
       <div class="config-tab-item" data-config-key="${escapeHtml(key)}">
         ${escapeHtml(label)}
@@ -1099,10 +1208,25 @@ function bindEvents(){
   $('#perm-json-cancel')?.addEventListener('click', closePermJsonModal);
   $('#perm-json-save')?.addEventListener('click', savePermJson);
   $('#config-save-btn')?.addEventListener('click', saveCurrentConfig);
-  $('#group-search')?.addEventListener('input', e=>{ state.keyword=e.target.value.trim(); renderGroupsTable(); });
-  $('#status-filter')?.addEventListener('change', e=>{ state.filter=e.target.value; renderGroupsTable(); });
+  $('#group-search')?.addEventListener('input', e=>{ state.keyword=e.target.value.trim(); state.pagination.currentPage=1; renderGroupsTable(); });
+  $('#status-filter')?.addEventListener('change', e=>{ state.filter=e.target.value; state.pagination.currentPage=1; renderGroupsTable(); });
   $('#select-all')?.addEventListener('change', e=> $$('.group-checkbox').forEach(cb=> cb.checked=e.target.checked));
   $('#refresh-btn')?.addEventListener('click', ()=>{ const active=$('.nav-item.active'); if(active) switchTab(active.dataset.tab); });
+
+  // 分页控件事件
+  $('#pagination-first')?.addEventListener('click', () => goToPage(1));
+  $('#pagination-prev')?.addEventListener('click', () => goToPage(state.pagination.currentPage - 1));
+  $('#pagination-next')?.addEventListener('click', () => goToPage(state.pagination.currentPage + 1));
+  $('#pagination-last')?.addEventListener('click', () => goToPage(state.pagination.totalPages));
+  $('#pagination-size-select')?.addEventListener('change', e => changePageSize(e.target.value));
+
+  // 页码点击事件（使用事件委托）
+  $('#pagination-pages')?.addEventListener('click', e => {
+    if (e.target.classList.contains('pagination-page')) {
+      const page = parseInt(e.target.dataset.page);
+      if (page) goToPage(page);
+    }
+  });
 
   const tbl=$('#groups-table-body');
   if(tbl){
