@@ -18,8 +18,6 @@ DEFAULTS: Dict[str, Any] = {
         "decrease_box": False,
         "auto_box_groups": [],  # list[str] group ids for auto-box
     },
-    "sick": {},
-    "doro": {},
     "reg_time": {"qq_reg_time_api_key": None},
 }
 
@@ -43,77 +41,6 @@ def cfg_reg_time() -> Dict[str, Any]:
     d = _CACHED.get("reg_time")
     return d if isinstance(d, dict) else {}
 
-
-def cfg_doro() -> Dict[str, Any]:
-    d = _CACHED.get("doro")
-    return d if isinstance(d, dict) else {}
-
-
-def cfg_sick() -> Dict[str, Any]:
-    d = _CACHED.get("sick")
-    return d if isinstance(d, dict) else {}
-
-
-# ----- Unified schema (single object with nested properties) -----
-BOX_SCHEMA: Dict[str, Any] = {
-    "type": "object",
-    "title": "盒子回复",
-    "description": "开启后在加群/退群等事件中自动生成图片或文本回复",
-    "properties": {
-        "only_admin": {
-            "type": "boolean",
-            "title": "仅管理员可用",
-            "description": "限制只有管理员才能触发盒子相关功能",
-            "default": False,
-            "x-order": 1,
-        },
-        "box_blacklist": {
-            "type": "array",
-            "title": "黑名单",
-            "description": "不触发盒子回复的QQ号列表",
-            "items": {"type": "string"},
-            "default": [],
-            "x-order": 2,
-        },
-        "increase_box": {
-            "type": "boolean",
-            "title": "入群欢迎",
-            "description": "新成员进群时发送欢迎盒",
-            "default": False,
-            "x-order": 3,
-        },
-        "decrease_box": {
-            "type": "boolean",
-            "title": "退群提示",
-            "description": "成员退群时发送提示盒",
-            "default": False,
-            "x-order": 4,
-        },
-        "auto_box_groups": {
-            "type": "array",
-            "title": "自动盒子群",
-            "description": "启用自动盒子的群号列表（字符串）",
-            "items": {"type": "string"},
-            "default": [],
-            "x-order": 5,
-        },
-    },
-}
-
-SICK_SCHEMA: Dict[str, Any] = {
-    "type": "object",
-    "title": "发病语录",
-    "description": "无可配置项。发送‘发病语录’获取随机语录",
-    "properties": {},
-}
-
-DORO_SCHEMA: Dict[str, Any] = {
-    "type": "object",
-    "title": "doro 结局",
-    "description": "无可配置项。发送‘doro结局’获取随机结局",
-    "properties": {},
-}
-
 REG_TIME_SCHEMA: Dict[str, Any] = {
     "type": "object",
     "title": "注册时间查询",
@@ -136,16 +63,65 @@ ENTERTAIN_SCHEMA: Dict[str, Any] = {
     "type": "object",
     "title": "娱乐",
     "properties": {
-        "box": BOX_SCHEMA,
-        "sick": SICK_SCHEMA,
-        "doro": DORO_SCHEMA,
-        "reg_time": REG_TIME_SCHEMA,
+        "box": {
+            "type": "object",
+            "title": "盒子回复",
+            "description": "开启后在加群/退群等事件中自动生成图片或文本回复",
+            "properties": {
+                "only_admin": {
+                    "type": "boolean",
+                    "title": "仅管理员可用",
+                    "description": "限制只有管理员才能触发盒子相关功能",
+                    "default": False,
+                    "x-order": 1,
+                },
+                "box_blacklist": {
+                    "type": "array",
+                    "title": "黑名单",
+                    "description": "不触发盒子回复的QQ号列表",
+                    "items": {"type": "string"},
+                    "default": [],
+                    "x-order": 2,
+                },
+                "increase_box": {
+                    "type": "boolean",
+                    "title": "入群欢迎",
+                    "description": "新成员进群时发送欢迎盒",
+                    "default": False,
+                    "x-order": 3,
+                },
+                "decrease_box": {
+                    "type": "boolean",
+                    "title": "退群提示",
+                    "description": "成员退群时发送提示盒",
+                    "default": False,
+                    "x-order": 4,
+                },
+                "auto_box_groups": {
+                    "type": "array",
+                    "title": "自动盒子群",
+                    "description": "启用自动盒子的群号列表（字符串）",
+                    "items": {"type": "string"},
+                    "default": [],
+                    "x-order": 5,
+                },
+            },
+        },
+        "reg_time": {
+            "type": "object",
+            "title": "注册时间查询",
+            "description": "设置第三方接口 key；留空则使用内置 key（不保证长期可用）",
+            "properties": {
+                "qq_reg_time_api_key": {
+                    "type": ["string", "null"],
+                    "title": "API Key",
+                    "description": "第三方注册时间查询 API 的 key",
+                    "default": None,
+                    "x-order": 1,
+                }
+            },
+        },
     },
 }
 
-# Register once for the whole plugin
-try:
-    register_plugin_schema("entertain", ENTERTAIN_SCHEMA)
-except Exception:
-    # schema exposure is best-effort; ignore in headless contexts
-    pass
+register_plugin_schema("entertain", ENTERTAIN_SCHEMA)
