@@ -179,24 +179,30 @@ def setup_web_console() -> None:
 
         @router.put("/config")
         async def api_update_config(payload: Dict[str, Any]):
-            """更新配置 - 支持单个插件或批量更新"""
+            """更新配置 - 支持单个插件或批量更新，自动重载到内存缓存"""
             try:
+                from ..core.framework.config import save_all_plugin_configs, reload_all_configs
+
                 # 检查payload是否包含多个插件配置
                 if "system" in payload or len(payload) > 1:
                     # 批量更新模式
-                    from ..core.framework.config import save_all_plugin_configs
                     success, errors = save_all_plugin_configs(payload)
                     if not success:
                         raise HTTPException(500, f"部分配置更新失败: {errors}")
-                    # 重载定时任务（若更新了system配置）
-                    if "system" in payload:
-                        _reschedule_membership_job()
-                    return {"success": True, "message": "配置已更新并应用"}
                 else:
                     # 向后兼容：单个system配置更新
                     save_cfg(payload)
+
+                # 保存成功后，立即重载所有配置到内存缓存
+                ok, details = reload_all_configs()
+                if not ok:
+                    logger.warning(f"配置重载部分失败: {details}")
+
+                # 重载定时任务（若更新了system配置）
+                if "system" in payload:
                     _reschedule_membership_job()
-                    return {"success": True, "message": "配置已更新并应用"}
+
+                return {"success": True, "message": "配置已更新并重载到内存"}
             except Exception as e:
                 raise HTTPException(500, f"更新配置失败: {e}")
 

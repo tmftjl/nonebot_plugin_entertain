@@ -9,6 +9,7 @@ from ...core.api import (
     plugin_data_dir,
     register_plugin_config,
     register_plugin_schema,
+    register_reload_callback,
 )
 
 
@@ -91,6 +92,19 @@ def _validate_cfg(cfg: Dict[str, Any]) -> None:
 
 # 注册插件配置
 REG = register_plugin_config("df", DEFAULT_CFG, validator=_validate_cfg)
+
+# 模块级缓存
+_CACHED: Dict[str, Any] = REG.load()
+
+
+def reload_cache() -> None:
+    """重新加载配置到模块级缓存，供框架重载配置时调用。"""
+    global _CACHED
+    _CACHED = REG.load()
+
+
+# 注册重载回调
+register_reload_callback("df", reload_cache)
 
 # Schema for frontend (Chinese labels and help)
 DF_SCHEMA: Dict[str, Any] = {
@@ -237,13 +251,17 @@ def ensure_dirs() -> None:
 
 
 def load_cfg() -> Dict[str, Any]:
+    """从模块级缓存读取配置。"""
     ensure_dirs()
-    return REG.load()
+    return _CACHED
 
 
 def save_cfg(cfg: Dict[str, Any]) -> None:
+    """保存配置并更新模块级缓存。"""
     ensure_dirs()
     REG.save(cfg)
+    # 保存后立即更新缓存
+    reload_cache()
 
 
 def face_list() -> List[str]:

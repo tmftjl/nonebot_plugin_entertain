@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from ...core.api import register_plugin_config, register_plugin_schema
+from ...core.api import register_plugin_config, register_plugin_schema, register_reload_callback
 
 
 # One unified config for the whole `useful` plugin
@@ -22,11 +22,23 @@ CFG = register_plugin_config("useful", DEFAULTS)
 _CACHED: Dict[str, Any] = CFG.load()
 
 
+def reload_cache() -> None:
+    """重新加载配置到模块级缓存，供框架重载配置时调用。"""
+    global _CACHED
+    _CACHED = CFG.load()
+
+
+# 注册重载回调，确保框架重载配置时更新模块缓存
+register_reload_callback("useful", reload_cache)
+
+
 def cfg_cached() -> Dict[str, Any]:
+    """返回整个配置的缓存副本。"""
     return _CACHED
 
 
 def cfg_taffy() -> Dict[str, Any]:
+    """返回 taffy 配置节，从模块级缓存读取。"""
     d = _CACHED.get("taffy")
     return d if isinstance(d, dict) else {}
 

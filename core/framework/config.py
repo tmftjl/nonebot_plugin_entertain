@@ -58,12 +58,37 @@ class ConfigProxy:
                 self._loaded = True
             except Exception:
                 pass
+        else:
+            # 文件存在，检查是否为空对象，如果是则填充默认值
+            try:
+                content = p.read_text(encoding="utf-8")
+                data = json.loads(content)
+                if isinstance(data, dict) and len(data) == 0:
+                    # 空对象，写入默认值
+                    p.write_text(json.dumps(self.defaults, ensure_ascii=False, indent=2), encoding="utf-8")
+                    self._cache = json.loads(json.dumps(self.defaults))
+                    try:
+                        self._mtime = p.stat().st_mtime
+                    except Exception:
+                        self._mtime = 0.0
+                    self._loaded = True
+            except Exception:
+                pass
 
     def _reload(self) -> None:
         try:
             text = self.path.read_text(encoding="utf-8")
             data = json.loads(text)
             if isinstance(data, dict):
+                # 如果设置了校验器，先校验
+                if self.validator is not None:
+                    try:
+                        self.validator(data)
+                    except Exception as e:
+                        # 校验失败，使用默认值
+                        self._cache = json.loads(json.dumps(self.defaults))
+                        self._loaded = True
+                        return
                 self._cache = data
                 try:
                     self._mtime = self.path.stat().st_mtime
@@ -119,6 +144,35 @@ class ConfigProxy:
         except Exception:
             pass
 
+    def reload_and_validate(self) -> Tuple[bool, Dict[str, Any], Optional[str]]:
+        """Reload config from disk and optionally validate.
+
+        Returns (ok, cfg, error_message). If no validator is set, ok is True
+        when the JSON is a dict; otherwise the validator may raise and ok
+        becomes False with the error captured.
+        """
+        self.ensure()
+        try:
+            raw_text = self.path.read_text(encoding="utf-8")
+            raw = json.loads(raw_text)
+            if not isinstance(raw, dict):
+                return False, json.loads(json.dumps(self.defaults)), "config is not a JSON object"
+            if self.validator is not None:
+                try:
+                    self.validator(raw)
+                except Exception as e:
+                    return False, raw, f"validation failed: {e}"
+            # update cache
+            self._cache = raw
+            try:
+                self._mtime = self.path.stat().st_mtime
+            except Exception:
+                self._mtime = 0.0
+            self._loaded = True
+            return True, raw, None
+        except Exception as e:
+            return False, json.loads(json.dumps(self.defaults)), f"reload failed: {e}"
+
 
 @dataclass
 class NamespacedConfigProxy:
@@ -153,37 +207,6 @@ class NamespacedConfigProxy:
         all_cfg = self._load_whole()
         all_cfg[self.namespace] = json.loads(json.dumps(section_cfg or {}))
         self._file_proxy.save(all_cfg)
-
-    def reload_and_validate(self) -> Tuple[bool, Dict[str, Any], Optional[str]]:
-        """Reload config from disk and optionally validate.
-
-        Returns (ok, cfg, error_message). If no validator is set, ok is True
-        when the JSON is a dict; otherwise the validator may raise and ok
-        becomes False with the error captured.
-        """
-        self.ensure()
-        try:
-            raw_text = self.path.read_text(encoding="utf-8")
-            raw = json.loads(raw_text)
-            if not isinstance(raw, dict):
-                return False, json.loads(json.dumps(self.defaults)), "config is not a JSON object"
-            if self.validator is not None:
-                try:
-                    self.validator(raw)
-                except Exception as e:
-                    return False, raw, f"validation failed: {e}"
-            # update cache
-            self._cache = raw
-            try:
-                self._mtime = self.path.stat().st_mtime
-            except Exception:
-                self._mtime = 0.0
-            self._loaded = True
-            return True, raw, None
-        except Exception as e:
-            return False, json.loads(json.dumps(self.defaults)), f"reload failed: {e}"
-
-    
 
 
 # ----- New unified permissions (single global file, nested: framework -> sub_plugins -> commands) -----
@@ -605,6 +628,170 @@ def upsert_system_command_defaults(
 
 _CONFIG_REGISTRY: Dict[tuple[str, str], ConfigProxy] = {}
 
+# 配置重载回调注册表：插件名 -> 重载函数列表
+_RELOAD_CALLBACKS: Dict[str, list[Callable[[], None]]] = {}
+
+
+def register_reload_callback(plugin: str, callback: Callable[[], None]) -> None:
+    """注册配置重载回调函数。
+
+    当框架重载配置时，会调用所有注册的回调函数来更新插件模块级缓存。
+
+    Args:
+        plugin: 插件名称
+        callback: 重载回调函数，无参数无返回值
+    """
+    if plugin not in _RELOAD_CALLBACKS:
+        _RELOAD_CALLBACKS[plugin] = []
+    _RELOAD_CALLBACKS[plugin].append(callback)
+
+
+# ---- 配置管理器 ----
+class ConfigManager:
+    """统一的配置管理器，负责在框架启动时加载所有配置到缓存。"""
+
+    _instance: Optional["ConfigManager"] = None
+    _initialized: bool = False
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __init__(self):
+        """单例模式，避免重复初始化。"""
+        pass
+
+    def bootstrap(self) -> None:
+        """框架启动时调用，预加载所有已注册的配置到内存缓存。"""
+        if self._initialized:
+            return
+
+        # 确保配置目录存在
+        try:
+            config_dir().mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+
+        # 确保权限文件存在
+        try:
+            ensure_permissions_file()
+        except Exception:
+            pass
+
+        # 预加载所有已注册的配置文件到缓存
+        for (plugin, filename), proxy in list(_CONFIG_REGISTRY.items()):
+            try:
+                proxy.ensure()
+                proxy.ensure_loaded()
+            except Exception:
+                # 单个配置加载失败不影响其他配置
+                pass
+
+        self._initialized = True
+
+    def reload_all(self) -> Tuple[bool, Dict[str, Any]]:
+        """重载所有已注册的配置，更新内存缓存。
+
+        返回: (success, details)
+        - success: 是否全部成功
+        - details: 详细结果，包含每个插件的加载状态
+        """
+        results: Dict[str, Any] = {"plugins": {}}
+        ok_all = True
+
+        for (plugin, filename), proxy in list(_CONFIG_REGISTRY.items()):
+            ok, cfg, err = proxy.reload_and_validate()
+            prev = results["plugins"].get(plugin, {})
+            results["plugins"][plugin] = {
+                "ok": ok and prev.get("ok", True),
+                "error": err or prev.get("error")
+            }
+            ok_all = ok_all and ok
+
+        # 调用所有注册的重载回调，更新插件模块级缓存
+        for plugin, callbacks in _RELOAD_CALLBACKS.items():
+            for callback in callbacks:
+                try:
+                    callback()
+                except Exception:
+                    # 单个回调失败不影响其他回调
+                    pass
+
+        # 重载权限配置
+        try:
+            from .perm import reload_permissions
+            reload_permissions()
+            p_ok = True
+        except Exception:
+            p_ok = False
+
+        results["permissions"] = {"ok": p_ok}
+        return (ok_all and p_ok), results
+
+    def get_all_configs(self) -> Dict[str, Any]:
+        """获取所有已注册插件的配置（从内存缓存中读取）。
+
+        返回格式:
+        {
+            "system": {...},
+            "plugin_name": {...},
+            ...
+        }
+        """
+        result: Dict[str, Any] = {}
+        for (plugin, filename), proxy in list(_CONFIG_REGISTRY.items()):
+            try:
+                # 使用load()从内存缓存读取
+                cfg = proxy.load()
+                result[plugin] = cfg
+            except Exception:
+                # 出错时返回空dict
+                result[plugin] = {}
+        return result
+
+    def save_configs(self, configs: Dict[str, Any]) -> Tuple[bool, Dict[str, str]]:
+        """保存多个插件的配置，并更新内存缓存。
+
+        Args:
+            configs: 格式为 {"plugin_name": {config_dict}, ...}
+
+        Returns:
+            (success, errors) - success为True表示全部成功，errors包含失败的插件及错误信息
+        """
+        errors: Dict[str, str] = {}
+        for plugin_name, cfg in configs.items():
+            if not isinstance(cfg, dict):
+                errors[plugin_name] = "配置必须是JSON对象"
+                continue
+
+            # 查找对应的proxy
+            proxy = None
+            for (p, fname), px in list(_CONFIG_REGISTRY.items()):
+                if p == plugin_name and fname == "config.json":
+                    proxy = px
+                    break
+
+            if proxy is None:
+                # 尝试注册新的
+                try:
+                    proxy = register_plugin_config(plugin_name, cfg)
+                except Exception as e:
+                    errors[plugin_name] = f"注册失败: {e}"
+                    continue
+
+            try:
+                # 保存会自动更新缓存
+                proxy.save(cfg)
+            except Exception as e:
+                errors[plugin_name] = f"保存失败: {e}"
+
+        return (len(errors) == 0), errors
+
+
+# 创建全局配置管理器实例
+_config_manager = ConfigManager()
+
 # ---- Schema registry for frontend forms (Plan A) ----
 _SCHEMA_REGISTRY: Dict[str, Dict[str, Any]] = {}
 
@@ -713,38 +900,21 @@ def reload_plugin_config(
 
 
 def bootstrap_configs() -> None:
-    try:
-        config_dir().mkdir(parents=True, exist_ok=True)
-    except Exception:
-        pass
-    # Ensure global permissions file exists
-    try:
-        ensure_permissions_file()
-    except Exception:
-        pass
-    # No legacy migrations; first-run file is generated and then respected
+    """框架启动时初始化配置系统。
+
+    - 创建配置目录
+    - 确保权限文件存在
+    - 预加载所有已注册的配置到内存缓存
+    """
+    _config_manager.bootstrap()
 
 def reload_all_configs() -> Tuple[bool, Dict[str, Any]]:
-    """Reload all registered plugin configs and permissions.
+    """重载所有已注册的插件配置和权限配置。
 
-    Returns (ok, details) where details contains per-plugin results and permissions status.
+    Returns:
+        (ok, details) 其中 details 包含每个插件的加载结果和权限状态。
     """
-    results: Dict[str, Any] = {"plugins": {}}
-    ok_all = True
-    for (plugin, filename), proxy in list(_CONFIG_REGISTRY.items()):
-        ok, _cfg, err = proxy.reload_and_validate()
-        prev = results["plugins"].get(plugin, {})
-        results["plugins"][plugin] = {"ok": ok and prev.get("ok", True), "error": err or prev.get("error")}
-        ok_all = ok_all and ok
-    try:
-        from .perm import reload_permissions
-
-        reload_permissions()
-        p_ok = True
-    except Exception:
-        p_ok = False
-    results["permissions"] = {"ok": p_ok}
-    return (ok_all and p_ok), results
+    return _config_manager.reload_all()
 
 
 def get_all_plugin_configs() -> Dict[str, Any]:
@@ -757,20 +927,11 @@ def get_all_plugin_configs() -> Dict[str, Any]:
         ...
     }
     """
-    result: Dict[str, Any] = {}
-    for (plugin, filename), proxy in list(_CONFIG_REGISTRY.items()):
-        try:
-            # 使用load()从内存缓存读取
-            cfg = proxy.load()
-            result[plugin] = cfg
-        except Exception:
-            # 出错时返回空dict
-            result[plugin] = {}
-    return result
+    return _config_manager.get_all_configs()
 
 
 def save_all_plugin_configs(configs: Dict[str, Any]) -> Tuple[bool, Dict[str, str]]:
-    """保存多个插件的配置。
+    """保存多个插件的配置，并更新内存缓存。
 
     Args:
         configs: 格式为 {"plugin_name": {config_dict}, ...}
@@ -778,30 +939,4 @@ def save_all_plugin_configs(configs: Dict[str, Any]) -> Tuple[bool, Dict[str, st
     Returns:
         (success, errors) - success为True表示全部成功，errors包含失败的插件及错误信息
     """
-    errors: Dict[str, str] = {}
-    for plugin_name, cfg in configs.items():
-        if not isinstance(cfg, dict):
-            errors[plugin_name] = "配置必须是JSON对象"
-            continue
-
-        # 查找对应的proxy
-        proxy = None
-        for (p, fname), px in list(_CONFIG_REGISTRY.items()):
-            if p == plugin_name and fname == "config.json":
-                proxy = px
-                break
-
-        if proxy is None:
-            # 尝试注册新的
-            try:
-                proxy = register_plugin_config(plugin_name, cfg)
-            except Exception as e:
-                errors[plugin_name] = f"注册失败: {e}"
-                continue
-
-        try:
-            proxy.save(cfg)
-        except Exception as e:
-            errors[plugin_name] = f"保存失败: {e}"
-
-    return (len(errors) == 0), errors
+    return _config_manager.save_configs(configs)

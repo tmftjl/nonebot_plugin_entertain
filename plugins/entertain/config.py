@@ -5,6 +5,7 @@ from typing import Dict, Any
 from ...core.api import (
     register_plugin_config,
     register_plugin_schema,
+    register_reload_callback,
 )
 
 
@@ -28,16 +29,29 @@ CFG = register_plugin_config("entertain", DEFAULTS)
 _CACHED: Dict[str, Any] = CFG.load()
 
 
+def reload_cache() -> None:
+    """重新加载配置到模块级缓存，供框架重载配置时调用。"""
+    global _CACHED
+    _CACHED = CFG.load()
+
+
+# 注册重载回调，确保框架重载配置时更新模块缓存
+register_reload_callback("entertain", reload_cache)
+
+
 def cfg_cached() -> Dict[str, Any]:
+    """返回整个配置的缓存副本。"""
     return _CACHED
 
 
 def cfg_box() -> Dict[str, Any]:
+    """返回 box 配置节，从模块级缓存读取。"""
     d = _CACHED.get("box")
     return d if isinstance(d, dict) else {}
 
 
 def cfg_reg_time() -> Dict[str, Any]:
+    """返回 reg_time 配置节，从模块级缓存读取。"""
     d = _CACHED.get("reg_time")
     return d if isinstance(d, dict) else {}
 
