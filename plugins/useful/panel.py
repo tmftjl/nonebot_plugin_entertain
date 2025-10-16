@@ -6,7 +6,7 @@ from nonebot.adapters.onebot.v11 import GroupMessageEvent, MessageEvent
 from ...core.api import Plugin
 
 
-P = Plugin(name="useful")
+P = Plugin(name="useful", display_name="有用的")
 panel_upload = P.on_regex(r"^ww上传.*面板$", name="upload", block=True, priority=12)
 panel_list = P.on_regex(r"^ww.*面板图列表$", name="list", block=True, priority=12)
 panel_refresh = P.on_regex(r"^ww(?:刷新|更新)?面板(?:刷新)?$", name="refresh", block=True, priority=12)
