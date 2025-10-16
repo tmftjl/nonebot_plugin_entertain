@@ -62,31 +62,12 @@ async function copyText(text){
 
 // API
 async function apiCall(path, options={}){
-  const token = localStorage.getItem('auth_token') || '';
   const headers = {'Content-Type':'application/json', ...(options.headers||{})};
-  if(token) headers['Authorization'] = `Bearer ${token}`;
   const resp = await fetch(`/member_renewal${path}`, { ...options, headers });
   if(!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
   const ct = resp.headers.get('content-type')||'';
   return ct.includes('application/json') ? resp.json() : resp.text();
 }
-
-// 登录
-async function handleLogin(){
-  const t=($('#login-token')?.value||'').trim();
-  if(!t || t.length!==6){ showToast('请输入6位验证码','error'); return; }
-  try{
-    showLoading(true);
-    const r=await apiCall('/auth/login',{method:'POST', body: JSON.stringify({ token:t, user_id:'admin' })});
-    if(r.success){
-      localStorage.setItem('auth_token', t);
-      showToast('登录成功','success');
-      $('#login-page').style.display='none';
-      $('#app').classList.remove('hidden');
-      await init();
-    }
-  } catch(e){ showToast('登录失败: '+(e&&e.message?e.message:e),'error'); }
-  finally{ showLoading(false);} }
 
 // 主题切换在下方已增强版本实现，此处移除重复定义
 
@@ -698,12 +679,14 @@ function collectPermissionsFromUI(){
 async function loadPermissions(){
   try{
     showLoading(true);
-    const [p, commands]=await Promise.all([
+    const [p, commands, plugins]=await Promise.all([
       apiCall('/permissions'),
-      apiCall('/commands').catch(()=>({}))
+      apiCall('/commands').catch(()=>({})),
+      apiCall('/plugins').catch(()=>({}))
     ]);
     state.permissions=p;
     state.commandNames=commands||{};
+    state.pluginNames=plugins||{};
     const ta=$('#permissions-json'); if(ta) ta.value=JSON.stringify(p,null,2);
     renderPermissionsList();
   } catch(e){ showToast('加载权限失败: '+(e&&e.message?e.message:e),'error'); }
@@ -774,12 +757,10 @@ function getConfigDescription(key) {
 async function loadConfig(){
   try{
     showLoading(true);
-    const [plugins, schemas, c] = await Promise.all([
-      apiCall('/plugins').catch(()=>({})),
+    const [schemas, c] = await Promise.all([
       apiCall('/config_schema').catch(()=>({})),
       apiCall('/config').catch(()=>({})),
     ]);
-    state.pluginNames = plugins || {};
     state.schemas = schemas || {};
     state.config = c || {};
     renderConfigTabs();
@@ -808,9 +789,9 @@ function renderConfigTabs() {
 
   // 渲染主标签导航
   const tabsHtml = configKeys.map(key => {
-    // 优先使用 schema 的 title，其次使用插件显示名，最后用 key
+    // 优先使用 schema 的 title，最后用 key
     const schema = (state.schemas && state.schemas[key]) || {};
-    const label = schema.title || state.pluginNames[key] || key;
+    const label = schema.title || key;
     return `
       <div class="config-tab-item" data-config-key="${escapeHtml(key)}">
         ${escapeHtml(label)}
@@ -1197,8 +1178,6 @@ async function leaveGroups(groupIds){ if(!Array.isArray(groupIds)||!groupIds.len
 
 // 事件绑定
 function bindEvents(){
-  $('#login-btn')?.addEventListener('click', handleLogin);
-  $('#login-token')?.addEventListener('keypress', e=>{ if(e.key==='Enter') handleLogin(); });
   $('#theme-toggle')?.addEventListener('click', toggleTheme);
   $$('.nav-item').forEach(i=> i.addEventListener('click', e=>{ e.preventDefault(); switchTab(i.dataset.tab);}));
   $('#generate-code-btn')?.addEventListener('click', generateCode);
@@ -1518,18 +1497,14 @@ switchTab = function(tab) {
 };
 
 window.addEventListener('DOMContentLoaded', ()=>{
-  // 无认证：直接显示应用
-  $('#app').classList.remove('hidden');
-  const lp = document.getElementById('login-page'); if (lp) lp.style.display='none';
-  
   init();
   bindEvents();
-  
+
   // 增强交互效果
   enhanceRefreshButton();
   enhanceStatCards();
   enhanceButtons();
-  
+
   // 添加页面可见性监听，切换回来时刷新数据
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
