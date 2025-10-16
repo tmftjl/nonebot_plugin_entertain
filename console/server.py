@@ -200,6 +200,15 @@ def setup_web_console() -> None:
             except Exception as e:
                 raise HTTPException(500, f"更新配置失败: {e}")
 
+        # 配置 Schema - 前端渲染所需元信息（中文名/描述/类型/分组等）
+        @router.get("/config_schema")
+        async def api_get_config_schema():
+            try:
+                from ..core.framework.config import get_all_plugin_schemas
+                return get_all_plugin_schemas()
+            except Exception as e:
+                raise HTTPException(500, f"获取配置Schema失败: {e}")
+
         # 数据
         @router.get("/data")
         async def api_get_all(_: dict = Depends(_auth)):
