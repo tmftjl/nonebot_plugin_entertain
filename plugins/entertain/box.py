@@ -10,12 +10,12 @@ from nonebot.log import logger
 from nonebot.matcher import Matcher
 from nonebot.params import RegexGroup
 
-from ...core.api import Plugin, register_namespaced_config, register_namespaced_schema
+from ...core.api import Plugin
+from .config import cfg_box
 
 from PIL import Image
 
-try:
-    from nonebot.adapters.onebot.v11 import (
+from nonebot.adapters.onebot.v11 import (
         Bot,
         Message,
         MessageEvent,
@@ -24,110 +24,22 @@ try:
         GroupDecreaseNoticeEvent,
         MessageSegment,
     )
-except Exception:  # pragma: no cover
-    Bot = object  # type: ignore
-    Message = object  # type: ignore
-    MessageEvent = object  # type: ignore
-    GroupMessageEvent = object  # type: ignore
-    GroupIncreaseNoticeEvent = object  # type: ignore
-    GroupDecreaseNoticeEvent = object  # type: ignore
-    class _Dummy:  # type: ignore
-        @staticmethod
-        def image(_: str):
-            return None
-
-        @staticmethod
-        def at(_: str):
-            return None
-
-        @staticmethod
-        def reply(_: int | str):
-            return None
-
-        @staticmethod
-        def text(_: str):
-            return None
-
-    MessageSegment = _Dummy  # type: ignore
 
 from .box_draw import create_image
 
 
 P = Plugin(name="entertain", display_name="娱乐")
-_CFG = register_namespaced_config(
-    "entertain",
-    "box",
-    {
-        "only_admin": False,
-        "box_blacklist": [],  # list[str]
-        "increase_box": False,
-        "decrease_box": False,
-        "auto_box_groups": [],  # list[str] of group ids enabled for auto-box
-    },
-)
-
-# Schema for frontend (Chinese labels and help)
-BOX_SCHEMA = {
-    "type": "object",
-    "title": "盒子回复",
-    "description": "开启后在加群/退群等事件中自动生成图片或文本回复",
-    "properties": {
-        "only_admin": {
-            "type": "boolean",
-            "title": "仅管理员可用",
-            "description": "限制只有管理员才能触发盒子相关功能",
-            "default": False,
-            "x-order": 1,
-        },
-        "box_blacklist": {
-            "type": "array",
-            "title": "黑名单",
-            "description": "不触发盒子回复的群号列表",
-            "items": {"type": "string"},
-            "default": [],
-            "x-order": 2,
-        },
-        "increase_box": {
-            "type": "boolean",
-            "title": "入群欢迎",
-            "description": "新成员进群时发送欢迎盒子",
-            "default": False,
-            "x-order": 3,
-        },
-        "decrease_box": {
-            "type": "boolean",
-            "title": "退群提示",
-            "description": "成员退群时发送提示盒子",
-            "default": False,
-            "x-order": 4,
-        },
-        "auto_box_groups": {
-            "type": "array",
-            "title": "自动盒子群",
-            "description": "启用自动盒子的群号列表（字符串）",
-            "items": {"type": "string"},
-            "default": [],
-            "x-order": 5,
-        },
-    },
-}
-
-try:
-    register_namespaced_schema("entertain", "box", BOX_SCHEMA)
-except Exception:
-    pass
 
 # Persist defaults on first load and provide a safe getter
 def _cfg_get(key: str, default=None):
     try:
-        cfg = _CFG.load()
-        return cfg.get(key, default)
+        return cfg_box().get(key, default)
     except Exception:
         return default
 
 # Initialize to persist defaults on startup
 try:
-    _ = _CFG.load()
+    _ = cfg_box()
 except Exception:
     pass
 

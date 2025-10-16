@@ -2,26 +2,11 @@ import httpx
 from nonebot.matcher import Matcher
 from nonebot.adapters.onebot.v11 import Message, MessageSegment, MessageEvent
 from ...core.api import Plugin
-from ...core.api import register_namespaced_config, register_namespaced_schema
+from .config import cfg_cached  # noqa: F401  # ensure unified config is initialized
 
 
 P = Plugin(name="entertain", display_name="娱乐")
-_CFG = register_namespaced_config("entertain", "doro", {})
 
-# Minimal schema for namespace visibility in UI
-try:
-    register_namespaced_schema(
-        "entertain",
-        "doro",
-        {
-            "type": "object",
-            "title": "doro 结局",
-            "description": "无可配置项。发送 ‘doro结局’ 获取随机结局",
-            "properties": {},
-        },
-    )
-except Exception:
-    pass
 _DORO = P.on_regex(
     r"^#?(?:抽取|随机)?(?:今日)?doro结局$",
     name="draw",

@@ -6,74 +6,17 @@ import httpx
 from nonebot.matcher import Matcher
 from nonebot.adapters.onebot.v11 import MessageEvent
 from nonebot.params import RegexGroup
-
 from ...core.api import Plugin
-from ...core.api import register_namespaced_config, register_namespaced_schema
+from .config import cfg_taffy
 
 
-DEFAULT_CFG: Dict[str, Any] = {
-    "api_url": "http://127.0.0.1:8899/stats/api",
-    "username": "",
-    "password": "",
-    "timeout": 20,
-}
-
-
-REG = register_namespaced_config("useful", "taffy", DEFAULT_CFG)
-
-# Schema for frontend display (Chinese title/description)
-TAFFY_SCHEMA: Dict[str, Any] = {
-    "type": "object",
-    "title": "Taffy 统计",
-    "properties": {
-        "api_url": {
-            "type": "string",
-            "title": "API 地址",
-            "description": "Taffy 统计服务的基础接口地址",
-            "default": "http://127.0.0.1:8899/stats/api",
-            "x-order": 1,
-        },
-        "username": {
-            "type": "string",
-            "title": "用户名",
-            "description": "如服务开启了 BasicAuth，请填写用户名",
-            "default": "",
-            "x-order": 2,
-        },
-        "password": {
-            "type": "string",
-            "title": "密码",
-            "description": "如服务开启了 BasicAuth，请填写密码（前端不回显旧值）",
-            "default": "",
-            "x-secret": True,
-            "x-widget": "password",
-            "x-order": 3,
-        },
-        "timeout": {
-            "type": "integer",
-            "title": "请求超时(秒)",
-            "description": "HTTP 请求超时时间",
-            "default": 20,
-            "minimum": 1,
-            "x-order": 4,
-        },
-    },
-}
-
-try:
-    register_namespaced_schema("useful", "taffy", TAFFY_SCHEMA)
-except Exception:
-    pass
 
 
 def _load_cfg() -> Dict[str, Any]:
-    return REG.load()
+    return cfg_taffy()
 
-# 模块加载时写入默认配置，避免 config/useful/config.json 为空
-try:
-    _ = _load_cfg()
-except Exception:
-    pass
+# 触发一次缓存读取，保证模块加载时默认配置已就位
+_ = _load_cfg()
 
 
 def _fmt_bytes(b: Optional[int]) -> str:

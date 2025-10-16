@@ -10,12 +10,10 @@ from nonebot.params import RegexGroup
 from nonebot.adapters.onebot.v11 import MessageEvent
 
 from ...core.api import Plugin
-from ...core.api import register_namespaced_config
+from .config import cfg_reg_time
 
 
-# Plugin-local configuration
-DEFAULT_CFG = {"qq_reg_time_api_key": None}
-CFG = register_namespaced_config("entertain", "reg_time", DEFAULT_CFG)
+# Config centralized in plugins/entertain/config.py
 P = Plugin(name="entertain", display_name="娱乐")
 
 
@@ -43,7 +41,7 @@ def _extract_qq(e: MessageEvent, matched: str) -> Optional[str]:
 
 async def _query_registration(qq: str) -> Optional[str]:
     api_url = "https://api.s01s.cn/API/zcsj/"
-    cfg = CFG.load()
+    cfg = cfg_reg_time()
     api_key = (cfg.get("qq_reg_time_api_key") or "B9FB02FC6AC1AF34F7D2B5390B468EAC")
     params = {"qq": qq, "key": api_key}
     async with httpx.AsyncClient(timeout=15) as client:
