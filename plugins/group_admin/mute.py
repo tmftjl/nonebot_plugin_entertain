@@ -68,7 +68,7 @@ async def _mute_all_off(matcher: Matcher, bot: Bot, event: MessageEvent):
 
 
 mute_member = P.on_regex(
-    r"^#禁言(?:\s+(.+?))?(?:\s+(\d+[a-zA-Z\u4e00-\u9fa5]*))?$",
+    r"^#禁言\s*(.+?)(?:\s+(\d+[a-zA-Z\u4e00-\u9fa5]*))?$",
     name="mute_member",
     display_name="禁言",
     priority=13,

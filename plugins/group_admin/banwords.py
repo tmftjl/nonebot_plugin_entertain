@@ -104,7 +104,7 @@ async def _banword_off(matcher: Matcher, event: MessageEvent):
 
 
 banword_add = P.on_regex(
-    r"^#?添加违禁词\s+(.+)$",
+    r"^#添加违禁词\s*(.+)$",
     name="banword_add",
     display_name="添加违禁词",
     priority=13,
@@ -135,7 +135,7 @@ async def _banword_add(matcher: Matcher, event: MessageEvent, groups: Tuple = Re
 
 
 banword_del = P.on_regex(
-    r"^#删除违禁词\s+(.+)$",
+    r"^#删除违禁词\s*(.+)$",
     name="banword_del",
     display_name="删除违禁词",
     priority=13,
@@ -166,7 +166,7 @@ async def _banword_del(matcher: Matcher, event: MessageEvent, groups: Tuple = Re
 
 
 banword_clear = P.on_regex(
-    r"^#违禁词清空$",
+    r"^#清空违禁词$",
     name="banword_clear",
     display_name="清空违禁词",
     priority=13,
@@ -229,7 +229,7 @@ async def _banword_list(matcher: Matcher, event: MessageEvent):
 
 
 banword_action = P.on_regex(
-    r"^#违禁词动作\s+(警告|撤回|禁言)$",
+    r"^#违禁词动作\s*(警告|撤回|禁言)$",
     name="banword_action",
     display_name="违禁词动作",
     priority=13,
@@ -257,7 +257,7 @@ async def _banword_action(matcher: Matcher, event: MessageEvent, groups: Tuple =
 
 
 banword_mute_seconds = P.on_regex(
-    r"^#违禁词时长\s+(\d+[a-zA-Z\u4e00-\u9fa5]*)$",
+    r"^#违禁词时长\s*(\d+[a-zA-Z\u4e00-\u9fa5]*)$",
     name="banword_mute_seconds",
     display_name="违禁词禁言时长",
     priority=13,
@@ -285,7 +285,7 @@ async def _banword_mute_seconds(matcher: Matcher, event: MessageEvent, groups: T
 
 
 banword_exempt = P.on_regex(
-    r"^#违禁词管理员保护\s+(开启|关闭)$",
+    r"^#违禁词管理员保护\s*(开启|关闭)$",
     name="banword_exempt",
     display_name="违禁词管理员保护",
     priority=13,
