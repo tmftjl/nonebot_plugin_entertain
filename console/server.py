@@ -18,6 +18,8 @@ from .membership_service import (
     _now_utc,
     _read_data,
     _write_data,
+    _days_remaining,
+    _format_cn,
     generate_unique_code,
     _ensure_generated_codes,
     UNITS,
@@ -93,10 +95,38 @@ def setup_web_console() -> None:
                 gid = int(payload.get("group_id"))
             except Exception as e:
                 raise HTTPException(400, f"参数错误: {e}")
-            content = str(payload.get("content") or "本群会员即将到期，请尽快续费")
-            suf = _contact_suffix().strip()
-            if suf and suf not in content:
-                content = content + suf
+            # 构造提醒内容：优先使用 payload.content，否则使用配置模板
+            cfg = load_cfg()
+            tmpl = str(
+                cfg.get(
+                    "member_renewal_remind_template",
+                    "本群会员将在 {days} 天后到期（{expiry}），请尽快联系管理员续费",
+                )
+                or "本群会员将在 {days} 天后到期（{expiry}），请尽快联系管理员续费"
+            )
+            content_payload = str(payload.get("content") or "").strip()
+            if content_payload:
+                content = content_payload
+            else:
+                data = _read_data()
+                rec = data.get(str(gid)) or {}
+                expiry_str = rec.get("expiry")
+                days = 0
+                expiry_cn = ""
+                try:
+                    if isinstance(expiry_str, str) and expiry_str:
+                        dt = datetime.fromisoformat(expiry_str)
+                        if dt.tzinfo is None:
+                            dt = dt.replace(tzinfo=timezone.utc)
+                        days = _days_remaining(dt)
+                        expiry_cn = _format_cn(dt)
+                except Exception:
+                    pass
+                try:
+                    content = tmpl.format(days=days, expiry=expiry_cn or "-")
+                except Exception:
+                    content = "本群会员即将到期，请尽快续费"
+            # 按要求移除尾注，不再追加联系方式后缀
             live = get_bots()
             bot = next(iter(live.values()), None)
             if not bot:

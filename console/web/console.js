@@ -1173,8 +1173,37 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-async function remindGroups(groupIds){ if(!Array.isArray(groupIds)||!groupIds.length) return; for(const gid of groupIds){ await apiCall('/remind_multi',{method:'POST', body: JSON.stringify({ group_id: gid })}); } }
+async function remindGroups(groupIds, content=''){ if(!Array.isArray(groupIds)||!groupIds.length) return; for(const gid of groupIds){ const payload = { group_id: gid }; if(content) payload.content = content; await apiCall('/remind_multi',{method:'POST', body: JSON.stringify(payload)}); } }
 async function leaveGroups(groupIds){ if(!Array.isArray(groupIds)||!groupIds.length) return; for(const gid of groupIds){ await apiCall('/leave_multi',{method:'POST', body: JSON.stringify({ group_id: gid })}); } }
+
+function selectedGroupIds(){ return $$('.group-checkbox').filter(cb=>cb.checked).map(cb=> parseInt(cb.dataset.gid)); }
+
+async function notifySelected(){
+  const ids = selectedGroupIds();
+  const input = $('#notify-input');
+  const msg = (input?.value||'').trim();
+  if(!ids.length){ showToast('请先勾选要通知的群','warning'); return; }
+  if(!msg){ showToast('请输入要发送的通知内容','warning'); return; }
+  try{
+    await remindGroups(ids, msg);
+    showToast(`已向 ${ids.length} 个群发送通知`,'success');
+  }catch(e){
+    showToast('发送失败: '+(e&&e.message?e.message:e),'error');
+  }
+}
+
+async function manualExtend(){
+  const gid = parseInt(($('#manual-group-id')?.value||'').trim());
+  const length = parseInt(($('#manual-length')?.value||'').trim());
+  const unit = ($('#manual-unit')?.value||'天');
+  if(!gid || isNaN(gid)){ showToast('请输入有效的群号','warning'); return; }
+  if(!length || isNaN(length) || length<=0){ showToast('请输入正确的时长','warning'); return; }
+  try{
+    await apiCall('/extend',{ method:'POST', body: JSON.stringify({ group_id: gid, length, unit }) });
+    showToast(`已为群 ${gid} 设置/延长 ${length}${unit}`,'success');
+    await loadRenewalData();
+  }catch(e){ showToast('操作失败: '+(e&&e.message?e.message:e),'error'); }
+}
 
 // 事件绑定
 function bindEvents(){
@@ -1187,6 +1216,8 @@ function bindEvents(){
   $('#perm-json-cancel')?.addEventListener('click', closePermJsonModal);
   $('#perm-json-save')?.addEventListener('click', savePermJson);
   $('#config-save-btn')?.addEventListener('click', saveCurrentConfig);
+  $('#notify-send-btn')?.addEventListener('click', notifySelected);
+  $('#manual-extend-btn')?.addEventListener('click', manualExtend);
   $('#group-search')?.addEventListener('input', e=>{ state.keyword=e.target.value.trim(); state.pagination.currentPage=1; renderGroupsTable(); });
   $('#status-filter')?.addEventListener('change', e=>{ state.filter=e.target.value; state.pagination.currentPage=1; renderGroupsTable(); });
   $('#select-all')?.addEventListener('change', e=> $$('.group-checkbox').forEach(cb=> cb.checked=e.target.checked));

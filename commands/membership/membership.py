@@ -335,9 +335,22 @@ async def _check_and_process() -> Tuple[int, int]:
                     content = (
                         f"本群会员将在 {days} 天后到期。请尽快联系管理员购买续费码（首次开通与续费同用），并在群内发送完成续费"
                     )
-                suffix = str(cfg.get("member_renewal_contact_suffix", "") or "").strip()
-                if suffix and suffix not in content:
-                    content = content + " " + suffix
+                # 统一改为使用配置模板（如未设置则使用默认模板）
+                tmpl = str(
+                    cfg.get(
+                        "member_renewal_remind_template",
+                        "本群会员将在 {days} 天后到期（{expiry}），请尽快联系管理员续费",
+                    )
+                    or "本群会员将在 {days} 天后到期（{expiry}），请尽快联系管理员续费"
+                )
+                try:
+                    content = tmpl.format(days=days, expiry=_format_cn(expiry))
+                except Exception:
+                    # 保底沿用原有文案
+                    content = (
+                        f"本群会员将在 {days} 天后到期。请尽快联系管理员购买续费码（首次开通与续费同用），并在群内发送完成续费"
+                    )
+                # 去掉提醒尾注：不再追加联系方式后缀
                 sent = False
                 for bot in _choose_bots(preferred):
                     try:
