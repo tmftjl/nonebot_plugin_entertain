@@ -110,19 +110,21 @@
           <div class="panel">
             <div class="panel-header">
               <h3 class="panel-title">📋 群组列表</h3>
-              <div class="toolbar">
-                <input id="group-search" class="input" placeholder="🔍 搜索群号..." aria-label="搜索群号">
-                <select id="status-filter" class="input" aria-label="筛选状态">
-                  <option value="all">📂 全部状态</option>
-                  <option value="active">✅ 有效</option>
-                  <option value="soon">⏰ 即将到期</option>
-                  <option value="today">🔔 今日到期</option>
-                  <option value="expired">❌ 已到期</option>
-                </select>
-              </div>
-              <div class="toolbar" style="margin-top: 8px; gap: 8px; align-items: center;">
-                <button id="notify-open-btn" class="btn btn-secondary btn-sm" title="对选中群发送通知">📣 通知</button>
-                <button id="manual-open-btn" class="btn btn-primary btn-sm" title="新增或续费群">🛠 新增/续费</button>
+              <div class="toolbar" style="gap: 8px; align-items: center; justify-content: space-between; width: 100%;">
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <button id="notify-open-btn" class="btn btn-secondary btn-sm" title="对选中群发送通知">📣 通知</button>
+                  <button id="manual-open-btn" class="btn btn-primary btn-sm" title="新增或续费群">🛠 新增/续费</button>
+                </div>
+                <div style="display: flex; gap: 8px; align-items: center;">
+                  <input id="group-search" class="input" placeholder="🔍 搜索群号..." aria-label="搜索群号">
+                  <select id="status-filter" class="input" aria-label="筛选状态">
+                    <option value="all">📂 全部状态</option>
+                    <option value="active">✅ 有效</option>
+                    <option value="soon">⏰ 即将到期</option>
+                    <option value="today">🔔 今日到期</option>
+                    <option value="expired">❌ 已到期</option>
+                  </select>
+                </div>
               </div>
             </div>
             <div class="table-container">
@@ -334,22 +336,24 @@
         <button id="notify-close" class="modal-close" title="关闭" aria-label="关闭弹窗">✖</button>
       </div>
       <div class="modal-body">
-        <div style="margin-bottom:8px;color:var(--color-text-secondary);">已选择群：<span id="notify-selected-count">0</span> 个</div>
-        <div style="display:flex; flex-direction:column; gap:10px;">
-          <label>
-            <div style="font-weight:600;margin-bottom:6px;">文本</div>
-            <textarea id="notify-text" class="input" rows="5" placeholder="输入要发送的消息..." aria-label="通知文本"></textarea>
-          </label>
-          <label>
-            <div style="font-weight:600;margin-bottom:6px;">图片（可多选）</div>
-            <input type="file" id="notify-images" accept="image/*" multiple />
-          </label>
-          <div id="notify-image-previews" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
+        <div style="margin-bottom:16px;padding:12px;background:var(--color-bg-tertiary);border-radius:var(--radius-md);color:var(--color-text-secondary);">
+          已选择群：<strong style="color:var(--color-primary);font-size:18px;"><span id="notify-selected-count">0</span></strong> 个
+        </div>
+        <div style="display:flex; flex-direction:column; gap:16px;">
+          <div>
+            <label style="display:block;font-weight:600;margin-bottom:8px;color:var(--color-text);">📝 消息文本</label>
+            <textarea id="notify-text" class="input" rows="6" placeholder="输入要发送的消息内容..." aria-label="通知文本" style="resize:vertical;"></textarea>
+          </div>
+          <div>
+            <label style="display:block;font-weight:600;margin-bottom:8px;color:var(--color-text);">🖼️ 图片附件（可多选）</label>
+            <input type="file" id="notify-images" accept="image/*" multiple style="width:100%;padding:10px;border:2px dashed var(--color-border);border-radius:var(--radius-md);background:var(--color-bg-tertiary);cursor:pointer;" />
+          </div>
+          <div id="notify-image-previews" style="display:flex; gap:10px; flex-wrap:wrap;"></div>
         </div>
       </div>
       <div class="modal-footer">
-        <button id="notify-cancel" class="btn btn-secondary">取消</button>
-        <button id="notify-confirm" class="btn btn-primary">发送</button>
+        <button id="notify-cancel" class="btn btn-secondary">❌ 取消</button>
+        <button id="notify-confirm" class="btn btn-primary">📤 发送</button>
       </div>
     </div>
   </div>
@@ -361,26 +365,32 @@
         <h3 id="extend-modal-title" class="panel-title">🛠 新增/续费群</h3>
         <button id="extend-close" class="modal-close" title="关闭" aria-label="关闭弹窗">✖</button>
       </div>
-      <div class="modal-body" style="display:flex; flex-direction:column; gap:12px;">
-        <div id="extend-selected-info" style="color:var(--color-text-secondary);"></div>
-        <label style="display:flex; align-items:center; gap:8px;">
-          <span style="width:72px; text-align:right;">群号</span>
-          <input id="extend-group-id" class="input" placeholder="不选群时在此输入群号" aria-label="群号" />
-        </label>
-        <label style="display:flex; align-items:center; gap:8px;">
-          <span style="width:72px; text-align:right;">时长</span>
-          <input id="extend-length" class="input" type="number" min="1" value="7" style="max-width:120px;" aria-label="时长" />
-          <select id="extend-unit" class="input" aria-label="单位" style="max-width:120px;">
-            <option value="天">天</option>
-            <option value="月">月</option>
-            <option value="年">年</option>
-          </select>
-        </label>
-        <div id="extend-current-info" style="color:var(--color-text-tertiary);"></div>
+      <div class="modal-body" style="display:flex; flex-direction:column; gap:20px;">
+        <div id="extend-selected-info" style="padding:12px;background:var(--color-bg-tertiary);border-radius:var(--radius-md);color:var(--color-text-secondary);font-size:14px;"></div>
+        <div>
+          <label style="display:flex; align-items:center; gap:12px;">
+            <span style="min-width:80px; text-align:right;font-weight:600;color:var(--color-text);">群号</span>
+            <input id="extend-group-id" class="input" placeholder="不选群时在此输入群号" aria-label="群号" style="flex:1;" />
+          </label>
+        </div>
+        <div>
+          <label style="display:flex; align-items:center; gap:12px;flex-wrap:wrap;">
+            <span style="min-width:80px; text-align:right;font-weight:600;color:var(--color-text);">续费时长</span>
+            <div style="display:flex;gap:10px;flex:1;">
+              <input id="extend-length" class="input" type="number" min="1" value="7" style="flex:1;min-width:100px;" aria-label="时长" />
+              <select id="extend-unit" class="input" aria-label="单位" style="flex:1;min-width:100px;">
+                <option value="天">天</option>
+                <option value="月">月</option>
+                <option value="年">年</option>
+              </select>
+            </div>
+          </label>
+        </div>
+        <div id="extend-current-info" style="padding:10px;background:var(--color-bg-tertiary);border-radius:var(--radius-md);color:var(--color-text-tertiary);font-size:13px;"></div>
       </div>
       <div class="modal-footer">
-        <button id="extend-cancel" class="btn btn-secondary">取消</button>
-        <button id="extend-confirm" class="btn btn-primary">保存/续费</button>
+        <button id="extend-cancel" class="btn btn-secondary">❌ 取消</button>
+        <button id="extend-confirm" class="btn btn-primary">💾 保存/续费</button>
       </div>
     </div>
   </div>

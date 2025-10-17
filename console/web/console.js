@@ -1207,11 +1207,19 @@ async function sendNotify(){
   const text = ($('#notify-text')?.value||'').trim();
   const imgs = await filesToBase64List($('#notify-images'));
   if(!text && (!imgs || !imgs.length)){ showToast('请填写文本或选择图片','warning'); return; }
+
+  // 立即关闭弹窗,防止重复点击
+  closeModal('notify-modal');
+
   try{
+    showLoading(true);
     await apiCall('/notify', { method:'POST', body: JSON.stringify({ group_ids: ids, text, images: imgs }) });
-    closeModal('notify-modal');
     showToast(`已向 ${ids.length} 个群发送通知`,'success');
-  }catch(e){ showToast('发送失败: '+(e&&e.message?e.message:e),'error'); }
+  }catch(e){
+    showToast('发送失败: '+(e&&e.message?e.message:e),'error');
+  }finally{
+    showLoading(false);
+  }
 }
 
 function openManualExtendModal(){
@@ -1241,14 +1249,24 @@ async function submitManualExtend(){
   else { ids = selectedGroupIds(); }
   const length = parseInt(($('#extend-length')?.value||'').trim());
   const unit = ($('#extend-unit')?.value||'天');
-  if(!ids.length){ showToast('请先选择群，或填写群号','warning'); return; }
+  if(!ids.length){ showToast('请先选择群,或填写群号','warning'); return; }
   if(!length || isNaN(length) || length<=0){ showToast('请输入正确的时长','warning'); return; }
+
+  // 立即关闭弹窗,防止重复点击
+  closeModal('extend-modal');
+
   try{
-    for(const gid of ids){ await apiCall('/extend',{ method:'POST', body: JSON.stringify({ group_id: gid, length, unit }) }); }
-    closeModal('extend-modal');
+    showLoading(true);
+    for(const gid of ids){
+      await apiCall('/extend',{ method:'POST', body: JSON.stringify({ group_id: gid, length, unit }) });
+    }
     showToast(`已处理 ${ids.length} 个群：+${length}${unit}`,'success');
     await loadRenewalData();
-  }catch(e){ showToast('操作失败: '+(e&&e.message?e.message:e),'error'); }
+  }catch(e){
+    showToast('操作失败: '+(e&&e.message?e.message:e),'error');
+  }finally{
+    showLoading(false);
+  }
 }
 
 // 事件绑定
