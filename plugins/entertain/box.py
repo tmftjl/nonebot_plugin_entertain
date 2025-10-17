@@ -51,6 +51,16 @@ box_matcher = P.on_regex(
     block=True,
 )
 
+# 兼容 bracket 格式的 at，例如：#盒[at:qq=123456] 或 #盒[CQ:at,qq=123456]
+# 专门加一个匹配，以便命中这类文本时也能触发命令
+box_matcher_bracket = P.on_regex(
+    r"^\s*(?:#|/)?(?:盒|开盒)\s*(?:\[at:qq=(\d+)\]|\[CQ:at,qq=(\d+)\])\s*$",
+    name="box",
+    priority=12,
+    block=True,
+    permission=P.permission_cmd("box"),
+)
+
 
 @box_matcher.handle()
 async def _handle_box(
@@ -75,10 +85,11 @@ async def _handle_box(
     except Exception:
         pass
 
-    # from numeric arg
-    if not target_id and groups and groups[0]:
-        if str(groups[0]) != self_id:
-            target_id = str(groups[0])
+    # from numeric arg (support multiple capture groups; take the first non-empty)
+    if not target_id and groups:
+        maybe_qq = next((g for g in groups if g), None)
+        if maybe_qq and str(maybe_qq) != self_id:
+            target_id = str(maybe_qq)
 
     # fallback to sender
     if not target_id:
@@ -138,6 +149,17 @@ async def _handle_box_compat(
     groups: Tuple[Optional[str]] = RegexGroup(),
 ) -> None:
     # 直接复用原处理逻辑
+    await _handle_box(matcher, bot, event, groups)
+
+
+@box_matcher_bracket.handle()
+async def _handle_box_bracket(
+    matcher: Matcher,
+    bot: Bot,
+    event: MessageEvent,
+    groups: Tuple[Optional[str]] = RegexGroup(),
+) -> None:
+    # 复用主处理逻辑
     await _handle_box(matcher, bot, event, groups)
 
 

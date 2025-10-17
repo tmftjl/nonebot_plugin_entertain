@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.ext.asyncio import async_sessionmaker  # type: ignore
 from sqlmodel import Field, SQLModel, and_, select
 
-from ..core.framework.utils import plugin_data_dir
+from ..core.framework.utils import data_dir
 
 
 # ---- Type vars ----
@@ -23,7 +23,7 @@ R = TypeVar("R")
 
 # ---- Database config (SQLite-only for this project) ----
 # Database file under data/entertain/entertain.db
-DB_PATH = plugin_data_dir("entertain") / "entertain.db"
+DB_PATH = data_dir / "entertain.db"
 DB_URL = f"sqlite+aiosqlite:///{DB_PATH}"
 
 engine = None  # set on init
