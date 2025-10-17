@@ -2000,7 +2000,8 @@ input[type="checkbox"]:hover {
 }
 
 .perm-accordion-content.active {
-  max-height: 3000px;
+  /* 取消固定上限，避免内容过长被裁切；动画由 JS 动态 max-height 支持 */
+  max-height: none;
 }
 
 .perm-accordion-body {
@@ -2329,6 +2330,30 @@ input[type="checkbox"]:hover {
   min-height: 400px;
   border-radius: 0 0 var(--radius-lg) var(--radius-lg);
   animation: fadeIn 0.3s ease-out;
+}
+
+.config-items-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px; /* 统一各类配置块之间的间距 */
+}
+
+/* 在列容器内，移除各块自身的外边距，避免与 gap 叠加导致不一致 */
+.config-items-column .config-section,
+.config-items-column .config-array-item,
+.config-items-column .config-nested-section,
+.config-items-column .config-field-row {
+  margin: 0;
+}
+
+/* 使列表配置块内部也用统一列间距，而不是依赖子项外边距 */
+.config-items-column .config-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.config-items-column .config-section-header {
+  margin-bottom: 0; /* 避免与 gap 叠加 */
 }
 
 .config-content-section {

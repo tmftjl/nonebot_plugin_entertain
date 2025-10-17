@@ -37,10 +37,10 @@ async def _mute_all_on(matcher: Matcher, bot: Bot, event: MessageEvent):
         await matcher.finish("请在群聊中使用")
     try:
         await bot.set_group_whole_ban(group_id=event.group_id, enable=True)  # type: ignore[arg-type]
-        await matcher.finish("已开启全体禁言")
     except Exception as e:
         logger.exception(f"全体禁言失败: {e}")
         await matcher.finish("操作失败，可能权限不足")
+    await matcher.finish("已开启全体禁言")
 
 
 mute_all_off = P.on_regex(
@@ -61,10 +61,10 @@ async def _mute_all_off(matcher: Matcher, bot: Bot, event: MessageEvent):
         await matcher.finish("请在群聊中使用")
     try:
         await bot.set_group_whole_ban(group_id=event.group_id, enable=False)  # type: ignore[arg-type]
-        await matcher.finish("已关闭全体禁言")
     except Exception as e:
         logger.exception(f"关闭全体禁言失败: {e}")
         await matcher.finish("操作失败，可能权限不足")
+    await matcher.finish("已关闭全体禁言")
 
 
 mute_member = P.on_regex(
@@ -91,10 +91,10 @@ async def _mute_member(matcher: Matcher, bot: Bot, event: MessageEvent, groups: 
     seconds = parse_duration_to_seconds(dur_text or "10m", 600)
     try:
         await bot.set_group_ban(group_id=event.group_id, user_id=uid, duration=seconds)
-        await matcher.finish(f"已禁言 {seconds} 秒")
     except Exception as e:
         logger.exception(f"禁言失败: {e}")
         await matcher.finish("操作失败，可能权限不足或目标不在群内")
+    await matcher.finish(f"已禁言 {seconds} 秒")
 
 
 unmute_member = P.on_regex(
@@ -119,8 +119,8 @@ async def _unmute_member(matcher: Matcher, bot: Bot, event: MessageEvent, groups
         await matcher.finish("请@目标或提供QQ号")
     try:
         await bot.set_group_ban(group_id=event.group_id, user_id=uid, duration=0)
-        await matcher.finish("已解除禁言")
     except Exception as e:
         logger.exception(f"解禁失败: {e}")
         await matcher.finish("操作失败，可能权限不足或目标不在群内")
+    await matcher.finish("已解除禁言")
 

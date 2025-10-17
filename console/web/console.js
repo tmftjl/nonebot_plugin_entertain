@@ -571,23 +571,29 @@ function renderPermissionsList(){
   const pluginsHTML = rows.join('') || '<div class="empty-state">暂无子插�?/div>';
   wrap.innerHTML = globalHTML + pluginsHTML;
   
-  // 绑定手风琴点击事件
+  // 绑定手风琴点击事件（动态高度，避免内容过长被裁切）
   wrap.querySelectorAll('.perm-accordion-header').forEach(header => {
-    header.addEventListener('click', function(e) {
+    header.addEventListener('click', function() {
       const item = this.closest('.perm-accordion-item');
       const content = item.querySelector('.perm-accordion-content');
       const isActive = this.classList.contains('active');
-      
-      // 关闭所有其他项
+
+      // 关闭所有其他项并重置高度
       wrap.querySelectorAll('.perm-accordion-header').forEach(h => {
         h.classList.remove('active');
-        h.closest('.perm-accordion-item').querySelector('.perm-accordion-content').classList.remove('active');
+        const c = h.closest('.perm-accordion-item').querySelector('.perm-accordion-content');
+        c.classList.remove('active');
+        c.style.maxHeight = '0px';
       });
-      
-      // 切换当前项
+
+      // 打开当前项并根据内容计算高度
       if (!isActive) {
         this.classList.add('active');
         content.classList.add('active');
+        // 先清空再读取 scrollHeight 以触发正确计算
+        content.style.maxHeight = 'none';
+        const target = content.scrollHeight;
+        content.style.maxHeight = target + 'px';
       }
     });
   });

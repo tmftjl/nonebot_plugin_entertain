@@ -11,10 +11,6 @@ from nonebot.adapters.onebot.v11 import (
 from . import _P as P
 from .utils import get_reply_message_id
 
-
- 
-
-
 recall_msg = P.on_regex(
     r"^#撤回$",
     name="recall_msg",
@@ -36,10 +32,10 @@ async def _recall_msg(matcher: Matcher, bot: Bot, event: MessageEvent):
         await matcher.finish("请回复要撤回的消息后再使用该命令")
     try:
         await bot.delete_msg(message_id=mid)
-        await matcher.finish("已撤回")
     except Exception as e:
         logger.exception(f"撤回失败: {e}")
         await matcher.finish("撤回失败，可能权限不足或超时")
+    await matcher.finish("已撤回")
 
 
 set_essence = P.on_regex(
@@ -63,10 +59,10 @@ async def _set_essence(matcher: Matcher, bot: Bot, event: MessageEvent):
         await matcher.finish("请回复目标消息后再使用")
     try:
         await bot.set_essence_msg(message_id=mid)
-        await matcher.finish("已设置为精华")
     except Exception as e:
         logger.exception(f"设置精华失败: {e}")
         await matcher.finish("设置失败，可能权限不足或该平台不支持")
+    await matcher.finish("已设置为精华")
 
 
 unset_essence = P.on_regex(
@@ -90,8 +86,8 @@ async def _unset_essence(matcher: Matcher, bot: Bot, event: MessageEvent):
         await matcher.finish("请回复目标消息后再使用")
     try:
         await bot.delete_essence_msg(message_id=mid)
-        await matcher.finish("已取消精华")
     except Exception as e:
         logger.exception(f"取消精华失败: {e}")
         await matcher.finish("取消失败，可能权限不足或该平台不支持")
+    await matcher.finish("已取消精华")
 

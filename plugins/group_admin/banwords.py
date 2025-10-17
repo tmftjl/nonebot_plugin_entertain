@@ -50,7 +50,7 @@ def _save_ban_store(data: Dict[str, Dict[str, object]]) -> None:
 
 
 banword_on = P.on_regex(
-    r"^#打开违禁词$",
+    r"^#开启违禁词$",
     name="banword_on",
     display_name="开启违禁词",
     priority=13,
@@ -308,7 +308,7 @@ async def _banword_exempt(matcher: Matcher, event: MessageEvent, groups: Tuple =
     rec["exempt_admin"] = val
     store[key] = rec
     _save_ban_store(store)
-    await matcher.finish(f"管理员豁免：{onoff}")
+    await matcher.finish(f"管理员保护：{onoff}")
 
 
 # 违禁词拦截器
