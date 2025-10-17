@@ -6,7 +6,7 @@ from typing import Optional
 from nonebot.adapters.onebot.v11 import Message, MessageEvent
 
 def extract_at_or_id(msg: Message) -> Optional[int]:
-    """浠庢秷鎭腑鎻愬彇 @ 鐨?QQ 鍙锋垨鏂囨湰涓殑绾暟瀛?QQ 鍙枫€?""
+    """从消息中提取 @ 的 QQ 号或消息文本中的纯数字 QQ 号。"""
     try:
         for seg in msg:
             if seg.type == "at":
@@ -22,7 +22,7 @@ def extract_at_or_id(msg: Message) -> Optional[int]:
 
 
 def parse_duration_to_seconds(text: str, default_seconds: int = 600) -> int:
-    """瑙ｆ瀽鏃堕暱鏂囨湰涓虹銆傛敮鎸侊細30s/10m/2h/1d/10鍒?2灏忔椂/1澶┿€?""
+    """解析时长文本为秒。支持示例：30s、10m、2h、1d、10秒、2小时、1天。"""
     try:
         text = (text or "").strip()
         if not text:
@@ -32,13 +32,13 @@ def parse_duration_to_seconds(text: str, default_seconds: int = 600) -> int:
             return default_seconds
         num = int(m.group(1))
         unit = (m.group(2) or "").lower()
-        if unit in ("s", "绉?):
+        if unit in ("s", "秒"):
             return max(1, num)
-        if unit in ("m", "min", "鍒嗛挓", "鍒?):
+        if unit in ("m", "min", "分钟", "分"):
             return max(1, num * 60)
-        if unit in ("h", "灏忔椂"):
+        if unit in ("h", "小时"):
             return max(1, num * 3600)
-        if unit in ("d", "澶?):
+        if unit in ("d", "天"):
             return max(1, num * 86400)
         return max(1, num * 60)
     except Exception:
@@ -46,7 +46,7 @@ def parse_duration_to_seconds(text: str, default_seconds: int = 600) -> int:
 
 
 def get_reply_message_id(msg: Message) -> Optional[int]:
-    """浠庢秷鎭涓彁鍙栬鍥炲娑堟伅鐨?id銆?""
+    """从消息段中提取被回复消息的 id。"""
     try:
         for seg in msg:
             if seg.type == "reply":
@@ -59,14 +59,14 @@ def get_reply_message_id(msg: Message) -> Optional[int]:
 
 
 def get_target_message_id(event: MessageEvent) -> Optional[int]:
-    """Best-effort to fetch replied message_id from event.
+    """尽可能从事件中获取被回复消息的 message_id。
 
-    Order:
-    1) event.reply.message_id (some adapters only provide here)
-    2) reply segment id in event.message
-    3) parse from string form like [reply:id=xxxx]
+    优先顺序：
+    1) event.reply.message_id（部分实现只在这里提供）
+    2) event.message 中的 reply 段 id
+    3) 从字符串形态解析 [reply:id=xxxx]
     """
-    # 1) from event.reply
+    # 1) 优先从 event.reply 读取
     try:
         reply = getattr(event, "reply", None)
         if reply:
@@ -82,7 +82,7 @@ def get_target_message_id(event: MessageEvent) -> Optional[int]:
                     return int(mid)
                 except Exception:
                     pass
-            # last attempt: parse number from str(reply)
+            # 兜底：从其字符串表示中提取数字
             try:
                 import re as _re
                 m = _re.search(r"(message_id|id)\D*(\d+)", str(reply))
@@ -93,7 +93,7 @@ def get_target_message_id(event: MessageEvent) -> Optional[int]:
     except Exception:
         pass
 
-    # 2) reply segment in message
+    # 2) 从消息段中的 reply 读取
     try:
         mid = get_reply_message_id(event.message)
         if mid:
@@ -101,7 +101,7 @@ def get_target_message_id(event: MessageEvent) -> Optional[int]:
     except Exception:
         pass
 
-    # 3) parse string form: [reply:id=xxxx]
+    # 3) 兜底：从消息字符串表示中解析 [reply:id=xxxx]
     try:
         import re as _re
         s = str(event.message)
@@ -114,5 +114,3 @@ def get_target_message_id(event: MessageEvent) -> Optional[int]:
         pass
 
     return None
-
-
