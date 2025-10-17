@@ -30,15 +30,6 @@ from . import update_gallery as update_gallery  # 注册更新命令
 
 # 权限包装与默认命令项
 P = Plugin(name="df", display_name="DF")
-from ...core.api import upsert_command_defaults as _up_def
-_up_def('df', 'poke')
-for _c in ('pictures_local','pictures_face','pictures_list','contact','reply'):
-    try:
-        _up_def('df', _c)
-    except Exception:
-        pass
-
-
 # ---------- 工具函数 ----------
 
 
@@ -113,7 +104,7 @@ async def _hitokoto(api: str) -> Optional[str]:
 _PIC = P.on_regex(
     _build_picture_regex(),
     name="pictures_api",
-    display_name="随机图片",
+    display_name="看看腿",
     priority=12,
     block=True,
 )
@@ -145,7 +136,7 @@ _LOCAL_PIC = P.on_regex(
     name="pictures_local",
     priority=12,
     block=False,
-    display_name="来张|看看|随机",
+    display_name="随机本地表情",
 )
 
 
@@ -173,7 +164,7 @@ _LIST = P.on_regex(
 @_LIST.handle()
 async def _(matcher: Matcher):
     faces = face_list()
-    text = "表情列表：\n" + ("、".join(faces) or "(空)") + "\n\n使用 #表情<名称>"
+    text = "表情列表：\n" + ("、".join(faces) or "(空)") + "\n\n使用 #随机<名称>"
     await matcher.finish(text)
 
 

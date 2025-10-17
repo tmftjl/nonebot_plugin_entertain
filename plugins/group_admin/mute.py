@@ -12,11 +12,11 @@ from nonebot.adapters.onebot.v11 import (
     GroupMessageEvent,
 )
 
-from ...core.api import Plugin
+from . import _P as P
 from .utils import extract_at_or_id, parse_duration_to_seconds
 
 
-P = Plugin()
+ 
 
 
 mute_all_on = P.on_regex(

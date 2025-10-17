@@ -15,10 +15,11 @@ from nonebot.adapters.onebot.v11 import (
     MessageSegment,
 )
 
-from ...core.api import Plugin, plugin_data_dir
+from ...core.api import plugin_data_dir
+from . import _P as P
 
 
-P = Plugin()
+ 
 
 DATA_DIR = plugin_data_dir("group_admin")
 BAN_FILE = DATA_DIR / "banned_words.json"

@@ -8,11 +8,11 @@ from nonebot.adapters.onebot.v11 import (
     GroupMessageEvent,
 )
 
-from ...core.api import Plugin
+from . import _P as P
 from .utils import extract_at_or_id
 
 
-P = Plugin()
+ 
 
 
 set_admin = P.on_regex(

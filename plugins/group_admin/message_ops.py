@@ -8,11 +8,11 @@ from nonebot.adapters.onebot.v11 import (
     GroupMessageEvent,
 )
 
-from ...core.api import Plugin
+from . import _P as P
 from .utils import get_reply_message_id
 
 
-P = Plugin()
+ 
 
 
 recall_msg = P.on_regex(
