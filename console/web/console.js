@@ -1178,29 +1178,75 @@ async function leaveGroups(groupIds){ if(!Array.isArray(groupIds)||!groupIds.len
 
 function selectedGroupIds(){ return $$('.group-checkbox').filter(cb=>cb.checked).map(cb=> parseInt(cb.dataset.gid)); }
 
-async function notifySelected(){
+function openModal(id){ const m = document.getElementById(id); if(m) m.classList.remove('hidden'); }
+function closeModal(id){ const m = document.getElementById(id); if(m) m.classList.add('hidden'); }
+
+function openNotifyModal(){
   const ids = selectedGroupIds();
-  const input = $('#notify-input');
-  const msg = (input?.value||'').trim();
   if(!ids.length){ showToast('请先勾选要通知的群','warning'); return; }
-  if(!msg){ showToast('请输入要发送的通知内容','warning'); return; }
-  try{
-    await remindGroups(ids, msg);
-    showToast(`已向 ${ids.length} 个群发送通知`,'success');
-  }catch(e){
-    showToast('发送失败: '+(e&&e.message?e.message:e),'error');
-  }
+  $('#notify-selected-count').textContent = String(ids.length);
+  $('#notify-text').value = '';
+  const file = $('#notify-images'); if(file) file.value = '';
+  const pre = $('#notify-image-previews'); if(pre) pre.innerHTML = '';
+  openModal('notify-modal');
 }
 
-async function manualExtend(){
-  const gid = parseInt(($('#manual-group-id')?.value||'').trim());
-  const length = parseInt(($('#manual-length')?.value||'').trim());
-  const unit = ($('#manual-unit')?.value||'天');
-  if(!gid || isNaN(gid)){ showToast('请输入有效的群号','warning'); return; }
+async function filesToBase64List(fileInput){
+  const files = (fileInput && fileInput.files) ? Array.from(fileInput.files) : [];
+  const results = [];
+  for(const f of files){
+    const dataUrl = await new Promise(resolve => { const r = new FileReader(); r.onload = ()=>resolve(r.result||''); r.readAsDataURL(f); });
+    results.push(String(dataUrl||''));
+  }
+  return results;
+}
+
+async function sendNotify(){
+  const ids = selectedGroupIds();
+  if(!ids.length){ showToast('未选择任何群','warning'); return; }
+  const text = ($('#notify-text')?.value||'').trim();
+  const imgs = await filesToBase64List($('#notify-images'));
+  if(!text && (!imgs || !imgs.length)){ showToast('请填写文本或选择图片','warning'); return; }
+  try{
+    await apiCall('/notify', { method:'POST', body: JSON.stringify({ group_ids: ids, text, images: imgs }) });
+    closeModal('notify-modal');
+    showToast(`已向 ${ids.length} 个群发送通知`,'success');
+  }catch(e){ showToast('发送失败: '+(e&&e.message?e.message:e),'error'); }
+}
+
+function openManualExtendModal(){
+  const ids = selectedGroupIds();
+  const idEl = $('#extend-group-id');
+  const infoEl = $('#extend-selected-info');
+  const curEl = $('#extend-current-info');
+  if(ids.length){
+    idEl.value = String(ids[0]);
+    if(infoEl) infoEl.textContent = `已选择 ${ids.length} 个群，将优先使用所填群号；未填写则对所选群批量续费`;
+    const g = (state.groups||[]).find(x=> String(x.gid)===String(ids[0]));
+    if(g && g.expiry){ curEl.textContent = `当前到期：${formatDate(g.expiry)}`; } else { curEl.textContent = ''; }
+  } else {
+    idEl.value = '';
+    if(infoEl) infoEl.textContent = '未选择群，可在下方输入群号进行新增/续费';
+    if(curEl) curEl.textContent = '';
+  }
+  $('#extend-length').value = '7';
+  $('#extend-unit').value = '天';
+  openModal('extend-modal');
+}
+
+async function submitManualExtend(){
+  const inputId = ($('#extend-group-id')?.value||'').trim();
+  let ids = [];
+  if(inputId){ ids = [parseInt(inputId)]; }
+  else { ids = selectedGroupIds(); }
+  const length = parseInt(($('#extend-length')?.value||'').trim());
+  const unit = ($('#extend-unit')?.value||'天');
+  if(!ids.length){ showToast('请先选择群，或填写群号','warning'); return; }
   if(!length || isNaN(length) || length<=0){ showToast('请输入正确的时长','warning'); return; }
   try{
-    await apiCall('/extend',{ method:'POST', body: JSON.stringify({ group_id: gid, length, unit }) });
-    showToast(`已为群 ${gid} 设置/延长 ${length}${unit}`,'success');
+    for(const gid of ids){ await apiCall('/extend',{ method:'POST', body: JSON.stringify({ group_id: gid, length, unit }) }); }
+    closeModal('extend-modal');
+    showToast(`已处理 ${ids.length} 个群：+${length}${unit}`,'success');
     await loadRenewalData();
   }catch(e){ showToast('操作失败: '+(e&&e.message?e.message:e),'error'); }
 }
@@ -1216,8 +1262,14 @@ function bindEvents(){
   $('#perm-json-cancel')?.addEventListener('click', closePermJsonModal);
   $('#perm-json-save')?.addEventListener('click', savePermJson);
   $('#config-save-btn')?.addEventListener('click', saveCurrentConfig);
-  $('#notify-send-btn')?.addEventListener('click', notifySelected);
-  $('#manual-extend-btn')?.addEventListener('click', manualExtend);
+  $('#notify-open-btn')?.addEventListener('click', openNotifyModal);
+  $('#notify-close')?.addEventListener('click', ()=>closeModal('notify-modal'));
+  $('#notify-cancel')?.addEventListener('click', ()=>closeModal('notify-modal'));
+  $('#notify-confirm')?.addEventListener('click', sendNotify);
+  $('#manual-open-btn')?.addEventListener('click', openManualExtendModal);
+  $('#extend-close')?.addEventListener('click', ()=>closeModal('extend-modal'));
+  $('#extend-cancel')?.addEventListener('click', ()=>closeModal('extend-modal'));
+  $('#extend-confirm')?.addEventListener('click', submitManualExtend);
   $('#group-search')?.addEventListener('input', e=>{ state.keyword=e.target.value.trim(); state.pagination.currentPage=1; renderGroupsTable(); });
   $('#status-filter')?.addEventListener('change', e=>{ state.filter=e.target.value; state.pagination.currentPage=1; renderGroupsTable(); });
   $('#select-all')?.addEventListener('change', e=> $$('.group-checkbox').forEach(cb=> cb.checked=e.target.checked));

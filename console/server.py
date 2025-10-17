@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from nonebot import get_app, get_bots
-from nonebot.adapters.onebot.v11 import Message
+from nonebot.adapters.onebot.v11 import Message, MessageSegment
 from nonebot.log import logger
 
 from ..core.system_config import load_cfg, save_cfg
@@ -137,6 +137,72 @@ def setup_web_console() -> None:
                 logger.debug(f"remind_multi send failed: {e}")
                 raise HTTPException(500, f"发送提醒失败: {e}")
             return {"sent": 1}
+
+        # 自定义通知：支持文本与图片（base64:// 或 URL），批量群发
+        @router.post("/notify")
+        async def api_notify(payload: Dict[str, Any], request: Request, ctx: dict = Depends(_auth)):
+            try:
+                raw_ids = payload.get("group_ids")
+                if isinstance(raw_ids, (list, tuple)):
+                    group_ids = [int(x) for x in raw_ids if str(x).strip()]
+                else:
+                    raise ValueError("group_ids 必须为数组")
+            except Exception as e:
+                raise HTTPException(400, f"参数无效: {e}")
+
+            text = str(payload.get("text") or "")
+            imgs = payload.get("images") or []
+            if not group_ids:
+                raise HTTPException(400, "未指定任何群组")
+
+            def _norm_img(u: object) -> str:
+                try:
+                    s = str(u or "")
+                except Exception:
+                    return ""
+                if not s:
+                    return ""
+                # 支持 data:image/*;base64,xxx
+                if s.startswith("data:") and "," in s:
+                    try:
+                        b64 = s.split(",", 1)[1]
+                        return "base64://" + b64
+                    except Exception:
+                        return s
+                return s
+
+            images: list[str] = []
+            if isinstance(imgs, (list, tuple)):
+                for it in imgs:
+                    v = _norm_img(it)
+                    if v:
+                        images.append(v)
+
+            # 取一个可用的 Bot
+            live = get_bots()
+            bot = next(iter(live.values()), None)
+            if not bot:
+                raise HTTPException(500, "无可用 Bot 可发送通知")
+
+            sent = 0
+            for gid in group_ids:
+                segs = []
+                if text:
+                    segs.append(MessageSegment.text(text))
+                for img in images:
+                    try:
+                        segs.append(MessageSegment.image(img))
+                    except Exception:
+                        continue
+                if not segs:
+                    continue
+                try:
+                    await bot.send_group_msg(group_id=int(gid), message=Message(segs))
+                    sent += 1
+                except Exception as e:
+                    logger.debug(f"notify failed for {gid}: {e}")
+                    continue
+            return {"sent": sent}
 
         # 退群（不再需要 bot_ids）
         @router.post("/leave_multi")
