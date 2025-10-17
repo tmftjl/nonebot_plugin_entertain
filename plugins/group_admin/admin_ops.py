@@ -1,0 +1,124 @@
+from __future__ import annotations
+
+from nonebot.matcher import Matcher
+from nonebot.log import logger
+from nonebot.adapters.onebot.v11 import (
+    Bot,
+    MessageEvent,
+    GroupMessageEvent,
+)
+
+from ...core.api import Plugin
+from .utils import extract_at_or_id
+
+
+P = Plugin()
+
+
+set_admin = P.on_regex(
+    r"^#?(?:设置|设)管理\s+(.+)$",
+    name="set_admin",
+    display_name="设置管理员",
+    priority=13,
+    block=True,
+    enabled=True,
+    level="owner",
+    scene="group",
+)
+
+
+unset_admin = P.on_regex(
+    r"^#?(?:取消管理|撤销管理)\s+(.+)$",
+    name="unset_admin",
+    display_name="取消管理员",
+    priority=13,
+    block=True,
+    enabled=True,
+    level="owner",
+    scene="group",
+)
+
+
+@set_admin.handle()
+async def _set_admin(matcher: Matcher, bot: Bot, event: MessageEvent):
+    if not isinstance(event, GroupMessageEvent):
+        await matcher.finish("请在群聊中使用")
+    uid = extract_at_or_id(event.message)
+    if not uid:
+        await matcher.finish("请@目标或提供QQ号")
+    try:
+        await bot.set_group_admin(group_id=event.group_id, user_id=uid, enable=True)
+        await matcher.finish("已设置为管理员")
+    except Exception as e:
+        logger.exception(f"设置管理员失败: {e}")
+        await matcher.finish("操作失败，可能权限不足或目标不在群内")
+
+
+@unset_admin.handle()
+async def _unset_admin(matcher: Matcher, bot: Bot, event: MessageEvent):
+    if not isinstance(event, GroupMessageEvent):
+        await matcher.finish("请在群聊中使用")
+    uid = extract_at_or_id(event.message)
+    if not uid:
+        await matcher.finish("请@目标或提供QQ号")
+    try:
+        await bot.set_group_admin(group_id=event.group_id, user_id=uid, enable=False)
+        await matcher.finish("已取消管理员")
+    except Exception as e:
+        logger.exception(f"取消管理员失败: {e}")
+        await matcher.finish("操作失败，可能权限不足或目标不在群内")
+
+
+kick_member = P.on_regex(
+    r"^#?(?:踢|踢出)\s+(.+)$",
+    name="kick_member",
+    display_name="踢人",
+    priority=13,
+    block=True,
+    enabled=True,
+    level="admin",
+    scene="group",
+)
+
+
+ban_kick_member = P.on_regex(
+    r"^#?(?:拉黑踢|黑名单踢)\s+(.+)$",
+    name="ban_kick_member",
+    display_name="拉黑踢",
+    priority=13,
+    block=True,
+    enabled=True,
+    level="admin",
+    scene="group",
+)
+
+
+@kick_member.handle()
+async def _kick_member(matcher: Matcher, bot: Bot, event: MessageEvent):
+    if not isinstance(event, GroupMessageEvent):
+        await matcher.finish("请在群聊中使用")
+    uid = extract_at_or_id(event.message)
+    if not uid:
+        await matcher.finish("请@目标或提供QQ号")
+    try:
+        await bot.set_group_kick(group_id=event.group_id, user_id=uid, reject_add_request=False)
+        await matcher.finish("已将其移出群聊")
+    except Exception as e:
+        logger.exception(f"踢人失败: {e}")
+        await matcher.finish("操作失败，可能权限不足或目标不在群内")
+
+
+@ban_kick_member.handle()
+async def _ban_kick_member(matcher: Matcher, bot: Bot, event: MessageEvent):
+    if not isinstance(event, GroupMessageEvent):
+        await matcher.finish("请在群聊中使用")
+    uid = extract_at_or_id(event.message)
+    if not uid:
+        await matcher.finish("请@目标或提供QQ号")
+    try:
+        await bot.set_group_kick(group_id=event.group_id, user_id=uid, reject_add_request=True)
+        await matcher.finish("已将其移出并加入黑名单")
+    except Exception as e:
+        logger.exception(f"拉黑踢失败: {e}")
+        await matcher.finish("操作失败，可能权限不足或目标不在群内")
+
