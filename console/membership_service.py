@@ -3,19 +3,16 @@ from __future__ import annotations
 import math
 import secrets
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from nonebot import get_bots
 from nonebot.adapters.onebot.v11 import Bot
 from nonebot.log import logger
-from sqlmodel import select, delete
+ 
 from zoneinfo import ZoneInfo
 
 from ..core.system_config import load_cfg
-from ..db.base_models import async_maker, init_database
-from ..db.membership_models import GeneratedCode, Membership
-from ..core.framework.utils import plugin_data_dir
+from ..db.membership_models import read_snapshot, write_snapshot
 
 
 # 有效时长单位
@@ -66,109 +63,12 @@ async def _read_data() -> Dict[str, Any]:
           ...
         }
     """
-    await init_database()
-    data: Dict[str, Any] = {"generatedCodes": {}}
-    async with async_maker() as session:  # type: ignore[operator]
-        # memberships
-        result = await session.execute(select(Membership))
-        rows = result.scalars().all()
-        for m in rows:
-            data[m.group_id] = {
-                "group_id": m.group_id,
-                "expiry": m.expiry,
-                "last_renewed_by": m.last_renewed_by,
-                "renewal_code_used": m.renewal_code_used,
-                "managed_by_bot": m.managed_by_bot,
-                "status": m.status,
-                "last_reminder_on": m.last_reminder_on,
-                "expired_at": m.expired_at,
-            }
-        # generated codes
-        result = await session.execute(select(GeneratedCode))
-        codes = result.scalars().all()
-        gen_map: Dict[str, Any] = {}
-        for c in codes:
-            gen_map[c.code] = {
-                "length": c.length,
-                "unit": c.unit,
-                "generated_time": c.generated_time,
-                "max_use": c.max_use,
-                "used_count": c.used_count,
-                "expire_at": c.expire_at,
-            }
-        data["generatedCodes"] = gen_map
-    # If database is empty, attempt a one-time migration from legacy JSON
-    if not rows and not gen_map:
-        try:
-            legacy_dir = plugin_data_dir("membership")
-            legacy_file = legacy_dir / "memberships.json"
-            if legacy_file.exists():
-                import json
-
-                raw = legacy_file.read_text(encoding="utf-8")
-                obj: Dict[str, Any] = json.loads(raw or "{}")
-                if not isinstance(obj.get("generatedCodes"), dict):
-                    obj["generatedCodes"] = {}
-                # Persist into DB and return the migrated data
-                await _write_data(obj)
-                data = obj
-                # best-effort rename backup
-                try:
-                    legacy_file.rename(legacy_file.with_suffix(".json.bak"))
-                except Exception:
-                    pass
-        except Exception:
-            pass
-    return data
+    return await read_snapshot()
 
 
 async def _write_data(obj: Dict[str, Any]) -> None:
-    """Persist the given data snapshot into database.
-
-    Strategy: replace all Membership and GeneratedCode rows with the provided content.
-    Mirrors the previous JSON snapshot behavior to minimize changes.
-    """
-    await init_database()
-    async with async_maker() as session:  # type: ignore[operator]
-        # Replace memberships and codes
-        await session.execute(delete(Membership))
-        await session.execute(delete(GeneratedCode))
-
-        # Insert memberships
-        for k, v in obj.items():
-            if k == "generatedCodes" or not isinstance(v, dict):
-                continue
-            m = Membership(
-                group_id=str(v.get("group_id") or k),
-                expiry=v.get("expiry"),
-                last_renewed_by=v.get("last_renewed_by"),
-                renewal_code_used=v.get("renewal_code_used"),
-                managed_by_bot=v.get("managed_by_bot"),
-                status=str(v.get("status") or "active"),
-                last_reminder_on=v.get("last_reminder_on"),
-                expired_at=v.get("expired_at"),
-            )
-            session.add(m)
-
-        # Insert generated codes
-        gen_map = obj.get("generatedCodes") or {}
-        if isinstance(gen_map, dict):
-            for code, rec in gen_map.items():
-                try:
-                    c = GeneratedCode(
-                        code=str(code),
-                        length=int(rec.get("length")),
-                        unit=str(rec.get("unit")),
-                        generated_time=str(rec.get("generated_time")),
-                        max_use=int(rec.get("max_use", 1) or 1),
-                        used_count=int(rec.get("used_count", 0) or 0),
-                        expire_at=str(rec.get("expire_at")) if rec.get("expire_at") else None,
-                    )
-                except Exception:
-                    continue
-                session.add(c)
-
-        await session.commit()
+    """Persist the given data snapshot into database via model helpers."""
+    await write_snapshot(obj)
 
 
 def _add_duration(start: datetime, length: int, unit: str) -> datetime:
