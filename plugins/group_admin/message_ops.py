@@ -54,7 +54,7 @@ set_essence = P.on_regex(
 async def _set_essence(matcher: Matcher, bot: Bot, event: MessageEvent):
     if not isinstance(event, GroupMessageEvent):
         await matcher.finish("请在群聊中使用")
-    mid = get_reply_message_id(event)
+    mid = get_target_message_id(event)
     if not mid:
         await matcher.finish("请回复目标消息后再使用")
     try:
