@@ -20,7 +20,7 @@ P = Plugin()
 
 
 mute_all_on = P.on_regex(
-    r"^#?(?:开启|打开)?全体禁言$",
+    r"^#开启全体禁言$",
     name="mute_all_on",
     display_name="开启全体禁言",
     priority=13,
@@ -44,7 +44,7 @@ async def _mute_all_on(matcher: Matcher, bot: Bot, event: MessageEvent):
 
 
 mute_all_off = P.on_regex(
-    r"^#?(?:关闭|取消)全体禁言$",
+    r"^#关闭全体禁言$",
     name="mute_all_off",
     display_name="关闭全体禁言",
     priority=13,
@@ -68,7 +68,7 @@ async def _mute_all_off(matcher: Matcher, bot: Bot, event: MessageEvent):
 
 
 mute_member = P.on_regex(
-    r"^#?禁言(?:\s+(.+?))?(?:\s+(\d+[a-zA-Z\u4e00-\u9fa5]*))?$",
+    r"^#禁言(?:\s+(.+?))?(?:\s+(\d+[a-zA-Z\u4e00-\u9fa5]*))?$",
     name="mute_member",
     display_name="禁言",
     priority=13,
@@ -98,7 +98,7 @@ async def _mute_member(matcher: Matcher, bot: Bot, event: MessageEvent, groups: 
 
 
 unmute_member = P.on_regex(
-    r"^#?(?:解禁|取消禁言)\s*(.+)?$",
+    r"^#(?:解禁|取消禁言)\s*(.+)?$",
     name="unmute_member",
     display_name="解禁",
     priority=13,

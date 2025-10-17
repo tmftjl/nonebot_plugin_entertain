@@ -10,6 +10,7 @@ P = Plugin(name="entertain", display_name="娱乐")
 _DORO = P.on_regex(
     r"^#?(?:抽取|随机)?(?:今日)?doro结局$",
     name="draw",
+    display_name="doro结局",
     priority=12,
     block=True,
 )

@@ -64,13 +64,14 @@ USER_RESULTS: Dict[str, Tuple[Platform, List[Song]]] = {}
 # Regex definitions
 P = Plugin(name="entertain", display_name="娱乐")
 search_matcher = P.on_regex(
-    r"^#?点歌(?:(qq|酷狗|网易云|wyy|kugou|netease))?\s*(.*)$",
+    r"^#点歌(?:(qq|酷狗|网易云|wyy|kugou|netease))?\s*(.*)$",
     name="search",
+    display_name="点歌",
     priority=12,
     flags=0,
 )
 
-select_matcher = P.on_regex(r"^#?(\d+)$", name="select", flags=0)
+select_matcher = P.on_regex(r"^#(\d+)$", name="select",display_name="选择歌", flags=0)
 
 
 def _platform_alias_to_key(alias: Optional[str]) -> Platform:

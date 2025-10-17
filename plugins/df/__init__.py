@@ -113,6 +113,7 @@ async def _hitokoto(api: str) -> Optional[str]:
 _PIC = P.on_regex(
     _build_picture_regex(),
     name="pictures_api",
+    display_name="随机图片",
     priority=12,
     block=True,
 )
@@ -144,6 +145,7 @@ _LOCAL_PIC = P.on_regex(
     name="pictures_local",
     priority=12,
     block=False,
+    display_name="来张|看看|随机",
 )
 
 
@@ -159,32 +161,12 @@ async def _(matcher: Matcher, event: MessageEvent):
         await matcher.finish(Message(_pick_face_image(name)))
 
 
-# 表情：通用匹配，运行时校验
-_FACE = P.on_regex(
-    r"^#?(?:表情|表情包|表情图)(\S+)$",
-    priority=12,
-    block=False,
-    name="pictures_face",
-)
-
-
-@_FACE.handle()
-async def _(matcher: Matcher, event: MessageEvent):
-    if not _cfg.get("random_picture_open", True):
-        return
-    m = re.match(r"^#?(?:表情|表情包|表情图)(\S+)$", str(event.get_message()))
-    if not m:
-        return
-    name = m.group(1)
-    if name in face_list():
-        await matcher.finish(Message(_pick_face_image(name)))
-
-
 _LIST = P.on_regex(
     r"^#?DF(?:随机)?表情包列表$",
     priority=12,
     block=True,
     name="pictures_list",
+    display_name="随机表情列表",
 )
 
 
@@ -197,7 +179,7 @@ async def _(matcher: Matcher):
 
 # ---------- 戳一戳 ----------
 
-_POKE = on_notice(priority=12, block=False, permission=P.permission_cmd("poke"))
+_POKE = on_notice(priority=12, block=False,display_name="戳一戳", permission=P.permission_cmd("poke"))
 
 
 @_POKE.handle()
@@ -264,10 +246,11 @@ def _save_contact(data: Dict[str, Any]) -> None:
 
 
 _CONTACT = P.on_regex(
-    r"^#?联系主人",
+    r"^#联系主人",
     priority=12,
     block=True,
     name="contact",
+    display_name="联系主人",
 )
 
 
@@ -330,10 +313,11 @@ async def _(matcher: Matcher, bot: Bot, event: MessageEvent):
 
 
 _REPLY = P.on_regex(
-    r"^#?回复(\S+)\s+([\s\S]+)$",
+    r"^#回复(\S+)\s+([\s\S]+)$",
     priority=12,
     block=True,
     name="reply",
+    display_name="回复",
 )
 
 

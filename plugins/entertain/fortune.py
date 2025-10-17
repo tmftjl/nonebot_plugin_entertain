@@ -20,17 +20,6 @@ from nonebot.plugin import PluginMetadata
 from ...core.api import Plugin
 from ...core.api import plugin_data_dir, plugin_resource_dir
 
-
-__plugin_meta__ = PluginMetadata(
-    name="今日运势",
-    description="生成每日运势图片（支持 #/ 前缀）",
-    usage="命令：今日运势 / 抽签",
-    type="application",
-    homepage="",
-    supported_adapters={"~onebot.v11"},
-)
-
-
 # ---------- Paths & Globals ----------
 DATA_DIR = plugin_data_dir("entertain")
 JRYS_DEFS_FILE = plugin_resource_dir("entertain") / "jrys_data.json"
@@ -260,6 +249,7 @@ def _get_or_create_today_fortune(user_id: str) -> Tuple[Dict[str, Any], bool]:
 fortune_cmd = P.on_regex(
     r"^(#|/)?(?:今日运势|运势|抽签)$",
     name="today",
+    display_name="今日运势",
     priority=12,
     block=True,
 )

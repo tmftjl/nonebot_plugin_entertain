@@ -45,22 +45,12 @@ except Exception:
 
 
 box_matcher = P.on_regex(
-    r"^(?:#|/)?(?:盒|开盒)\s*(\d+)?$",
+    r"^(?:#|/)?(?:盒|开盒)\s*(.*?)$",
     name="box",
+    display_name="开盒",
     priority=12,
     block=True,
 )
-
-# 兼容 bracket 格式的 at，例如：#盒[at:qq=123456] 或 #盒[CQ:at,qq=123456]
-# 专门加一个匹配，以便命中这类文本时也能触发命令
-box_matcher_bracket = P.on_regex(
-    r"^\s*(?:#|/)?(?:盒|开盒)\s*(?:\[at:qq=(\d+)\]|\[CQ:at,qq=(\d+)\])\s*$",
-    name="box",
-    priority=12,
-    block=True,
-    permission=P.permission_cmd("box"),
-)
-
 
 @box_matcher.handle()
 async def _handle_box(
@@ -69,10 +59,12 @@ async def _handle_box(
     event: MessageEvent,
     groups: Tuple[Optional[str]] = RegexGroup(),
 ) -> None:
+    logger.info("3333333333")
     # Determine target
     self_id = str(getattr(bot, "self_id", ""))
     target_id: Optional[str] = None
     group_id: Optional[str] = None
+    logger.info(event)
 
     # from @ mention (prefer)
     try:
@@ -98,6 +90,7 @@ async def _handle_box(
     # get group id when applicable
     if isinstance(event, GroupMessageEvent):
         group_id = str(event.group_id)
+    logger.info(target_id)
 
     # only-admin restriction
     if _cfg_get("only_admin") and isinstance(event, GroupMessageEvent):
@@ -128,39 +121,6 @@ async def _handle_box(
 
     msg = await _do_box(bot, target_id=target_id, group_id=group_id)
     await matcher.finish(msg)
-
-
-# 兼容：命令前后带 @ 时，纯文本会残留空格，导致上面的正则无法完整匹配
-# 新增一个更宽松的匹配（允许前后空白），优先级略低，复用同一条权限“box”
-box_matcher_compat = P.on_regex(
-    r"^\s*(?:#|/)?(?:盒|开盒)\s*(\d+)?\s*$",
-    name="box",
-    priority=13,
-    block=True,
-    permission=P.permission_cmd("box"),
-)
-
-
-@box_matcher_compat.handle()
-async def _handle_box_compat(
-    matcher: Matcher,
-    bot: Bot,
-    event: MessageEvent,
-    groups: Tuple[Optional[str]] = RegexGroup(),
-) -> None:
-    # 直接复用原处理逻辑
-    await _handle_box(matcher, bot, event, groups)
-
-
-@box_matcher_bracket.handle()
-async def _handle_box_bracket(
-    matcher: Matcher,
-    bot: Bot,
-    event: MessageEvent,
-    groups: Tuple[Optional[str]] = RegexGroup(),
-) -> None:
-    # 复用主处理逻辑
-    await _handle_box(matcher, bot, event, groups)
 
 
 async def _do_box(bot: Bot, *, target_id: str, group_id: Optional[str]) -> Message:

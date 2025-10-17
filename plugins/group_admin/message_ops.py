@@ -16,7 +16,7 @@ P = Plugin()
 
 
 recall_msg = P.on_regex(
-    r"^#?撤回$",
+    r"^#撤回$",
     name="recall_msg",
     display_name="撤回消息",
     priority=13,
@@ -43,7 +43,7 @@ async def _recall_msg(matcher: Matcher, bot: Bot, event: MessageEvent):
 
 
 set_essence = P.on_regex(
-    r"^#?(?:设置|设)精华$",
+    r"^#(?:设置精华|设精)$",
     name="set_essence",
     display_name="设置精华",
     priority=13,
@@ -70,7 +70,7 @@ async def _set_essence(matcher: Matcher, bot: Bot, event: MessageEvent):
 
 
 unset_essence = P.on_regex(
-    r"^#?(?:取消|移除)精华$",
+    r"^#取消精华$",
     name="unset_essence",
     display_name="取消精华",
     priority=13,

@@ -16,7 +16,7 @@ P = Plugin()
 
 
 set_admin = P.on_regex(
-    r"^#?(?:设置|设)管理\s+(.+)$",
+    r"^#设置|管理\s+(.+)$",
     name="set_admin",
     display_name="设置管理员",
     priority=13,
@@ -28,7 +28,7 @@ set_admin = P.on_regex(
 
 
 unset_admin = P.on_regex(
-    r"^#?(?:取消管理|撤销管理)\s+(.+)$",
+    r"^#取消管理\s+(.+)$",
     name="unset_admin",
     display_name="取消管理员",
     priority=13,
@@ -70,7 +70,7 @@ async def _unset_admin(matcher: Matcher, bot: Bot, event: MessageEvent):
 
 
 kick_member = P.on_regex(
-    r"^#?(?:踢|踢出)\s+(.+)$",
+    r"^#踢\s+(.+)$",
     name="kick_member",
     display_name="踢人",
     priority=13,
@@ -82,7 +82,7 @@ kick_member = P.on_regex(
 
 
 ban_kick_member = P.on_regex(
-    r"^#?(?:拉黑踢|黑名单踢)\s+(.+)$",
+    r"^#拉黑踢\s+(.+)$",
     name="ban_kick_member",
     display_name="拉黑踢",
     priority=13,
