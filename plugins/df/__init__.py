@@ -179,7 +179,7 @@ async def _(matcher: Matcher):
 
 # ---------- 戳一戳 ----------
 
-_POKE = on_notice(priority=12, block=False,display_name="戳一戳", permission=P.permission_cmd("poke"))
+_POKE = on_notice(priority=12, block=False, permission=P.permission_cmd("poke"))
 
 
 @_POKE.handle()
