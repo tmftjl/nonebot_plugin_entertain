@@ -12,9 +12,9 @@ from . import _P as P
 from .utils import get_target_message_id
 
 recall_msg = P.on_regex(
-    r"^#鎾ゅ洖$",
+    r"^#撤回$",
     name="recall_msg",
-    display_name="鎾ゅ洖娑堟伅",
+    display_name="撤回消息",
     priority=13,
     block=True,
     enabled=True,
@@ -26,22 +26,22 @@ recall_msg = P.on_regex(
 @recall_msg.handle()
 async def _recall_msg(matcher: Matcher, bot: Bot, event: MessageEvent):
     if not isinstance(event, GroupMessageEvent):
-        await matcher.finish("璇峰湪缇よ亰涓娇鐢?)
+        await matcher.finish("请在群聊中使用")
     mid = get_target_message_id(event)
     if not mid:
-        await matcher.finish("璇峰洖澶嶈鎾ゅ洖鐨勬秷鎭悗鍐嶄娇鐢ㄨ鍛戒护")
+        await matcher.finish("请回复要撤回的消息后再使用该命令")
     try:
         await bot.delete_msg(message_id=mid)
     except Exception as e:
-        logger.exception(f"鎾ゅ洖澶辫触: {e}")
-        await matcher.finish("鎾ゅ洖澶辫触锛屽彲鑳芥潈闄愪笉瓒虫垨瓒呮椂")
-    await matcher.finish("宸叉挙鍥?)
+        logger.exception(f"撤回失败: {e}")
+        await matcher.finish("撤回失败，可能权限不足或超时")
+    await matcher.finish("已撤回")
 
 
 set_essence = P.on_regex(
-    r"^#(?:璁剧疆绮惧崕|璁剧簿)$",
+    r"^#(?:设置精华|设精)$",
     name="set_essence",
-    display_name="璁剧疆绮惧崕",
+    display_name="设置精华",
     priority=13,
     block=True,
     enabled=True,
@@ -53,22 +53,22 @@ set_essence = P.on_regex(
 @set_essence.handle()
 async def _set_essence(matcher: Matcher, bot: Bot, event: MessageEvent):
     if not isinstance(event, GroupMessageEvent):
-        await matcher.finish("璇峰湪缇よ亰涓娇鐢?)
-    mid = get_target_message_id(event)
+        await matcher.finish("请在群聊中使用")
+    mid = get_reply_message_id(event)
     if not mid:
-        await matcher.finish("璇峰洖澶嶇洰鏍囨秷鎭悗鍐嶄娇鐢?)
+        await matcher.finish("请回复目标消息后再使用")
     try:
         await bot.set_essence_msg(message_id=mid)
     except Exception as e:
-        logger.exception(f"璁剧疆绮惧崕澶辫触: {e}")
-        await matcher.finish("璁剧疆澶辫触锛屽彲鑳芥潈闄愪笉瓒虫垨璇ュ钩鍙颁笉鏀寔")
-    await matcher.finish("宸茶缃负绮惧崕")
+        logger.exception(f"设置精华失败: {e}")
+        await matcher.finish("设置失败，可能权限不足或该平台不支持")
+    await matcher.finish("已设置为精华")
 
 
 unset_essence = P.on_regex(
-    r"^#鍙栨秷绮惧崕$",
+    r"^#取消精华$",
     name="unset_essence",
-    display_name="鍙栨秷绮惧崕",
+    display_name="取消精华",
     priority=13,
     block=True,
     enabled=True,
@@ -80,15 +80,15 @@ unset_essence = P.on_regex(
 @unset_essence.handle()
 async def _unset_essence(matcher: Matcher, bot: Bot, event: MessageEvent):
     if not isinstance(event, GroupMessageEvent):
-        await matcher.finish("璇峰湪缇よ亰涓娇鐢?)
+        await matcher.finish("请在群聊中使用")
     mid = get_target_message_id(event)
     if not mid:
-        await matcher.finish("璇峰洖澶嶇洰鏍囨秷鎭悗鍐嶄娇鐢?)
+        await matcher.finish("请回复目标消息后再使用")
     try:
         await bot.delete_essence_msg(message_id=mid)
     except Exception as e:
-        logger.exception(f"鍙栨秷绮惧崕澶辫触: {e}")
-        await matcher.finish("鍙栨秷澶辫触锛屽彲鑳芥潈闄愪笉瓒虫垨璇ュ钩鍙颁笉鏀寔")
-    await matcher.finish("宸插彇娑堢簿鍗?)
+        logger.exception(f"取消精华失败: {e}")
+        await matcher.finish("取消失败，可能权限不足或该平台不支持")
+    await matcher.finish("已取消精华")
 
 
