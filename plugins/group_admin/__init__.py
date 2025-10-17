@@ -16,7 +16,6 @@ from ...core.api import Plugin
 _P = Plugin(name="group_admin", display_name="群管", enabled=True, level="all", scene="all")
 
 # 导入子模块以注册其命令和拦截器
-from . import basic as _basic  # noqa: F401
 from . import mute as _mute  # noqa: F401
 from . import admin_ops as _admin_ops  # noqa: F401
 from . import message_ops as _message_ops  # noqa: F401
