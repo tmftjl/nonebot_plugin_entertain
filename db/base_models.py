@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.ext.asyncio import async_sessionmaker  # type: ignore
 from sqlmodel import Field, SQLModel, and_, select
 
-from core.framework.utils import plugin_data_dir
+from ..core.framework.utils import plugin_data_dir
 
 
 # ---- Type vars ----

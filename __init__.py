@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-
+from nonebot.log import logger
 from nonebot import get_driver, load_plugins
 from nonebot.plugin import PluginMetadata
 
@@ -48,9 +48,13 @@ try:
     @driver.on_startup
     async def _entertain_init_database():
         try:
+            logger.info("--> 正在执行 nonebot-plugin-entertain 的数据库初始化...")
             await init_database()
-        except Exception:
-            pass
+            logger.success("--> nonebot-plugin-entertain 数据库初始化完成。")
+        except Exception as e:
+            # 修改这里！打印详细的错误信息和堆栈跟踪
+            logger.error("!!! nonebot-plugin-entertain 数据库初始化失败，请检查下面的错误 !!!")
+            logger.exception(e)
 except Exception:
     pass
 
