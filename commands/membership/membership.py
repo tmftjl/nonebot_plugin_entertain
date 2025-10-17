@@ -91,14 +91,14 @@ async def _(matcher: Matcher, event: MessageEvent):
     length = int(m.group(1))
     unit = m.group(2)
 
-    data = _ensure_generated_codes(_read_data())
+    data = _ensure_generated_codes(await _read_data())
     code = generate_unique_code(length, unit)
     data["generatedCodes"][code] = {
         "length": length,
         "unit": unit,
         "generated_time": _now_utc().isoformat(),
     }
-    _write_data(data)
+    await _write_data(data)
 
     await matcher.finish(
         Message(
@@ -131,7 +131,7 @@ async def _(matcher: Matcher, event: MessageEvent):
     code = matched
     gid = str(event.group_id)
 
-    data = _ensure_generated_codes(_read_data())
+    data = _ensure_generated_codes(await _read_data())
     rec = data["generatedCodes"].get(code)
     if not rec:
         await matcher.finish("该续费码无效或已被使用")
@@ -166,7 +166,7 @@ async def _(matcher: Matcher, event: MessageEvent):
         "last_reminder_on": None,
     }
     data["generatedCodes"].pop(code, None)
-    _write_data(data)
+    await _write_data(data)
 
     await matcher.finish(
         Message(f"本群会员已成功续费{parsed_len}{parsed_unit}，到期时间：{_format_cn(new_expiry)}")
@@ -190,7 +190,7 @@ async def _(_: Matcher, event: MessageEvent):
     if not isinstance(event, GroupMessageEvent):
         await check_group.finish("该指令需在群聊中使用")
     gid = str(event.group_id)
-    data = _read_data()
+    data = await _read_data()
     rec = data.get(gid)
     if not rec:
         await check_group.finish("未找到本群的会员记录")
@@ -278,7 +278,7 @@ async def _check_and_process() -> Tuple[int, int]:
 
     返回 (提醒数量, 退群数量)
     """
-    data = _read_data()
+    data = await _read_data()
     cfg = load_cfg()
     reminder_days = int(cfg.get("member_renewal_reminder_days_before", 7) or 7)
     today = _today_str()
@@ -366,5 +366,5 @@ async def _check_and_process() -> Tuple[int, int]:
                     changed = True
 
     if changed:
-        _write_data(data)
+        await _write_data(data)
     return reminders, left

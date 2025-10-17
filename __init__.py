@@ -41,6 +41,19 @@ try:
 except Exception:
     pass
 
+# 启动时初始化数据库（SQLite/SQLModel）
+try:
+    from .db.base_models import init_database
+
+    @driver.on_startup
+    async def _entertain_init_database():
+        try:
+            await init_database()
+        except Exception:
+            pass
+except Exception:
+    pass
+
 
 def _load_subplugins_via_nonebot() -> None:
     """加载内部 plugins 目录下的子插件（交给 NoneBot 处理）。"""

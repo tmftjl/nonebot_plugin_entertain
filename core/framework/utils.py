@@ -86,7 +86,9 @@ def plugin_resource_dir(name: str) -> Path:
 
 
 def plugin_data_dir(name: str) -> Path:
-    """Return plugins/<name>/data/, creating it if missing."""
-    base = _root() / "plugins" / name / "data"
-    base.mkdir(parents=True, exist_ok=True)
-    return base
+    """Return framework data/<name>/, creating it if missing.
+
+    All plugin data should reside under the framework-level data directory
+    in a namespaced subfolder by plugin name.
+    """
+    return data_dir(name)

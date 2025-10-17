@@ -33,7 +33,7 @@ __plugin_meta__ = PluginMetadata(
 
 # ---------- Paths & Globals ----------
 DATA_DIR = plugin_data_dir("entertain")
-JRYS_DEFS_FILE = DATA_DIR / "jrys_data.json"
+JRYS_DEFS_FILE = plugin_resource_dir("entertain") / "jrys_data.json"
 USER_DATA_FILE = DATA_DIR / "user_fortunes.json"
 
 _JRYS_DATA: List[Dict[str, Any]] = []

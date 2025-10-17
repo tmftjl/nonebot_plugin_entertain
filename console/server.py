@@ -108,7 +108,7 @@ def setup_web_console() -> None:
             if content_payload:
                 content = content_payload
             else:
-                data = _read_data()
+                data = await _read_data()
                 rec = data.get(str(gid)) or {}
                 expiry_str = rec.get("expiry")
                 days = 0
@@ -222,9 +222,9 @@ def setup_web_console() -> None:
                 raise HTTPException(500, f"退出失败: {e}")
             # 删除记录（可选）
             try:
-                data = _read_data()
+                data = await _read_data()
                 data.pop(str(gid), None)
-                _write_data(data)
+                await _write_data(data)
             except Exception as e:
                 logger.debug(f"web console leave_multi: remove record failed: {e}")
             return {"left": 1}
@@ -332,7 +332,7 @@ def setup_web_console() -> None:
         # 数据
         @router.get("/data")
         async def api_get_all(_: dict = Depends(_auth)):
-            return _read_data()
+            return await _read_data()
 
         # 生成续费码
         @router.post("/generate")
@@ -344,7 +344,7 @@ def setup_web_console() -> None:
                     raise ValueError("单位无效")
             except Exception as e:
                 raise HTTPException(400, f"参数无效: {e}")
-            data = _ensure_generated_codes(_read_data())
+            data = _ensure_generated_codes(await _read_data())
             code = generate_unique_code(length, unit)
             rec = {
                 "length": length,
@@ -360,7 +360,7 @@ def setup_web_console() -> None:
                 # 使用 UNITS[0] 对应的单位（通常为“天”）
                 rec["expire_at"] = _add_duration(_now_utc(), expire_days, UNITS[0]).isoformat()
             data["generatedCodes"][code] = rec
-            _write_data(data)
+            await _write_data(data)
             return {"code": code}
 
         # 延长到期
@@ -375,7 +375,7 @@ def setup_web_console() -> None:
             except Exception as e:
                 raise HTTPException(400, f"参数无效: {e}")
             now = _now_utc()
-            data = _read_data()
+            data = await _read_data()
             current = now
             cur = (data.get(gid) or {}).get("expiry")
             if cur:
@@ -391,13 +391,13 @@ def setup_web_console() -> None:
             rec = data.get(gid) or {}
             rec.update({"group_id": gid, "expiry": new_expiry.isoformat(), "status": "active"})
             data[gid] = rec
-            _write_data(data)
+            await _write_data(data)
             return {"group_id": gid, "expiry": new_expiry.isoformat()}
 
         # 列出生成的续费码
         @router.get("/codes")
         async def api_codes(_: dict = Depends(_auth)):
-            data = _ensure_generated_codes(_read_data())
+            data = _ensure_generated_codes(await _read_data())
             return data.get("generatedCodes", {})
 
         # 运行定时任务
