@@ -23,7 +23,7 @@ R = TypeVar("R")
 
 # ---- Database config (SQLite-only for this project) ----
 # Database file under data/entertain/entertain.db
-DB_PATH = data_dir / "entertain.db"
+DB_PATH = data_dir() / "entertain.db"
 DB_URL = f"sqlite+aiosqlite:///{DB_PATH}"
 
 engine = None  # set on init
