@@ -6,9 +6,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import Field, SQLModel, delete
 
 from .base_models import BaseIDModel, with_session
-from ..core.framework.utils import plugin_data_dir
-
-import json
 
 
 class Membership(BaseIDModel, table=True):
@@ -93,8 +90,6 @@ async def read_snapshot() -> Dict[str, Any]:
           "<group_id>": { ...membership fields... },
           ...
         }
-    If DB is empty, attempts a one-time migration from legacy JSON under
-    data/membership/memberships.json and persists it into DB.
     """
     data: Dict[str, Any] = {"generatedCodes": {}}
 
@@ -123,26 +118,6 @@ async def read_snapshot() -> Dict[str, Any]:
             "expire_at": c.expire_at,
         }
     data["generatedCodes"] = gen_map
-
-    # If database is empty, attempt a one-time migration from legacy JSON
-    if not mem_rows and not gen_map:
-        try:
-            legacy_dir = plugin_data_dir("membership")
-            legacy_file = legacy_dir / "memberships.json"
-            if legacy_file.exists():
-                raw = legacy_file.read_text(encoding="utf-8")
-                obj: Dict[str, Any] = json.loads(raw or "{}")
-                if not isinstance(obj.get("generatedCodes"), dict):
-                    obj["generatedCodes"] = {}
-                # Persist into DB and return the migrated data
-                await write_snapshot(obj)
-                data = obj
-                try:
-                    legacy_file.rename(legacy_file.with_suffix(".json.bak"))
-                except Exception:
-                    pass
-        except Exception:
-            pass
 
     return data
 
