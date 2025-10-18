@@ -114,6 +114,8 @@ def reload_cache() -> None:
     """重新加载配置到模块级缓存，供框架重载配置时调用。"""
     global _CACHED
     _CACHED = REG.load()
+    from nonebot import logger
+    logger.info(f"[DF] 配置已重载: send_master.success = {_CACHED.get('send_master', {}).get('success', '未设置')}")
 
 
 # 注册重载回调

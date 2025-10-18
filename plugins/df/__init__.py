@@ -24,7 +24,6 @@ from .config import load_cfg, face_list, random_local_image
 
 
 driver = get_driver()
-_cfg = load_cfg()
 _updating_gallery = False
 from . import update_gallery as update_gallery  # 注册更新命令
 
@@ -128,7 +127,8 @@ _PIC = P.on_regex(
 
 @_PIC.handle()
 async def _(matcher: Matcher, event: MessageEvent):
-    if not _cfg.get("random_picture_open", True):
+    cfg = load_cfg()
+    if not cfg.get("random_picture_open", True):
         await matcher.finish()
     m = _build_picture_regex().match(str(event.get_message()))
     if not m:
@@ -158,7 +158,8 @@ _LOCAL_PIC = P.on_regex(
 
 @_LOCAL_PIC.handle()
 async def _(matcher: Matcher, event: MessageEvent):
-    if not _cfg.get("random_picture_open", True):
+    cfg = load_cfg()
+    if not cfg.get("random_picture_open", True):
         return
     m = re.match(r"^#?(?:来张|看看|随机)\s*(\S+)$", str(event.get_message()))
     if not m:
@@ -191,7 +192,8 @@ _POKE = on_notice(priority=12, block=False, permission=P.permission_cmd("poke"))
 
 @_POKE.handle()
 async def _(bot: Bot, event: PokeNotifyEvent):  # type: ignore[override]
-    cfg = _cfg.get("poke", {})
+    full_cfg = load_cfg()
+    cfg = full_cfg.get("poke", {})
     if not bool(cfg.get("chuo", True)):
         return
     try:
@@ -263,7 +265,8 @@ _CONTACT = P.on_regex(
 
 @_CONTACT.handle()
 async def _(matcher: Matcher, bot: Bot, event: MessageEvent):
-    if not _cfg.get("send_master", {}).get("open", True):
+    cfg = load_cfg()
+    if not cfg.get("send_master", {}).get("open", True):
         await matcher.finish("该功能未开启")
 
     plain = str(event.get_message()).replace("#联系主人", "", 1).strip()
@@ -314,9 +317,9 @@ async def _(matcher: Matcher, bot: Bot, event: MessageEvent):
             logger.warning(f"Failed to send to superuser {uid}: {e}")
 
     if ok:
-        await matcher.finish(_cfg.get("send_master", {}).get("success", "已将信息转发给主人"))
+        await matcher.finish(cfg.get("send_master", {}).get("success", "已将信息转发给主人"))
     else:
-        await matcher.finish(_cfg.get("send_master", {}).get("failed", "发送失败，请稍后重试"))
+        await matcher.finish(cfg.get("send_master", {}).get("failed", "发送失败，请稍后重试"))
 
 
 _REPLY = P.on_regex(
@@ -330,6 +333,7 @@ _REPLY = P.on_regex(
 
 @_REPLY.handle()
 async def _(matcher: Matcher, bot: Bot, event: PrivateMessageEvent):
+    cfg = load_cfg()
     m = re.match(r"^#?回复(\S+)\s+([\s\S]+)$", str(event.get_message()))
     if not m:
         await matcher.finish()
@@ -341,10 +345,11 @@ async def _(matcher: Matcher, bot: Bot, event: PrivateMessageEvent):
     try:
         gid = rec.get("group_id")
         uid = rec.get("user_id")
+        reply_prefix = cfg.get("send_master", {}).get("reply_prefix", "主人回复：")
         if gid:
-            await bot.send_group_msg(group_id=int(gid), message=MessageSegment.text(_cfg.get("send_master", {}).get("reply_prefix", "主人回复：")) + MessageSegment.text(content))
+            await bot.send_group_msg(group_id=int(gid), message=MessageSegment.text(reply_prefix) + MessageSegment.text(content))
         elif uid:
-            await bot.send_private_msg(user_id=int(uid), message=MessageSegment.text(_cfg.get("send_master", {}).get("reply_prefix", "主人回复：")) + MessageSegment.text(content))
+            await bot.send_private_msg(user_id=int(uid), message=MessageSegment.text(reply_prefix) + MessageSegment.text(content))
         await matcher.finish("消息已发送")
     except Exception as e:
         logger.error(f"回复消息时发生异常: {e}")
