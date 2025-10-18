@@ -23,7 +23,6 @@ SYSTEM_DEFAULTS: Dict[str, Any] = {
     "member_renewal_soon_threshold_days": 7,
     # 到期处理
     "member_renewal_auto_leave_on_expire": True,
-    "member_renewal_leave_mode": "leave",
     # 控制台/网页
     "member_renewal_console_enable": True,
     "member_renewal_console_host": "http://localhost:8080",
@@ -144,15 +143,6 @@ SYSTEM_SCHEMA: Dict[str, Any] = {
             "default": True,
             "x-group": "到期处理",
             "x-order": 20
-        },
-        "member_renewal_leave_mode": {
-            "type": "string",
-            "title": "退群模式",
-            "description": "leave=主动退出，dismiss=解散（若有权限）",
-            "enum": ["leave", "dismiss"],
-            "default": "leave",
-            "x-group": "到期处理",
-            "x-order": 21
         },
         "member_renewal_console_enable": {
             "type": "boolean",

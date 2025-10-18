@@ -16,7 +16,6 @@ DEFAULTS: Dict[str, Any] = {
         "only_admin": False,
         "box_blacklist": [],  # list[str]
         "increase_box": False,
-        "decrease_box": False,
         "auto_box_groups": [],  # list[str] group ids for auto-box
         "avatar_api_url": "https://q4.qlogo.cn/headimg_dl?dst_uin={user_id}&spec=640",
         "avatar_fetch_timeout": 10,

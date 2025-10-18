@@ -26,9 +26,53 @@ from .membership_service import (
 )
 
 
+def _extract_token(request: Request) -> str:
+    """从请求中提取访问令牌：query/header/cookie."""
+    try:
+        qp = request.query_params or {}
+        token_q = qp.get("token") if hasattr(qp, "get") else None
+    except Exception:
+        token_q = None
+    try:
+        auth = request.headers.get("Authorization") if request and request.headers else None
+        token_h = None
+        if auth and isinstance(auth, str) and auth.lower().startswith("bearer "):
+            token_h = auth.split(" ", 1)[1].strip()
+    except Exception:
+        token_h = None
+    try:
+        token_c = request.cookies.get("mr_token") if request and request.cookies else None
+    except Exception:
+        token_c = None
+    return (token_q or token_h or token_c or "").strip()
+
+
+def _validate_token(token: str, *, window_seconds: int = 600) -> bool:
+    """校验令牌：匹配最近 window_seconds 秒内时间戳的后 6 位。
+
+    与“今汐登录”命令的令牌生成逻辑保持一致（最后 6 位）。
+    """
+    try:
+        token = str(token or "").strip()
+        if not token:
+            return False
+        now = int(_now_utc().timestamp())
+        start = max(0, now - max(0, int(window_seconds)))
+        for t in range(start, now + 1):
+            if str(t)[-6:] == token:
+                return True
+        return False
+    except Exception:
+        return False
+
+
 def _auth(request: Request) -> dict:
+    """简单鉴权：要求提供有效 token 才能访问控制台接口。"""
     ip = request.client.host if request and request.client else ""
-    return {"role": "admin", "token_tail": "", "ip": ip, "request": request}
+    token = _extract_token(request)
+    if not _validate_token(token):
+        raise HTTPException(401, "未授权：缺少或无效的访问令牌")
+    return {"role": "admin", "token_tail": token[-2:] if token else "", "ip": ip, "request": request}
 
 def setup_web_console() -> None:
     try:
@@ -208,17 +252,15 @@ def setup_web_console() -> None:
 
             # 读取退群模式配置
             cfg = load_cfg()
-            leave_mode = str(cfg.get("member_renewal_leave_mode", "leave") or "leave").lower()
-            is_dismiss = (leave_mode == "dismiss")
 
             live = get_bots()
             bot = next(iter(live.values()), None)
             if not bot:
                 raise HTTPException(500, "无可用 Bot 可退群")
             try:
-                await bot.set_group_leave(group_id=gid, is_dismiss=is_dismiss)
+                await bot.set_group_leave(group_id=gid)
             except Exception as e:
-                logger.debug(f"leave_multi failed (is_dismiss={is_dismiss}): {e}")
+                logger.debug(f"leave_multi failed: {e}")
                 raise HTTPException(500, f"退出失败: {e}")
             # 删除记录（可选）
             try:
@@ -231,7 +273,7 @@ def setup_web_console() -> None:
 
         # 统计：转发到统计服务 API
         @router.get("/stats/today")
-        async def api_stats_today():
+        async def api_stats_today(_: dict = Depends(_auth)):
             stats_api_url = str(load_cfg().get("member_renewal_stats_api_url", "http://127.0.0.1:8000") or "http://127.0.0.1:8000").rstrip("/")
             try:
                 async with httpx.AsyncClient() as client:
@@ -243,12 +285,12 @@ def setup_web_console() -> None:
                 raise HTTPException(500, f"获取统计失败: {e}")
         # 权限
         @router.get("/permissions")
-        async def api_get_permissions():
+        async def api_get_permissions(_: dict = Depends(_auth)):
             from ..core.framework.config import load_permissions
             return load_permissions()
 
         @router.put("/permissions")
-        async def api_update_permissions(payload: Dict[str, Any]):
+        async def api_update_permissions(payload: Dict[str, Any], _: dict = Depends(_auth)):
             from ..core.framework.config import save_permissions, optimize_permissions
             from ..core.framework.perm import reload_permissions
             try:
@@ -268,13 +310,13 @@ def setup_web_console() -> None:
 
         # 配置 - 获取所有插件配置
         @router.get("/config")
-        async def api_get_config():
+        async def api_get_config(_: dict = Depends(_auth)):
             """获取所有插件的配置（从内存缓存中）"""
             from ..core.framework.config import get_all_plugin_configs
             return get_all_plugin_configs()
 
         @router.put("/config")
-        async def api_update_config(payload: Dict[str, Any]):
+        async def api_update_config(payload: Dict[str, Any], _: dict = Depends(_auth)):
             """更新配置 - 支持单个插件或批量更新，自动重载到内存缓存"""
             try:
                 from ..core.framework.config import save_all_plugin_configs, reload_all_configs
@@ -304,7 +346,7 @@ def setup_web_console() -> None:
 
         # 插件显示名（中文）
         @router.get("/plugins")
-        async def api_get_plugins():
+        async def api_get_plugins(_: dict = Depends(_auth)):
             try:
                 from ..core.api import get_plugin_display_names
                 return get_plugin_display_names()
@@ -313,7 +355,7 @@ def setup_web_console() -> None:
 
         # 命令显示名（中文）
         @router.get("/commands")
-        async def api_get_commands():
+        async def api_get_commands(_: dict = Depends(_auth)):
             try:
                 from ..core.api import get_command_display_names
                 return get_command_display_names()
@@ -322,7 +364,7 @@ def setup_web_console() -> None:
 
         # 配置 Schema - 前端渲染所需元信息（中文名/描述/类型/分组等）
         @router.get("/config_schema")
-        async def api_get_config_schema():
+        async def api_get_config_schema(_: dict = Depends(_auth)):
             try:
                 from ..core.framework.config import get_all_plugin_schemas
                 return get_all_plugin_schemas()

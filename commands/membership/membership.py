@@ -314,17 +314,14 @@ async def _check_and_process() -> Tuple[int, int]:
         if days < 0 and status != "expired":
             if bool(cfg.get("member_renewal_auto_leave_on_expire", True)):
                 # 读取退群模式配置
-                leave_mode = str(cfg.get("member_renewal_leave_mode", "leave") or "leave").lower()
-                is_dismiss = (leave_mode == "dismiss")
-
                 preferred = v.get("managed_by_bot")
                 for bot in _choose_bots(preferred):
                     try:
-                        await bot.set_group_leave(group_id=gid, is_dismiss=is_dismiss)
+                        await bot.set_group_leave(group_id=gid)
                         left += 1
                         break
                     except Exception as e:
-                        logger.debug(f"退群失败 {gid} (is_dismiss={is_dismiss}): {e}")
+                        logger.debug(f"退群失败 {gid} : {e}")
                         continue
             v["status"] = "expired"
             v["expired_at"] = _now_utc().isoformat()

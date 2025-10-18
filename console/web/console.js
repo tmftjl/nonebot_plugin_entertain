@@ -62,9 +62,25 @@ async function copyText(text){
   return false;
 }
 
+// Token helpers for console auth
+function __getToken(){
+  try{
+    const u = new URL(window.location.href);
+    const t = u.searchParams.get('token');
+    if(t){
+      localStorage.setItem('member_renewal_token', t);
+      try{ document.cookie = `mr_token=${t}; path=/; max-age=900`; }catch{}
+      return t;
+    }
+  }catch{}
+  return localStorage.getItem('member_renewal_token') || '';
+}
+
 // API
 async function apiCall(path, options={}){
-  const headers = {'Content-Type':'application/json', ...(options.headers||{})};
+  const t = __getToken();
+  const authHeader = t ? { 'Authorization': `Bearer ${t}` } : {};
+  const headers = {'Content-Type':'application/json', ...authHeader, ...(options.headers||{})};
   const resp = await fetch(`/member_renewal${path}`, { ...options, headers });
   if(!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
   const ct = resp.headers.get('content-type')||'';
