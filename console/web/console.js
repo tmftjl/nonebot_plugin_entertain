@@ -1257,66 +1257,133 @@ async function loadSoonThreshold(){
 }
 
 async function openManualExtendModal(){
-  const ids = selectedGroupIds();
+  const checkboxes = $$('.group-checkbox:checked');
   const idEl = $('#extend-group-id');
   const infoEl = $('#extend-selected-info');
   const curEl = $('#extend-current-info');
-  if(ids.length){
-    const g = (state.groups||[]).find(x=> String(x.id)===String(ids[0]));
-    idEl.value = g ? String(g.gid) : "";
-    if(infoEl) infoEl.textContent = `已选择 ${ids.length} 个群，将按所选记录续费；未选择则按输入群号新增`;
-    if(g && g.expiry){ curEl.textContent = `当前到期：${formatDate(g.expiry)}`; } else { curEl.textContent = ""; }
-    const botInput = document.getElementById("extend-bot-id");
-    if(botInput){ botInput.value = (g && g.managed_by_bot) ? String(g.managed_by_bot) : ""; }
-  } else {
-    idEl.value = "";
-    if(infoEl) infoEl.textContent = "未选择群，可在下方输入群号进行新增";
-    if(curEl) curEl.textContent = "";
-    const botInput = document.getElementById("extend-bot-id");
-    if(botInput){ botInput.value = ""; }
+  const botInput = $('#extend-bot-id');
+  const remarkInput = $('#extend-remark');
+
+  // 只允许选择一个群
+  if(checkboxes.length > 1){
+    showToast('新增/续费功能只能选择一个群,请重新选择','warning');
+    $$('.group-checkbox').forEach(cb => cb.checked = false);
+    return;
   }
+
+  if(checkboxes.length === 1){
+    // 选中了一个群,填充相关信息
+    const gid = checkboxes[0].dataset.gid;
+    const g = (state.groups||[]).find(x=> String(x.gid)===String(gid));
+
+    if(g){
+      idEl.value = String(g.gid);
+      idEl.readOnly = true;
+      infoEl.textContent = `已选择群 ${g.gid}，将对该群进行续费操作`;
+      infoEl.style.display = 'block';
+
+      if(g.expiry){
+        curEl.textContent = `当前到期时间：${formatDate(g.expiry)} (剩余 ${g.days} 天)`;
+        curEl.style.display = 'block';
+      } else {
+        curEl.style.display = 'none';
+      }
+
+      if(botInput && g.managed_by_bot){
+        botInput.value = String(g.managed_by_bot);
+      }
+
+      if(remarkInput && g.remark){
+        remarkInput.value = String(g.remark);
+      }
+    }
+  } else {
+    // 未选择群,新增模式
+    idEl.value = "";
+    idEl.readOnly = false;
+    infoEl.textContent = "未选择群，请在下方输入群号进行新增操作";
+    infoEl.style.display = 'block';
+    curEl.style.display = 'none';
+
+    if(botInput){
+      botInput.value = "";
+    }
+    if(remarkInput){
+      remarkInput.value = "";
+    }
+  }
+
+  // 重置其他字段
   $("#extend-length").value = "30";
   $("#extend-unit").value = "天";
-  try{ const last = localStorage.getItem("extend_renewer")||""; if(last) $("#extend-renewer").value = last; }catch{}
-  const remarkEl = document.getElementById("extend-remark"); if(remarkEl) remarkEl.value = "";
+
+  // 尝试恢复上次保存的续费人
+  try{
+    const last = localStorage.getItem("extend_renewer")||"";
+    if(last) $("#extend-renewer").value = last;
+  }catch{}
+
   openModal("extend-modal");
 }
 
 async function submitManualExtend(){
   const inputId = ($('#extend-group-id')?.value||'').trim();
-  let ids = selectedRecordIds();
   const length = parseInt(($('#extend-length')?.value||'').trim());
   const unit = ($('#extend-unit')?.value||'天');
   const managed_by_bot = ($('#extend-bot-id')?.value||'').trim();
   const renewed_by = ($('#extend-renewer')?.value||'').trim();
-  if(!ids.length && !inputId){ showToast('请先选择群，或填写群号','warning'); return; }
-  if(!length || isNaN(length) || length<=0){ showToast('请输入正确的时长','warning'); return; }
+  const remark = ($('#extend-remark')?.value||'').trim();
+
+  if(!inputId){
+    showToast('请输入或选择群号','warning');
+    return;
+  }
+
+  if(!length || isNaN(length) || length<=0){
+    showToast('请输入正确的时长','warning');
+    return;
+  }
 
   // 立即关闭弹窗,防止重复点击
   closeModal('extend-modal');
 
   try{
     showLoading(true);
-    if(ids.length){
-      for(const rid of ids){
-        const body = { id: rid, length, unit };
-        if(managed_by_bot) body.managed_by_bot = managed_by_bot;
-        if(renewed_by) body.renewed_by = renewed_by;
-        if(remark) body.remark = remark;
-        await apiCall('/extend',{ method:'POST', body: JSON.stringify(body) });
-      }
-    } else {
-      const gid = parseInt(inputId);
-      if(!gid){ showToast('群号无效','warning'); return; }
-      const body = { group_id: gid, length, unit };
-      if(managed_by_bot) body.managed_by_bot = managed_by_bot;
-      if(renewed_by) body.renewed_by = renewed_by;
-      if(remark) body.remark = remark;
-      await apiCall('/extend',{ method:'POST', body: JSON.stringify(body) });
+
+    const gid = parseInt(inputId);
+    if(!gid){
+      showToast('群号无效','warning');
+      return;
     }
-    showToast(`已处理 ${ids.length} 个群：+${length}${unit}`,'success');
+
+    // 查找是否已存在该群的记录
+    const existingGroup = (state.groups||[]).find(x=> String(x.gid)===String(gid));
+
+    const body = {
+      group_id: gid,
+      length,
+      unit
+    };
+
+    if(managed_by_bot) body.managed_by_bot = managed_by_bot;
+    if(renewed_by) body.renewed_by = renewed_by;
+    if(remark) body.remark = remark;
+
+    // 如果存在记录且有id,使用id进行续费
+    if(existingGroup && existingGroup.id !== undefined){
+      body.id = existingGroup.id;
+    }
+
+    await apiCall('/extend',{ method:'POST', body: JSON.stringify(body) });
+
+    showToast(`已成功${existingGroup ? '续费' : '新增'}群 ${gid}：+${length}${unit}`,'success');
+
     // 记住续费人
     try{ if(renewed_by) localStorage.setItem('extend_renewer', renewed_by); }catch{}
+
+    // 清除选中状态
+    $$('.group-checkbox').forEach(cb => cb.checked = false);
+
     await loadRenewalData();
   }catch(e){
     showToast('操作失败: '+(e&&e.message?e.message:e),'error');
@@ -1462,275 +1529,51 @@ async function init(){
   document.body.setAttribute('data-theme', state.theme);
   const i=document.querySelector('#theme-toggle .icon');
   if(i) i.textContent = state.theme==='light' ? '🌞' : '🌙';
-  // 先加载系统配置的“临近到期阈值(天)”
+  // 先加载系统配置的"临近到期阈值(天)"
   await loadSoonThreshold();
   await loadDashboard();
-  
-  // 添加页面加载动画
-  animatePageLoad();
 }
 
-// 页面加载动画
-function animatePageLoad() {
-  const cards = document.querySelectorAll('.stat-card');
-  cards.forEach((card, index) => {
-    card.style.opacity = '0';
-    card.style.transform = 'translateY(30px)';
-    setTimeout(() => {
-      card.style.transition = 'all 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55)';
-      card.style.opacity = '1';
-      card.style.transform = 'translateY(0)';
-    }, index * 100);
-  });
-}
-
-// 添加卡片点击波纹效果
-function addRippleEffect(e) {
-  const card = e.currentTarget;
-  const ripple = document.createElement('span');
-  const rect = card.getBoundingClientRect();
-  const size = Math.max(rect.width, rect.height);
-  const x = e.clientX - rect.left - size / 2;
-  const y = e.clientY - rect.top - size / 2;
-  
-  ripple.style.cssText = `
-    position: absolute;
-    width: ${size}px;
-    height: ${size}px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.3);
-    left: ${x}px;
-    top: ${y}px;
-    pointer-events: none;
-    animation: ripple 0.6s ease-out;
-  `;
-  
-  card.style.position = 'relative';
-  card.style.overflow = 'hidden';
-  card.appendChild(ripple);
-  
-  setTimeout(() => ripple.remove(), 600);
-}
-
-// 添加CSS动画
-if (!document.getElementById('ripple-animation')) {
-  const style = document.createElement('style');
-  style.id = 'ripple-animation';
-  style.textContent = `
-    @keyframes ripple {
-      from {
-        transform: scale(0);
-        opacity: 1;
-      }
-      to {
-        transform: scale(2);
-        opacity: 0;
-      }
-    }
-  `;
-  document.head.appendChild(style);
-}
-
-// 增强主题切换动画
+// 增强主题切换
 function toggleTheme(){
-  const oldTheme = state.theme;
   state.theme = state.theme==='light' ? 'dark':'light';
-  
-  // 添加切换动画
-  document.body.style.transition = 'background 0.5s ease, color 0.5s ease';
   document.body.setAttribute('data-theme', state.theme);
   localStorage.setItem('theme', state.theme);
-  
+
   const i=$('#theme-toggle .icon');
   if(i) {
-    i.style.transform = 'rotate(360deg)';
-    i.style.transition = 'transform 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55)';
-    setTimeout(() => {
-      i.textContent = state.theme==='light' ? '🌞' : '🌙';
-      i.style.transform = 'rotate(0deg)';
-    }, 300);
+    i.textContent = state.theme==='light' ? '🌞' : '🌙';
   }
-  
-  // 显示切换提示
-  showToast(`已切换到${state.theme==='light'?'亮色':'暗色'}主题 ✨`, 'success');
+
+  showToast(`已切换到${state.theme==='light'?'亮色':'暗色'}主题`, 'success');
 }
 
-// 增强刷新按钮动画
-function enhanceRefreshButton() {
-  const btn = $('#refresh-btn');
-  if (btn) {
-    btn.addEventListener('click', () => {
-      const icon = btn.querySelector('.icon');
-      if (icon) {
-        icon.style.animation = 'spin 0.8s cubic-bezier(0.68, -0.55, 0.265, 1.55)';
-        setTimeout(() => {
-          icon.style.animation = '';
-        }, 800);
-      }
-    });
+// 事件绑定
+window.runScheduledTask = async function(){
+  try{
+    showLoading(true);
+    const r=await apiCall('/job/run',{method:'POST'});
+    showToast(`检查完成！提醒 ${r.reminded} 个群，退出 ${r.left} 个群`,'success');
+  } catch(e){
+    showToast('执行失败: '+(e&&e.message?e.message:e),'error');
+  } finally{
+    showLoading(false);
   }
-}
-
-// 为统计卡片添加交互效果
-function enhanceStatCards() {
-  const cards = document.querySelectorAll('.stat-card');
-  cards.forEach(card => {
-    card.addEventListener('click', addRippleEffect);
-    
-    // 添加悬停数字跳动效果
-    card.addEventListener('mouseenter', () => {
-      const value = card.querySelector('.stat-value');
-      if (value && value.textContent !== '-') {
-        value.style.transform = 'scale(1.1)';
-        value.style.transition = 'transform 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55)';
-      }
-    });
-    
-    card.addEventListener('mouseleave', () => {
-      const value = card.querySelector('.stat-value');
-      if (value) {
-        value.style.transform = 'scale(1)';
-      }
-    });
-  });
-}
-
-// 表格行动画
-function animateTableRows() {
-  const rows = document.querySelectorAll('.data-table tbody tr');
-  rows.forEach((row, index) => {
-    if (row.cells.length > 1) {
-      row.style.opacity = '0';
-      row.style.transform = 'translateX(-20px)';
-      setTimeout(() => {
-        row.style.transition = 'all 0.4s ease-out';
-        row.style.opacity = '1';
-        row.style.transform = 'translateX(0)';
-      }, index * 50);
-    }
-  });
-}
-
-// 增强按钮点击反馈
-function enhanceButtons() {
-  document.querySelectorAll('.btn').forEach(btn => {
-    btn.addEventListener('click', function(e) {
-      this.style.transform = 'scale(0.95)';
-      setTimeout(() => {
-        this.style.transform = '';
-      }, 150);
-    });
-  });
-}
-
-// 平滑滚动到顶部
-function smoothScrollToTop() {
-  window.scrollTo({
-    top: 0,
-    behavior: 'smooth'
-  });
-}
-
-// 监听标签页切换，添加动画
-const originalSwitchTab = switchTab;
-switchTab = function(tab) {
-  originalSwitchTab(tab);
-  
-  // 切换动画
-  const content = document.querySelector(`#tab-${tab}`);
-  if (content) {
-    content.style.animation = 'fadeInContent 0.4s ease-out';
-  }
-  
-  // 滚动到顶部
-  smoothScrollToTop();
-  
-  // 根据不同标签页添加特定动画
-  setTimeout(() => {
-    if (tab === 'renewal') {
-      animateTableRows();
-    } else if (tab === 'dashboard') {
-      enhanceStatCards();
-    }
-  }, 100);
 };
 
 window.addEventListener('DOMContentLoaded', ()=>{
   init();
   bindEvents();
 
-  // 增强交互效果
-  enhanceRefreshButton();
-  enhanceStatCards();
-  enhanceButtons();
-
-  // 添加页面可见性监听，切换回来时刷新数据
+  // 添加页面可见性监听
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
       const activeTab = document.querySelector('.nav-item.active');
-      if (activeTab) {
-        const tab = activeTab.dataset.tab;
-        if (tab === 'dashboard') {
-          loadDashboard();
-        }
+      if (activeTab && activeTab.dataset.tab === 'dashboard') {
+        loadDashboard();
       }
     }
   });
 });
 
 window.switchTab = switchTab;
-window.runScheduledTask = async function(){
-  try{
-    showLoading(true);
-    const r=await apiCall('/job/run',{method:'POST'});
-    showToast(`✅ 检查完成！提醒 ${r.reminded} 个群，退出 ${r.left} 个群`,'success');
-  } catch(e){
-    showToast('❌ 执行失败: '+(e&&e.message?e.message:e),'error');
-  } finally{
-    showLoading(false);
-  }
-};
-
-// 添加键盘快捷键支持
-document.addEventListener('keydown', (e) => {
-  // Ctrl/Cmd + K: 搜索
-  if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
-    e.preventDefault();
-    const searchInput = document.querySelector('#group-search');
-    if (searchInput) {
-      searchInput.focus();
-      searchInput.select();
-    }
-  }
-  
-  // Ctrl/Cmd + R: 刷新
-  if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
-    e.preventDefault();
-    const refreshBtn = document.querySelector('#refresh-btn');
-    if (refreshBtn) {
-      refreshBtn.click();
-    }
-  }
-  
-  // Ctrl/Cmd + D: 切换主题
-  if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
-    e.preventDefault();
-    const themeBtn = document.querySelector('#theme-toggle');
-    if (themeBtn) {
-      themeBtn.click();
-    }
-  }
-  
-  // ESC: 关闭模态框
-  if (e.key === 'Escape') {
-    const modal = document.querySelector('.modal:not(.hidden)');
-    if (modal) {
-      closePermJsonModal();
-    }
-  }
-});
-
-// 控制台欢迎信息
-console.log('%c🌸 今汐管理控制台', 'font-size: 24px; color: #667eea; font-weight: bold;');
-console.log('%c✨ 欢迎使用现代化管理界面', 'font-size: 14px; color: #6366f1;');
-console.log('%c快捷键提示:\n  Ctrl+K: 搜索\n  Ctrl+R: 刷新\n  Ctrl+D: 切换主题\n  ESC: 关闭弹窗', 'font-size: 12px; color: #94a3b8; line-height: 1.8;');
