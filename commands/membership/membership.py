@@ -337,7 +337,7 @@ async def _check_and_process() -> Tuple[int, int]:
                         except Exception:
                             pass
 
-                    await bot.set_group_leave(group_id=int(gid_str))
+                    await bot.set_group_leave(group_id=int(gid_str),is_dismiss=True)
                     left += 1
                     # throttle per group
                     if delay > 0:
@@ -379,7 +379,7 @@ async def _check_and_process() -> Tuple[int, int]:
                 left_success = False
                 for bot in _choose_bots(preferred):
                     try:
-                        await bot.set_group_leave(group_id=gid)
+                        await bot.set_group_leave(group_id=gid,is_dismiss=True)
                         left += 1
                         left_success = True
                         break
