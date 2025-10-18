@@ -33,7 +33,7 @@ __plugin_meta__ = PluginMetadata(
 P = Plugin(name="help", display_name="帮助", enabled=True, level="all", scene="all")
 
 # 触发：<关键词>(帮助|菜单|功能)
-matcher = P.on_regex(r"^(?:#|/)?(.*?)\s*(帮助|菜单|功能)$", name="help", priority=5, block=True, enabled=True, level="all", scene="all")
+matcher = P.on_regex(r"^(?:#|/)?(.*?)\s*(帮助|菜单|功能)$", name="help",display_name="帮助", priority=5, block=True, enabled=True, level="all", scene="all")
 
 
 @matcher.handle()

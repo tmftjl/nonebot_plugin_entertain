@@ -787,7 +787,20 @@ function renderConfigTabs() {
   if (!navContainer || !contentContainer) return;
 
   const configs = state.config || {};
-  const configKeys = Object.keys(configs).sort((a, b) => a.localeCompare(b));
+  // Sort plugin tabs by schema x-order (fallback to name)
+  const getPluginOrder = (k)=>{
+    try{
+      const root = (state.schemas && state.schemas[k]) || null;
+      const xo = root && (root['x-order'] ?? root['xOrder'] ?? root['x_order']);
+      const n = Number(xo);
+      return Number.isFinite(n) ? n : 1e9;
+    }catch{ return 1e9; }
+  };
+  const configKeys = Object.keys(configs).sort((a, b) => {
+    const oa = getPluginOrder(a), ob = getPluginOrder(b);
+    if (oa !== ob) return oa - ob;
+    return a.localeCompare(b);
+  });
 
   if (configKeys.length === 0) {
     navContainer.innerHTML = '<div class="empty-state">暂无配置项</div>';
@@ -975,7 +988,22 @@ function renderConfigForm(data, parentKey = '') {
     html += `</div>`;
   } else {
     // 对象类型
-    const entries = Object.entries(data);
+    // Sort object entries by schema x-order, then by key
+    const getOrder = (fk)=>{
+      try{
+        const n = __schemaGetNode(fk);
+        const xo = n && (n['x-order'] ?? n['xOrder'] ?? n['x_order']);
+        const num = Number(xo);
+        return Number.isFinite(num) ? num : 1e9;
+      }catch{ return 1e9; }
+    };
+    const entries = Object.entries(data).sort(([ka], [kb]) => {
+      const fa = parentKey ? `${parentKey}.${ka}` : ka;
+      const fb = parentKey ? `${parentKey}.${kb}` : kb;
+      const oa = getOrder(fa), ob = getOrder(fb);
+      if (oa !== ob) return oa - ob;
+      return String(ka).localeCompare(String(kb));
+    });
     entries.forEach(([key, value]) => {
       const fullKey = parentKey ? `${parentKey}.${key}` : key;
 
@@ -1030,6 +1058,16 @@ function __schemaGetDescription(fullKey){
   const n = __schemaGetNode(fullKey);
   if(n && n.description) return n.description;
   return '';
+}
+
+// Helper: get x-order for a schema node; large default when absent
+function __schemaGetOrder(fullKey){
+  try{
+    const n = __schemaGetNode(fullKey);
+    const xo = n && (n['x-order'] ?? n['xOrder'] ?? n['x_order']);
+    const num = Number(xo);
+    return Number.isFinite(num) ? num : 1e9;
+  }catch{ return 1e9; }
 }
 
 function renderConfigField(fullKey, value, displayKey = null) {
