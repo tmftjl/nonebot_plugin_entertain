@@ -337,7 +337,7 @@
       <div class="modal-header">
         <div class="modal-header-content">
           <div class="modal-icon">🛠</div>
-          <h3 class="modal-title">新增/续费群</h3>
+          <h3 class="modal-title" id="extend-modal-title">新增/修改群</h3>
         </div>
         <button id="extend-close" class="modal-close">✖</button>
       </div>
@@ -346,13 +346,24 @@
 
         <div class="form-group-modern">
           <label class="form-label">群号</label>
-          <input id="extend-group-id" class="form-input" placeholder="选择群时自动填充，否则手动输入" />
+          <input id="extend-group-id" class="form-input" placeholder="输入群号" />
         </div>
 
         <div class="form-group-modern">
-          <label class="form-label">续费时长</label>
+          <label class="form-label">
+            <span>到期时间</span>
+            <span class="label-hint">(格式: YYYY-MM-DD HH:mm:ss)</span>
+          </label>
+          <input id="extend-expiry-date" class="form-input" type="datetime-local" placeholder="到期时间" />
+        </div>
+
+        <div class="form-group-modern">
+          <label class="form-label">
+            <span>续费时长</span>
+            <span class="label-hint">(快捷操作,在当前到期时间基础上增加)</span>
+          </label>
           <div class="input-group">
-            <input id="extend-length" class="form-input" type="number" min="1" value="30" placeholder="时长" />
+            <input id="extend-length" class="form-input" type="number" min="0" value="0" placeholder="0表示不续费" />
             <select id="extend-unit" class="form-select">
               <option value="天">天</option>
               <option value="月">月</option>
@@ -380,7 +391,7 @@
       </div>
       <div class="modal-footer">
         <button id="extend-cancel" class="btn btn-secondary">取消</button>
-        <button id="extend-confirm" class="btn btn-primary">保存/续费</button>
+        <button id="extend-confirm" class="btn btn-primary">保存</button>
       </div>
     </div>
   </div>

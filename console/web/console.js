@@ -1259,88 +1259,136 @@ async function loadSoonThreshold(){
 async function openManualExtendModal(){
   const checkboxes = $$('.group-checkbox:checked');
   const idEl = $('#extend-group-id');
+  const expiryEl = $('#extend-expiry-date');
   const infoEl = $('#extend-selected-info');
   const curEl = $('#extend-current-info');
   const botInput = $('#extend-bot-id');
   const remarkInput = $('#extend-remark');
+  const renewerInput = $('#extend-renewer');
+  const titleEl = $('#extend-modal-title');
+  const lengthEl = $('#extend-length');
 
   // 只允许选择一个群
   if(checkboxes.length > 1){
-    showToast('新增/续费功能只能选择一个群,请重新选择','warning');
+    showToast('只能选择一个群进行操作,请重新选择','warning');
     $$('.group-checkbox').forEach(cb => cb.checked = false);
     return;
   }
 
   if(checkboxes.length === 1){
-    // 选中了一个群,填充相关信息
+    // 编辑模式 - 选中了一个群,填充所有信息
     const gid = checkboxes[0].dataset.gid;
     const g = (state.groups||[]).find(x=> String(x.gid)===String(gid));
 
     if(g){
+      titleEl.textContent = '修改群信息';
+
+      // 填充所有字段
       idEl.value = String(g.gid);
-      idEl.readOnly = true;
-      infoEl.textContent = `已选择群 ${g.gid}，将对该群进行续费操作`;
+
+      // 转换到期时间为datetime-local格式
+      if(g.expiry){
+        try{
+          const d = new Date(g.expiry);
+          const year = d.getFullYear();
+          const month = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          const hour = String(d.getHours()).padStart(2, '0');
+          const minute = String(d.getMinutes()).padStart(2, '0');
+          expiryEl.value = `${year}-${month}-${day}T${hour}:${minute}`;
+        }catch{
+          expiryEl.value = '';
+        }
+      } else {
+        expiryEl.value = '';
+      }
+
+      if(botInput && g.managed_by_bot){
+        botInput.value = String(g.managed_by_bot);
+      } else if(botInput) {
+        botInput.value = '';
+      }
+
+      if(remarkInput && g.remark){
+        remarkInput.value = String(g.remark);
+      } else if(remarkInput) {
+        remarkInput.value = '';
+      }
+
+      if(renewerInput && g.renewed_by){
+        renewerInput.value = String(g.renewed_by);
+      } else if(renewerInput) {
+        // 尝试恢复上次保存的续费人
+        try{
+          const last = localStorage.getItem("extend_renewer")||"";
+          if(last) renewerInput.value = last;
+        }catch{}
+      }
+
+      // 续费时长默认为0(修改模式)
+      lengthEl.value = "0";
+
+      infoEl.textContent = `编辑群 ${g.gid} 的信息 (ID: ${g.id || '未知'})`;
       infoEl.style.display = 'block';
 
       if(g.expiry){
         curEl.textContent = `当前到期时间：${formatDate(g.expiry)} (剩余 ${g.days} 天)`;
         curEl.style.display = 'block';
       } else {
-        curEl.style.display = 'none';
-      }
-
-      if(botInput && g.managed_by_bot){
-        botInput.value = String(g.managed_by_bot);
-      }
-
-      if(remarkInput && g.remark){
-        remarkInput.value = String(g.remark);
+        curEl.textContent = '该群尚未设置到期时间';
+        curEl.style.display = 'block';
       }
     }
   } else {
-    // 未选择群,新增模式
+    // 新增模式
+    titleEl.textContent = '新增群';
+
     idEl.value = "";
-    idEl.readOnly = false;
-    infoEl.textContent = "未选择群，请在下方输入群号进行新增操作";
+    expiryEl.value = "";
+
+    if(botInput) botInput.value = "";
+    if(remarkInput) remarkInput.value = "";
+
+    // 新增模式默认30天
+    lengthEl.value = "30";
+
+    if(renewerInput){
+      // 尝试恢复上次保存的续费人
+      try{
+        const last = localStorage.getItem("extend_renewer")||"";
+        if(last) renewerInput.value = last;
+      }catch{}
+    }
+
+    infoEl.textContent = "新增群信息，请填写群号和到期时间";
     infoEl.style.display = 'block';
     curEl.style.display = 'none';
-
-    if(botInput){
-      botInput.value = "";
-    }
-    if(remarkInput){
-      remarkInput.value = "";
-    }
   }
 
-  // 重置其他字段
-  $("#extend-length").value = "30";
+  // 重置单位
   $("#extend-unit").value = "天";
-
-  // 尝试恢复上次保存的续费人
-  try{
-    const last = localStorage.getItem("extend_renewer")||"";
-    if(last) $("#extend-renewer").value = last;
-  }catch{}
 
   openModal("extend-modal");
 }
 
 async function submitManualExtend(){
+  const checkboxes = $$('.group-checkbox:checked');
   const inputId = ($('#extend-group-id')?.value||'').trim();
-  const length = parseInt(($('#extend-length')?.value||'').trim());
+  const expiryDate = ($('#extend-expiry-date')?.value||'').trim();
+  const length = parseInt(($('#extend-length')?.value||'0').trim()) || 0;
   const unit = ($('#extend-unit')?.value||'天');
   const managed_by_bot = ($('#extend-bot-id')?.value||'').trim();
   const renewed_by = ($('#extend-renewer')?.value||'').trim();
   const remark = ($('#extend-remark')?.value||'').trim();
 
   if(!inputId){
-    showToast('请输入或选择群号','warning');
+    showToast('请输入群号','warning');
     return;
   }
 
-  if(!length || isNaN(length) || length<=0){
-    showToast('请输入正确的时长','warning');
+  const gid = parseInt(inputId);
+  if(!gid){
+    showToast('群号无效','warning');
     return;
   }
 
@@ -1350,33 +1398,68 @@ async function submitManualExtend(){
   try{
     showLoading(true);
 
-    const gid = parseInt(inputId);
-    if(!gid){
-      showToast('群号无效','warning');
-      return;
-    }
-
-    // 查找是否已存在该群的记录
+    // 判断是编辑还是新增
+    const isEdit = checkboxes.length === 1;
     const existingGroup = (state.groups||[]).find(x=> String(x.gid)===String(gid));
 
-    const body = {
-      group_id: gid,
-      length,
-      unit
-    };
+    const body = {};
 
-    if(managed_by_bot) body.managed_by_bot = managed_by_bot;
-    if(renewed_by) body.renewed_by = renewed_by;
-    if(remark) body.remark = remark;
-
-    // 如果存在记录且有id,使用id进行续费
-    if(existingGroup && existingGroup.id !== undefined){
+    // 编辑模式: 使用ID进行更新
+    if(isEdit && existingGroup && existingGroup.id !== undefined){
       body.id = existingGroup.id;
+      body.group_id = gid;  // 允许修改群号
+
+      // 处理到期时间
+      if(length > 0){
+        // 如果填了续费时长,则在原基础上续费
+        body.length = length;
+        body.unit = unit;
+      } else if(expiryDate){
+        // 如果没填续费时长但填了到期时间,直接设置到期时间
+        try{
+          const d = new Date(expiryDate);
+          body.expiry = d.toISOString();
+        }catch{
+          showToast('到期时间格式错误','warning');
+          return;
+        }
+      }
+
+      if(managed_by_bot) body.managed_by_bot = managed_by_bot;
+      if(renewed_by) body.renewed_by = renewed_by;
+      if(remark) body.remark = remark;
+
+      await apiCall('/extend', { method:'POST', body: JSON.stringify(body) });
+      showToast(`已成功修改群 ${gid} 的信息`,'success');
     }
+    // 新增模式
+    else {
+      body.group_id = gid;
 
-    await apiCall('/extend',{ method:'POST', body: JSON.stringify(body) });
+      // 新增时必须有到期时间或续费时长
+      if(length > 0){
+        body.length = length;
+        body.unit = unit;
+      } else if(expiryDate){
+        try{
+          const d = new Date(expiryDate);
+          body.expiry = d.toISOString();
+        }catch{
+          showToast('到期时间格式错误','warning');
+          return;
+        }
+      } else {
+        showToast('新增群时必须填写到期时间或续费时长','warning');
+        return;
+      }
 
-    showToast(`已成功${existingGroup ? '续费' : '新增'}群 ${gid}：+${length}${unit}`,'success');
+      if(managed_by_bot) body.managed_by_bot = managed_by_bot;
+      if(renewed_by) body.renewed_by = renewed_by;
+      if(remark) body.remark = remark;
+
+      await apiCall('/extend', { method:'POST', body: JSON.stringify(body) });
+      showToast(`已成功新增群 ${gid}`,'success');
+    }
 
     // 记住续费人
     try{ if(renewed_by) localStorage.setItem('extend_renewer', renewed_by); }catch{}
