@@ -14,7 +14,7 @@ _SICK = P.on_regex(
     r"^(?:#|/)?发病语录$",
     name="get",
     display_name="发病语录",
-    priority=12,
+    priority=5,
     block=True,
 )
 

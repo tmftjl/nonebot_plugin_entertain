@@ -11,7 +11,7 @@ _DORO = P.on_regex(
     r"^#?(?:抽取|随机)?(?:今日)?doro结局$",
     name="draw",
     display_name="doro结局",
-    priority=12,
+    priority=5,
     block=True,
 )
 

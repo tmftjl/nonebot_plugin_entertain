@@ -67,7 +67,8 @@ search_matcher = P.on_regex(
     r"^#点歌(?:(qq|酷狗|网易云|wyy|kugou|netease))?\s*(.*)$",
     name="search",
     display_name="点歌",
-    priority=12,
+    priority=5,
+    block=True,
     flags=0,
 )
 

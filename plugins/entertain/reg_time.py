@@ -21,7 +21,7 @@ _REG = P.on_regex(
     r"^#注册时间$",
     name="query",
     display_name="注册时间",
-    priority=12,
+    priority=5,
     block=True,
 )
 

@@ -7,9 +7,9 @@ from ...core.api import Plugin
 
 
 P = Plugin(name="useful", display_name="有用的")
-panel_upload = P.on_regex(r"^ww上传.*面板图$", name="upload",display_name="上传面板图提示", block=True, priority=12)
-panel_list = P.on_regex(r"^ww.*面板图列表$", name="list",display_name="面板图列表提示", block=True, priority=12)
-panel_refresh = P.on_regex(r"^ww(?:刷新|更新)?面板(?:刷新)?$",display_name="刷新面板提示", name="refresh", block=True, priority=12)
+panel_upload = P.on_regex(r"^ww上传.*面板图$", name="upload",display_name="上传面板图提示", block=True, priority=5)
+panel_list = P.on_regex(r"^ww.*面板图列表$", name="list",display_name="面板图列表提示", block=True, priority=5)
+panel_refresh = P.on_regex(r"^ww(?:刷新|更新)?面板(?:刷新)?$",display_name="刷新面板提示", name="refresh", block=True, priority=5)
 
 
 @panel_upload.handle()

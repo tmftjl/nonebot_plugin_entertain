@@ -252,10 +252,10 @@ def _get_or_create_today_fortune(user_id: str) -> Tuple[Dict[str, Any], bool]:
 
 
 fortune_cmd = P.on_regex(
-    r"^(#|/)?(?:今日运势|运势|抽签)$",
+    r"^(#|/)(?:今日运势|运势|抽签)$",
     name="today",
     display_name="今日运势",
-    priority=12,
+    priority=5,
     block=True,
 )
 

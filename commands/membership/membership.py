@@ -47,7 +47,8 @@ P = Plugin(name="core", category="system", enabled=True, level="all", scene="all
 login_cmd = P.on_regex(
     r"^今汐登录$",
     name="console_login",
-    priority=12,
+    priority=5,
+    block=True,
     permission=SUPERUSER,
     enabled=True,
     level="superuser",
@@ -73,7 +74,8 @@ async def _(matcher: Matcher, event: MessageEvent):
 gen_code_cmd = P.on_regex(
     r"^ww生成续费码(\d+)(天|月|年)$",
     name="gen_code",
-    priority=12,
+    priority=5,
+    block=True,
     permission=SUPERUSER,
     enabled=True,
     level="superuser",
@@ -112,7 +114,8 @@ async def _(matcher: Matcher, event: MessageEvent):
 redeem_cmd = P.on_regex(
     r"^ww续费(\d+)(天|月|年)-([A-Za-z0-9_]+)$",
     name="redeem",
-    priority=12,
+    priority=5,
+    block=True,
     enabled=True,
     level="all",
     scene="group",
@@ -177,7 +180,7 @@ async def _(matcher: Matcher, event: MessageEvent):
 check_group = P.on_regex(
     r"^ww到期$",
     name="check_group",
-    priority=12,
+    priority=5,
     block=True,
     enabled=True,
     level="all",
@@ -215,7 +218,8 @@ async def _(_: Matcher, event: MessageEvent):
 prompt = P.on_regex(
     r"^ww(拉群|续费)$",
     name="prompt",
-    priority=12,
+    priority=5,
+    block=True,
     enabled=True,
     level="all",
     scene="all",
@@ -233,7 +237,8 @@ async def _(_: Matcher):
 manual_check = P.on_regex(
     r"^ww检查会员$",
     name="manual_check",
-    priority=12,
+    priority=5,
+    block=True,
     permission=P.permission_cmd("manual_check"),
     enabled=True,
     level="superuser",

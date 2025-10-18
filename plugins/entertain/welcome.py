@@ -217,7 +217,7 @@ def _render_welcome_content(group_key: Optional[str], s: str) -> Message:
 # ---------- commands ----------
 
 set_welcome = P.on_regex(
-    r"^(?:#)?设置欢迎(?:\s*(.+))?$", name="set", display_name="设置欢迎", block=True, priority=12
+    r"^(?:#)设置欢迎(?:\s*(.+))?$", name="set", display_name="设置欢迎", block=True, priority=5
 )
 
 
@@ -263,7 +263,7 @@ async def _(matcher: Matcher, bot: Bot, event: MessageEvent, groups: tuple = Reg
 
 
 show_welcome = P.on_regex(
-    r"^(?:#)?查看欢迎$", name="show", display_name="查看欢迎", block=True, priority=12
+    r"^(?:#)?查看欢迎$", name="show", display_name="查看欢迎", block=True, priority=5
 )
 
 
@@ -282,7 +282,7 @@ async def _(matcher: Matcher, event: MessageEvent):
 
 
 enable_welcome = P.on_regex(
-    r"^(?:#)?开启欢迎$", display_name="开启欢迎", name="enable", block=True, priority=12
+    r"^(?:#)?开启欢迎$", display_name="开启欢迎", name="enable", block=True, priority=5
 )
 
 
@@ -300,7 +300,7 @@ async def _(matcher: Matcher, event: MessageEvent):
 
 
 disable_welcome = P.on_regex(
-    r"^(?:#)?关闭欢迎$", display_name="关闭欢迎", name="disable", block=True, priority=12
+    r"^(?:#)?关闭欢迎$", display_name="关闭欢迎", name="disable", block=True, priority=5
 )
 
 

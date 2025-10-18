@@ -21,7 +21,7 @@ _UPDATE = P.on_regex(
     r"^#?DF(?:安装|(?:强制)?更新)(?:戳一戳)?图库$",
     name="update_gallery",
     display_name="DF更新入库",
-    priority=12,
+    priority=5,
     block=True,
 )
 

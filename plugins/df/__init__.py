@@ -120,7 +120,7 @@ _PIC = P.on_regex(
     _build_picture_regex(),
     name="pictures_api",
     display_name="看看腿",
-    priority=12,
+    priority=5,
     block=True,
 )
 
@@ -150,7 +150,7 @@ async def _(matcher: Matcher, event: MessageEvent):
 _LOCAL_PIC = P.on_regex(
     r"^#?(?:来张|看看|随机)\s*(\S+)$",
     name="pictures_local",
-    priority=12,
+    priority=5,
     block=False,
     display_name="随机本地表情",
 )
@@ -171,7 +171,7 @@ async def _(matcher: Matcher, event: MessageEvent):
 
 _LIST = P.on_regex(
     r"^#?DF(?:随机)?表情包列表$",
-    priority=12,
+    priority=5,
     block=True,
     name="pictures_list",
     display_name="随机表情列表",
@@ -256,7 +256,7 @@ def _save_contact(data: Dict[str, Any]) -> None:
 
 _CONTACT = P.on_regex(
     r"^#联系主人",
-    priority=12,
+    priority=5,
     block=True,
     name="contact",
     display_name="联系主人",
@@ -324,7 +324,7 @@ async def _(matcher: Matcher, bot: Bot, event: MessageEvent):
 
 _REPLY = P.on_regex(
     r"^#回复(\S+)\s+([\s\S]+)$",
-    priority=12,
+    priority=5,
     block=True,
     name="reply",
     display_name="回复",
