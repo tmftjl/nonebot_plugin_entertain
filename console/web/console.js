@@ -1268,7 +1268,6 @@ async function openManualExtendModal(){
   const checkboxes = $$('.group-checkbox:checked');
   const idEl = $('#extend-group-id');
   const expiryEl = $('#extend-expiry-date');
-  const infoEl = $('#extend-selected-info');
   const curEl = $('#extend-current-info');
   const botInput = $('#extend-bot-id');
   const remarkInput = $('#extend-remark');
@@ -1339,9 +1338,6 @@ async function openManualExtendModal(){
       // 续费时长默认为0(修改模式)
       lengthEl.value = "0";
 
-      infoEl.textContent = `编辑群 ${g.gid} 的信息 (ID: ${g.id || '未知'})`;
-      infoEl.style.display = 'block';
-
       if(g.expiry){
         curEl.textContent = `当前到期时间：${formatDate(g.expiry)} (剩余 ${g.days} 天)`;
         curEl.style.display = 'block';
@@ -1370,9 +1366,6 @@ async function openManualExtendModal(){
         if(last) renewerInput.value = last;
       }catch{}
     }
-
-    infoEl.textContent = "新增群信息，请填写群号和到期时间";
-    infoEl.style.display = 'block';
     curEl.style.display = 'none';
   }
 
