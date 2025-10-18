@@ -907,6 +907,13 @@ def bootstrap_configs() -> None:
     - 预加载所有已注册的配置到内存缓存
     """
     _config_manager.bootstrap()
+    # Populate permissions effective cache once at startup; avoid repeated scans later
+    try:
+        from .perm import prime_permissions_cache
+        prime_permissions_cache()
+    except Exception:
+        # best-effort; runtime will fall back to empty perms (allow all)
+        pass
 
 def reload_all_configs() -> Tuple[bool, Dict[str, Any]]:
     """重载所有已注册的插件配置和权限配置。

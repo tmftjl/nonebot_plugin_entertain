@@ -82,35 +82,9 @@ def _deep_fill(user: Dict[str, Any] | None, defaults: Dict[str, Any] | None) -> 
 
 
 def _load_cfg() -> Dict[str, Any]:
-    try:
-        ensure_permissions_file()
-    except Exception:
-        pass
-
-    try:
-        current = permissions_store.get()
-        if not isinstance(current, dict):
-            current = {}
-    except Exception:
-        current = {}
-
-    try:
-        defaults = _default_config()
-    except Exception:
-        defaults = {}
-
-    def _loader() -> Dict[str, Any]:
-        nonlocal current, defaults
-        try:
-            merged = _deep_fill(current if isinstance(current, dict) else {}, defaults if isinstance(defaults, dict) else {})
-            if json.dumps(merged, sort_keys=True, ensure_ascii=False) != json.dumps(current if isinstance(current, dict) else {}, sort_keys=True, ensure_ascii=False):
-                # Persist filled defaults, but do not auto-reload runtime state
-                save_permissions(merged)
-        except Exception:
-            merged = current if isinstance(current, dict) else {}
-        return merged
-
-    eff = _eff_perm_cache.get("effective", loader=_loader)
+    # Runtime path: strictly read from in-memory cache, which should be
+    # populated during startup. Avoid any filesystem or scanning work here.
+    eff = _eff_perm_cache.get("effective")
     return eff or {}
 
 
@@ -297,10 +271,52 @@ def permission_for_cmd(plugin: str, command: str, *, category: str = "sub") -> P
 
 
 def reload_permissions() -> None:
-    # Reload on-disk permissions and invalidate derived cache for immediate effect
-    permissions_store.reload()
+    # Lightweight reload: adopt the on-disk permissions as the effective state
+    # without rescanning defaults. Keep cache and store in sync.
     try:
-        _eff_perm_cache.invalidate("effective")
+        permissions_store.reload()
+        current = permissions_store.get()
+        if not isinstance(current, dict):
+            current = {}
     except Exception:
-        # best-effort; cache will expire shortly by TTL
+        current = {}
+    _eff_perm_cache.set("effective", current)
+
+
+def prime_permissions_cache() -> None:
+    """One-shot initialization at startup.
+
+    - Ensure the permissions file exists
+    - Scan defaults once and merge with existing file
+    - Persist the merged result back to disk
+    - Populate in-memory cache for fast runtime checks
+    """
+    try:
+        ensure_permissions_file()
+    except Exception:
         pass
+
+    try:
+        current = permissions_store.get()
+        if not isinstance(current, dict):
+            current = {}
+    except Exception:
+        current = {}
+
+    try:
+        defaults = _default_config()
+    except Exception:
+        defaults = {}
+
+    try:
+        merged = _deep_fill(current, defaults)
+    except Exception:
+        merged = current or {}
+
+    # Persist and cache
+    try:
+        save_permissions(merged)
+        permissions_store.reload()
+    except Exception:
+        pass
+    _eff_perm_cache.set("effective", merged)
