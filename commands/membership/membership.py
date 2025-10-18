@@ -292,6 +292,41 @@ async def _check_and_process() -> Tuple[int, int]:
     changed = False
     keys_to_remove: list[str] = []
 
+    # 先处理“不在会员数据库中的群”——通过 Bot 实时群列表比对
+    try:
+        present_groups: set[str] = set()
+        # 汇总所有在线 Bot 的群列表
+        for bot in _choose_bots(None):
+            try:
+                gl = await bot.get_group_list()  # type: ignore[attr-defined]
+                for g in gl or []:
+                    try:
+                        gid = int((g.get("group_id") if isinstance(g, dict) else getattr(g, "group_id", 0)) or 0)
+                        if gid:
+                            present_groups.add(str(gid))
+                    except Exception:
+                        continue
+            except Exception as e:
+                logger.debug(f"get_group_list failed: {e}")
+                continue
+
+        # 计算非会员群：不在数据库中的群记录
+        member_keys = {k for k, v in data.items() if k != "generatedCodes" and isinstance(v, dict)}
+        non_member_groups = {gid for gid in present_groups if gid not in member_keys}
+
+        for gid_str in sorted(non_member_groups):
+            # 逐个尝试让 Bot 退群
+            for bot in _choose_bots(None):
+                try:
+                    await bot.set_group_leave(group_id=int(gid_str))
+                    left += 1
+                    break
+                except Exception as e:
+                    logger.debug(f"leave non-member failed {gid_str}: {e}")
+                    continue
+    except Exception as e:
+        logger.debug(f"non-member leave pass failed: {e}")
+
     for k, v in data.items():
         if k == "generatedCodes" or not isinstance(v, dict):
             continue
