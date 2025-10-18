@@ -37,15 +37,15 @@ function showLoading(show=true){ const o=$('#loading-overlay'); if(o) o.classLis
 function formatDate(s){ if(!s) return '-'; try{ const d=new Date(s); return d.toLocaleString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});}catch{return s;}}
 function daysRemaining(s){ try{ const e=new Date(s), n=new Date(); e.setHours(0,0,0,0); n.setHours(0,0,0,0); return Math.round((e-n)/86400000);}catch{return 0;} }
 // 鍗冲皢鍒版湡闃堝€硷細榛樿 7 澶╋紱浠庣郴缁熼厤缃姩鎬佽鍙栬鐩?let SOON_THRESHOLD_DAYS = 7;
-function getStatusLabel(days){ if(days<0) return '<span class="status-badge status-expired">宸插埌鏈?/span>'; if(days===0) return '<span class="status-badge status-today">浠婃棩鍒版湡</span>'; if(days<=SOON_THRESHOLD_DAYS) return '<span class="status-badge status-soon">鍗冲皢鍒版湡</span>'; return '<span class="status-badge status-active">鏈夋晥</span>'; }
+function getStatusLabel(days){ if(days<0) return "<span class=\"status-badge status-expired\">\u5DF2\u5230\u671F</span>"; if(days===0) return "<span class=\"status-badge status-today\">\u4ECA\u65E5\u5230\u671F</span>"; if(days<=SOON_THRESHOLD_DAYS) return "<span class=\"status-badge status-soon\">\u5373\u5C06\u5230\u671F</span>"; return "<span class=\"status-badge status-active\">\u6709\u6548</span>"; }
 function maskCode(code){ if(!code) return ''; return String(code).slice(0,4)+'****'+String(code).slice(-4); }
-function normalizeUnit(u){ const x=String(u||'').trim().toLowerCase(); if(['d','day','澶?].includes(x)) return '澶?; if(['m','month','鏈?].includes(x)) return '鏈?; if(['y','year','骞?].includes(x)) return '骞?; return '澶?; }
-async function copyText(text){
-  try{
-    if(navigator.clipboard && navigator.clipboard.writeText){
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
+function normalizeUnit(u){
+  const x = String(u||'').trim().toLowerCase();
+  if(['d','day','\u5929'].includes(x)) return '\u5929';
+  if(['m','month','\u6708'].includes(x)) return '\u6708';
+  if(['y','year','\u5E74'].includes(x)) return '\u5E74';
+  return '\u5929';
+}
   }catch{}
   try{
     const ta=document.createElement('textarea');
@@ -148,9 +148,9 @@ function renderGroupsTable(){
       <td>${formatDate(g.expiry)}</td>
       <td>${g.days}</td>
       <td>
-        <button class="btn-action btn-remind" data-gid="${g.gid}">鎻愰啋</button>
-        <button class="btn-action btn-extend" data-gid="${g.gid}">+30澶?/button>
-        <button class="btn-action btn-leave" data-gid="${g.gid}">閫€缇?/button>
+        <button class="btn-action btn-remind" data-gid="${g.gid}">\u63D0\u9192</button>
+        <button class="btn-action btn-extend" data-gid="${g.gid}">+30\u5929</button>
+        <button class="btn-action btn-leave" data-gid="${g.gid}">\u9000\u51FA</button>
       </td>
     </tr>`).join('') : '<tr><td colspan="6" class="text-center">鏆傛棤鏁版嵁</td></tr>';
 
@@ -1197,7 +1197,7 @@ function closeModal(id){ const m = document.getElementById(id); if(m) m.classLis
 
 function openNotifyModal(){
   const ids = selectedGroupIds();
-  if(!ids.length){ showToast('璇峰厛鍕鹃€夎閫氱煡鐨勭兢','warning'); return; }
+  if(!ids.length){ showToast('\u8BF7\u5148\u52FE\u9009\u8981\u901A\u77E5\u7684\u7FA4','warning'); return; }
   $('#notify-selected-count').textContent = String(ids.length);
   $('#notify-text').value = '';
   const file = $('#notify-images'); if(file) file.value = '';
@@ -1217,10 +1217,10 @@ async function filesToBase64List(fileInput){
 
 async function sendNotify(){
   const ids = selectedGroupIds();
-  if(!ids.length){ showToast('鏈€夋嫨浠讳綍缇?,'warning'); return; }
+  if(!ids.length){ showToast('\u672A\u9009\u62E9\u4EFB\u4F55\u7FA4','warning'); return; }
   const text = ($('#notify-text')?.value||'').trim();
   const imgs = await filesToBase64List($('#notify-images'));
-  if(!text && (!imgs || !imgs.length)){ showToast('璇峰～鍐欐枃鏈垨閫夋嫨鍥剧墖','warning'); return; }
+  if(!text && (!imgs || !imgs.length)){ showToast('\u8BF7\u586B\u5199\u6587\u672C\u6216\u9009\u62E9\u56FE\u7247','warning'); return; }
 
   // 绔嬪嵆鍏抽棴寮圭獥,闃叉閲嶅鐐瑰嚮
   closeModal('notify-modal');
@@ -1257,19 +1257,19 @@ async function openManualExtendModal(){
   if(ids.length){
     const g = (state.groups||[]).find(x=> String(x.id)===String(ids[0]));
     idEl.value = g ? String(g.gid) : "";
-    if(infoEl) infoEl.textContent = `已选择 ${ids.length} 个群，将按所选记录续费；未选择则按输入群号新增`;
-    if(g && g.expiry){ curEl.textContent = `当前到期：${formatDate(g.expiry)}`; } else { curEl.textContent = ""; }
+    if(infoEl) infoEl.textContent = "\u5DF2\u9009\u62E9 "+ids.length+" \u4E2A\u7FA4\uFF0C\u5C06\u6309\u6240\u9009\u8BB0\u5F55\u7EED\u8D39\uFF1B\u672A\u9009\u62E9\u5219\u6309\u8F93\u5165\u7FA4\u53F7\u65B0\u589E";
+    if(g && g.expiry){ curEl.textContent = "\u5F53\u524D\u5230\u671F\uFF1A"+formatDate(g.expiry); } else { curEl.textContent = ""; }
     const botInput = document.getElementById("extend-bot-id");
     if(botInput){ botInput.value = (g && g.managed_by_bot) ? String(g.managed_by_bot) : ""; }
   } else {
     idEl.value = "";
-    if(infoEl) infoEl.textContent = "未选择群，可在下方输入群号进行新增";
+    if(infoEl) infoEl.textContent = "\u672A\u9009\u62E9\u7FA4\uFF0C\u53EF\u5728\u4E0B\u65B9\u8F93\u5165\u7FA4\u53F7\u8FDB\u884C\u65B0\u589E";
     if(curEl) curEl.textContent = "";
     const botInput = document.getElementById("extend-bot-id");
     if(botInput){ botInput.value = ""; }
   }
   $("#extend-length").value = "30";
-  $("#extend-unit").value = "天";
+  $("#extend-unit").value = "\u5929";
   try{ const last = localStorage.getItem("extend_renewer")||""; if(last) $("#extend-renewer").value = last; }catch{}
   const remarkEl = document.getElementById("extend-remark"); if(remarkEl) remarkEl.value = "";
   openModal("extend-modal");
@@ -1282,7 +1282,7 @@ async function submitManualExtend(){
   const unit = ($('#extend-unit')?.value||'澶?);
   const managed_by_bot = ($('#extend-bot-id')?.value||'').trim();
   const renewed_by = ($('#extend-renewer')?.value||'').trim();
-  if(!ids.length && !inputId){ showToast('请先选择群，或填写群号','warning'); return; }
+  if(!ids.length && !inputId){ showToast('\u8BF7\u5148\u9009\u62E9\u7FA4\uFF0C\u6216\u586B\u5199\u7FA4\u53F7','warning'); return; }
   if(!length || isNaN(length) || length<=0){ showToast('璇疯緭鍏ユ纭殑鏃堕暱','warning'); return; }
 
   // 绔嬪嵆鍏抽棴寮圭獥,闃叉閲嶅鐐瑰嚮
@@ -1300,15 +1300,14 @@ async function submitManualExtend(){
       }
     } else {
       const gid = parseInt(inputId);
-      if(!gid){ showToast('群号无效','warning'); return; }
+      if(!gid){ showToast('\u7FA4\u53F7\u65E0\u6548','warning'); return; }
       const body = { group_id: gid, length, unit };
       if(managed_by_bot) body.managed_by_bot = managed_by_bot;
       if(renewed_by) body.renewed_by = renewed_by;
       if(remark) body.remark = remark;
       await apiCall('/extend',{ method:'POST', body: JSON.stringify(body) });
     }
-    showToast(`宸插鐞?${ids.length} 涓兢锛?${length}${unit}`,'success');
-    // 璁颁綇缁垂浜?    try{ if(renewed_by) localStorage.setItem('extend_renewer', renewed_by); }catch{}
+    showToast('\u5DF2\u5904\u7406 '+ids.length+' \u4E2A\u7FA4\uFF1A+'+length+unit,'success');
     await loadRenewalData();
   }catch(e){
     showToast('鎿嶄綔澶辫触: '+(e&&e.message?e.message:e),'error');
@@ -1364,9 +1363,8 @@ function bindEvents(){
         if(btn.classList.contains('btn-remind')){
           await remindGroups([gid]); showToast(`宸插悜缇?${gid} 鍙戦€佹彁閱抈,'success');
         } else if(btn.classList.contains('btn-extend')){
-          if(!rid){ showToast('记录ID缺失，无法续费','error'); return; } await apiCall('/extend',{method:'POST', body: JSON.stringify({ id: rid, length:30, unit:'天'})});
-          showToast(`宸蹭负缇?${gid} 寤堕暱30澶ー,'success'); await loadRenewalData();
-        } else if(btn.classList.contains('btn-leave')){
+          if(!rid){ showToast('\\u8BB0\\u5F55ID\\u7F3A\\u5931\\uFF0C\\u65E0\\u6CD5\\u7EED\\u8D39','error'); return; } await apiCall('/extend',{method:'POST', body: JSON.stringify({ id: rid, length:30, unit:'\\u5929'})});
+          showToast('\\u5DF2\\u4E3A\\u7FA4 '+gid+' \\u5EF6\\u957F30\\u5929','success'); await loadRenewalData();
           if(!confirm(`纭璁╂満鍣ㄤ汉閫€鍑虹兢 ${gid}?`)) return; await leaveGroups([gid]);
           showToast(`宸查€€鍑虹兢 ${gid}`,'success'); await loadRenewalData();
         }
