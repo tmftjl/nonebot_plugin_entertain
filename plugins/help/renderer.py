@@ -87,7 +87,7 @@ def _build_html(
     footer_text = (
         footer
         if (footer is not None and str(footer).strip() != "")
-        else "Created by TRSS-Yunzai & (style) Yenai-Plugin | Rendered by Playwright"
+        else "Created by dggb | Rendered by Playwright"
     )
 
     html = f"""

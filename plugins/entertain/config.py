@@ -93,8 +93,8 @@ ENTERTAIN_SCHEMA: Dict[str, Any] = {
     "properties": {
         "box": {
             "type": "object",
-            "title": "盒子回复",
-            "description": "开启后在加群/退群等事件中自动生成图片或文本回复",
+            "title": "开盒",
+            "description": "开盒",
             "x-order": 1,
             "x-collapse": True,  # 前端可以折叠显示
             "properties": {
@@ -115,17 +115,10 @@ ENTERTAIN_SCHEMA: Dict[str, Any] = {
                 },
                 "increase_box": {
                     "type": "boolean",
-                    "title": "入群欢迎",
-                    "description": "新成员进群时发送欢迎盒",
+                    "title": "入群自动开盒",
+                    "description": "新成员进群时自动开盒",
                     "default": False,
                     "x-order": 3,
-                },
-                "decrease_box": {
-                    "type": "boolean",
-                    "title": "退群提示",
-                    "description": "成员退群时发送提示盒",
-                    "default": False,
-                    "x-order": 4,
                 },
                 "auto_box_groups": {
                     "type": "array",
@@ -194,15 +187,15 @@ ENTERTAIN_SCHEMA: Dict[str, Any] = {
             "properties": {
                 "sick_quote_api": {
                     "type": "string",
-                    "title": "病娇语录API",
-                    "description": "病娇语录接口地址",
+                    "title": "发病语录API",
+                    "description": "发病语录接口地址",
                     "default": "https://oiapi.net/API/SickL/",
                     "x-order": 1,
                 },
                 "doro_api": {
                     "type": "string",
-                    "title": "多萝西API",
-                    "description": "多萝西语录接口地址",
+                    "title": "doro结局API",
+                    "description": "doro结局接口地址",
                     "default": "https://doro-api.hxxn.cc/get",
                     "x-order": 2,
                 },
@@ -224,8 +217,8 @@ ENTERTAIN_SCHEMA: Dict[str, Any] = {
             "properties": {
                 "sick_quote_timeout": {
                     "type": "integer",
-                    "title": "病娇语录超时",
-                    "description": "病娇语录API请求超时(秒)",
+                    "title": "发病语录超时",
+                    "description": "发病语录API请求超时(秒)",
                     "default": 15,
                     "minimum": 1,
                     "maximum": 60,
@@ -233,8 +226,8 @@ ENTERTAIN_SCHEMA: Dict[str, Any] = {
                 },
                 "doro_api_timeout": {
                     "type": "integer",
-                    "title": "多萝西超时",
-                    "description": "多萝西API请求超时(秒)",
+                    "title": "doro结局超时",
+                    "description": "doro结局请求超时(秒)",
                     "default": 15,
                     "minimum": 1,
                     "maximum": 60,

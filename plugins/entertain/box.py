@@ -431,28 +431,7 @@ async def _on_increase(bot: Bot, event: GroupIncreaseNoticeEvent):  # type: igno
                 return
         user_id = str(event.user_id)
         msg = await _do_box(bot, target_id=user_id, group_id=group_id)
-        await _notice_increase.finish(msg)
     except Exception:
         # do not block other notice handlers
         return
-
-
-_notice_decrease = on_notice()
-
-
-@_notice_decrease.handle()
-async def _on_decrease(bot: Bot, event: GroupDecreaseNoticeEvent):  # type: ignore[valid-type]
-    try:
-        if not _cfg_get("decrease_box"):
-            return
-        if str(event.sub_type) != "leave":
-            return
-        group_id = str(event.group_id)
-        if _cfg_get("auto_box_groups"):
-            if str(group_id) not in {str(g) for g in _cfg_get("auto_box_groups", [])}:
-                return
-        user_id = str(event.user_id)
-        msg = await _do_box(bot, target_id=user_id, group_id=group_id)
-        await _notice_decrease.finish(msg)
-    except Exception:
-        return
+    await _notice_increase.finish(msg)

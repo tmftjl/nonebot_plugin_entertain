@@ -1,5 +1,5 @@
 {
-  "title": "今汐机器人帮助",
+  "title": "今汐机器人帮助(所有需要@的都要@在最后面才能生效)",
   "sub_title": "Nonebot2 & 今汐",
   "footer": "dggb 强力驱动",
   "col_count": 3,
@@ -25,7 +25,7 @@
         {"icon": 11, "title": "#发病语录", "desc": "发病语录"},
         {"icon": 12, "title": "#盒", "desc": "开盒自己或群友"},
         {"icon": 13, "title": "#注册时间", "desc": "查询qq信息"},
-        {"icon": 14, "title": "#联系主人", "desc": "联系主人"},
+        {"icon": 14, "title": "#联系主人", "desc": "联系主人"}
       ]
     },
     {

@@ -30,12 +30,6 @@ def _auth(request: Request) -> dict:
     ip = request.client.host if request and request.client else ""
     return {"role": "admin", "token_tail": "", "ip": ip, "request": request}
 
-
-def _contact_suffix() -> str:
-    cfg = load_cfg()
-    return str(cfg.get("member_renewal_contact_suffix", " 咨询/加入交流QQ群：757463664 联系群管") or "")
-
-
 def setup_web_console() -> None:
     try:
         if not bool(load_cfg().get("member_renewal_console_enable", False)):

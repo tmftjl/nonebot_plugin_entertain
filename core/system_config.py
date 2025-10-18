@@ -19,15 +19,11 @@ SYSTEM_DEFAULTS: Dict[str, Any] = {
     # 提醒行为
     "member_renewal_reminder_days_before": 7,
     "member_renewal_daily_remind_once": True,
-    "member_renewal_contact_suffix": " 咨询/加入交流QQ群：757463664 联系群管",
     "member_renewal_remind_template": "本群会员将在 {days} 天后到期（{expiry}），请尽快联系管理员续费",
     "member_renewal_soon_threshold_days": 7,
     # 到期处理
     "member_renewal_auto_leave_on_expire": True,
     "member_renewal_leave_mode": "leave",
-    "member_renewal_default_bot_id": "",
-    # 控制台可用 Bot 列表：[{"bot_id": str, "bot_name": str?}]
-    "member_renewal_bots": [],
     # 控制台/网页
     "member_renewal_console_enable": True,
     "member_renewal_console_host": "http://localhost:8080",
@@ -38,8 +34,6 @@ SYSTEM_DEFAULTS: Dict[str, Any] = {
     "member_renewal_code_random_len": 6,  # 随机码长度（十六进制字符）
     "member_renewal_code_expire_days": 0,  # 过期天数（0 表示永久）
     "member_renewal_code_max_use": 1,
-    # 导出字段
-    "member_renewal_export_fields": ["group_id", "expiry", "status", "last_renewed_by"],
 }
 
 
@@ -123,15 +117,6 @@ SYSTEM_SCHEMA: Dict[str, Any] = {
             "x-group": "提醒行为",
             "x-order": 11
         },
-        "member_renewal_contact_suffix": {
-            "type": "string",
-            "title": "提醒尾注",
-            "description": "拼接在提醒消息末尾的联系信息（例如QQ群）",
-            "default": " 咨询/加入交流QQ群：757463664 联系群管",
-            "x-group": "提醒行为",
-            "x-widget": "textarea",
-            "x-order": 12
-        },
         "member_renewal_remind_template": {
             "type": "string",
             "title": "提醒模板",
@@ -168,31 +153,6 @@ SYSTEM_SCHEMA: Dict[str, Any] = {
             "default": "leave",
             "x-group": "到期处理",
             "x-order": 21
-        },
-
-        # Bot 列表与控制台
-        "member_renewal_default_bot_id": {
-            "type": "string",
-            "title": "默认Bot ID",
-            "description": "部分操作的默认 Bot（留空则取任一在线 Bot）",
-            "default": "",
-            "x-group": "控制台",
-            "x-order": 30
-        },
-        "member_renewal_bots": {
-            "type": "array",
-            "title": "可用Bot列表",
-            "description": "控制台中可供选择的 Bot 列表",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "bot_id": {"type": "string", "title": "Bot ID"},
-                    "bot_name": {"type": "string", "title": "Bot 名称"}
-                }
-            },
-            "default": [],
-            "x-group": "控制台",
-            "x-order": 31
         },
         "member_renewal_console_enable": {
             "type": "boolean",
@@ -255,17 +215,6 @@ SYSTEM_SCHEMA: Dict[str, Any] = {
             "x-group": "续费码",
             "x-order": 43
         },
-
-        # 导出
-        "member_renewal_export_fields": {
-            "type": "array",
-            "title": "导出字段",
-            "description": "控制导出数据中包含的字段名",
-            "items": {"type": "string"},
-            "default": ["group_id", "expiry", "status", "last_renewed_by"],
-            "x-group": "导出",
-            "x-order": 50
-        }
     }
 }
 
