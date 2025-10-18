@@ -308,14 +308,18 @@ async def _check_and_process() -> Tuple[int, int]:
         # 已过期
         if days < 0 and status != "expired":
             if bool(cfg.get("member_renewal_auto_leave_on_expire", True)):
+                # 读取退群模式配置
+                leave_mode = str(cfg.get("member_renewal_leave_mode", "leave") or "leave").lower()
+                is_dismiss = (leave_mode == "dismiss")
+
                 preferred = v.get("managed_by_bot")
                 for bot in _choose_bots(preferred):
                     try:
-                        await bot.set_group_leave(group_id=gid, is_dismiss=False)
+                        await bot.set_group_leave(group_id=gid, is_dismiss=is_dismiss)
                         left += 1
                         break
                     except Exception as e:
-                        logger.debug(f"退群失败 {gid}: {e}")
+                        logger.debug(f"退群失败 {gid} (is_dismiss={is_dismiss}): {e}")
                         continue
             v["status"] = "expired"
             v["expired_at"] = _now_utc().isoformat()
@@ -325,7 +329,17 @@ async def _check_and_process() -> Tuple[int, int]:
         # 即将到期提醒
         if 0 <= days <= reminder_days and status != "expired":
             last = v.get("last_reminder_on")
-            if last != today:
+
+            # 检查是否每日仅提醒一次
+            daily_remind_once = bool(cfg.get("member_renewal_daily_remind_once", True))
+            should_remind = True
+
+            if daily_remind_once:
+                # 启用每日仅提醒一次：检查是否今天已提醒
+                should_remind = (last != today)
+            # else: 不启用时，每次检查都提醒（不检查 last）
+
+            if should_remind:
                 preferred = v.get("managed_by_bot")
                 if days == 0:
                     content = (
@@ -368,3 +382,48 @@ async def _check_and_process() -> Tuple[int, int]:
     if changed:
         await _write_data(data)
     return reminders, left
+
+
+# ===== 配置重载回调 =====
+def _reload_membership_scheduler():
+    """配置重载时重新调度定时任务"""
+    try:
+        from nonebot_plugin_apscheduler import scheduler  # type: ignore
+
+        cfg = load_cfg()
+        enable = bool(cfg.get("member_renewal_enable_scheduler", True))
+        if not enable:
+            try:
+                scheduler.remove_job("membership_check")  # type: ignore
+                logger.info("[membership] 定时任务已禁用")
+            except Exception:
+                pass
+            return
+
+        hour = int(cfg.get("member_renewal_schedule_hour", 12) or 12)
+        minute = int(cfg.get("member_renewal_schedule_minute", 0) or 0)
+        second = int(cfg.get("member_renewal_schedule_second", 0) or 0)
+
+        scheduler.add_job(  # type: ignore
+            _membership_job,
+            trigger="cron",
+            hour=hour,
+            minute=minute,
+            second=second,
+            id="membership_check",
+            replace_existing=True,
+        )
+        logger.info(
+            f"[membership] 配置重载：定时任务已更新为 {hour:02d}:{minute:02d}:{second:02d}"
+        )
+    except Exception as e:
+        logger.debug(f"[membership] 配置重载失败: {e}")
+
+
+# 注册配置重载回调
+try:
+    from ...core.framework.config import register_reload_callback
+    register_reload_callback("system", _reload_membership_scheduler)
+    logger.debug("[membership] 已注册配置重载回调")
+except Exception as e:
+    logger.debug(f"[membership] 注册配置重载回调失败: {e}")

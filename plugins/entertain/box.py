@@ -155,9 +155,13 @@ async def _do_box(bot: Bot, *, target_id: str, group_id: Optional[str]) -> Messa
 
 
 async def _get_avatar_bytes(user_id: str) -> Optional[bytes]:
-    url = f"https://q4.qlogo.cn/headimg_dl?dst_uin={user_id}&spec=640"
+    cfg = cfg_box()
+    url_template = str(cfg.get("avatar_api_url") or "https://q4.qlogo.cn/headimg_dl?dst_uin={user_id}&spec=640")
+    url = url_template.format(user_id=user_id)
+    timeout_seconds = int(cfg.get("avatar_fetch_timeout") or 10)
+
     try:
-        timeout = httpx.Timeout(10.0, connect=10.0)
+        timeout = httpx.Timeout(float(timeout_seconds), connect=float(timeout_seconds))
         async with httpx.AsyncClient(timeout=timeout) as client:
             r = await client.get(url)
             r.raise_for_status()

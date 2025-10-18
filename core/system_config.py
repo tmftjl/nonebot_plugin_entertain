@@ -30,6 +30,7 @@ SYSTEM_DEFAULTS: Dict[str, Any] = {
     "member_renewal_bots": [],
     # 控制台/网页
     "member_renewal_console_enable": True,
+    "member_renewal_console_host": "http://localhost:8080",
     # 可选：统计服务 API 地址（供网页端转发）
     "member_renewal_stats_api_url": "http://127.0.0.1:8000",
     # 续费码生成
@@ -201,13 +202,21 @@ SYSTEM_SCHEMA: Dict[str, Any] = {
             "x-group": "控制台",
             "x-order": 32
         },
+        "member_renewal_console_host": {
+            "type": "string",
+            "title": "控制台访问地址",
+            "description": "控制台的完整URL地址,用于生成二维码等",
+            "default": "http://localhost:8080",
+            "x-group": "控制台",
+            "x-order": 33
+        },
         "member_renewal_stats_api_url": {
             "type": "string",
             "title": "统计API地址",
             "description": "前端转发的统计服务 API 根地址",
             "default": "http://127.0.0.1:8000",
             "x-group": "控制台",
-            "x-order": 33
+            "x-order": 34
         },
 
         # 续费码生成

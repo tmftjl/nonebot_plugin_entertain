@@ -5,7 +5,7 @@ from nonebot.matcher import Matcher
 from nonebot.adapters.onebot.v11 import Message, MessageSegment, MessageEvent
 
 from ...core.api import Plugin
-from .config import cfg_cached  # noqa: F401  # ensure unified config is initialized
+from .config import cfg_cached, cfg_api_urls, cfg_api_timeouts  # noqa: F401  # ensure unified config is initialized
 
 
 P = Plugin(name="entertain", display_name="娱乐")
@@ -21,9 +21,13 @@ _SICK = P.on_regex(
 
 @_SICK.handle()
 async def _(matcher: Matcher, event: MessageEvent):
-    url = "https://oiapi.net/API/SickL/"
+    urls = cfg_api_urls()
+    timeouts = cfg_api_timeouts()
+    url = str(urls.get("sick_quote_api") or "https://oiapi.net/API/SickL/")
+    timeout = int(timeouts.get("sick_quote_timeout") or 15)
+
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             res = await client.get(url)
             res.raise_for_status()
             data = res.json()

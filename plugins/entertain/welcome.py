@@ -105,7 +105,10 @@ async def _image_bytes(bot: Bot, seg: MessageSegment) -> Optional[bytes]:
         # url
         url = data.get("url")
         if isinstance(url, str) and url.startswith("http"):
-            async with httpx.AsyncClient(timeout=20) as client:
+            from .config import cfg_api_timeouts
+            timeouts = cfg_api_timeouts()
+            timeout = int(timeouts.get("image_download_timeout") or 20)
+            async with httpx.AsyncClient(timeout=timeout) as client:
                 resp = await client.get(url)
                 resp.raise_for_status()
                 return resp.content

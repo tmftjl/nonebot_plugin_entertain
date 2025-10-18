@@ -35,10 +35,20 @@ DEFAULT_CFG: Dict[str, Any] = {
     },
     "send_master": {
         "open": True,
-        "cd": 0,  # 秒；0 表示关闭
         "success": "已将信息转发给主人",
         "failed": "发送失败，请稍后重试",
         "reply_prefix": "主人回复：",
+    },
+    "api_urls": {
+        "jk_api": "https://api.suyanw.cn/api/jk.php",
+        "ql_api": "https://api.suyanw.cn/api/ql.php",
+        "lsp_api": "https://api.suyanw.cn/api/lsp.php",
+        "zd_api": "https://imgapi.cn/api.php?zd=302&fl=meizi&gs=json",
+        "fallback_api": "https://ciallo.hxxn.cc/?name={name}",
+    },
+    "api_timeouts": {
+        "picture_timeout": 15,
+        "poke_timeout": 10,
     },
 }
 
@@ -79,16 +89,19 @@ def _validate_cfg(cfg: Dict[str, Any]) -> None:
     if isinstance(sm, dict):
         if "open" in sm and not isinstance(sm["open"], bool):
             raise ValueError("send_master.open must be bool")
-        if "cd" in sm:
-            try:
-                cd = int(sm["cd"])  # 允许近似整数
-                if cd < 0:
-                    raise ValueError
-            except Exception:
-                raise ValueError("send_master.cd must be non-negative int")
         for k in ("success", "failed", "reply_prefix"):
             if k in sm and not isinstance(sm[k], str):
                 raise ValueError(f"send_master.{k} must be str")
+
+    # 验证新增的 api_urls
+    api_urls = cfg.get("api_urls", {})
+    if api_urls and not isinstance(api_urls, dict):
+        raise ValueError("api_urls must be object")
+
+    # 验证新增的 api_timeouts
+    api_timeouts = cfg.get("api_timeouts", {})
+    if api_timeouts and not isinstance(api_timeouts, dict):
+        raise ValueError("api_timeouts must be object")
 
 # 注册插件配置
 REG = register_plugin_config("df", DEFAULT_CFG, validator=_validate_cfg)
@@ -204,34 +217,99 @@ DF_SCHEMA: Dict[str, Any] = {
                     "default": True,
                     "x-order": 1,
                 },
-                "cd": {
-                    "type": "integer",
-                    "title": "冷却(秒)",
-                    "description": "0 表示关闭冷却",
-                    "default": 0,
-                    "minimum": 0,
-                    "x-order": 2,
-                },
                 "success": {
                     "type": "string",
                     "title": "成功提示",
                     "description": "转发成功时给用户的提示语",
                     "default": "已将信息转发给主人",
-                    "x-order": 3,
+                    "x-order": 2,
                 },
                 "failed": {
                     "type": "string",
                     "title": "失败提示",
                     "description": "转发失败时给用户的提示语",
                     "default": "发送失败，请稍后重试",
-                    "x-order": 4,
+                    "x-order": 3,
                 },
                 "reply_prefix": {
                     "type": "string",
                     "title": "回复前缀",
                     "description": "主人回复用户时的前缀文字",
                     "default": "主人回复：",
+                    "x-order": 4,
+                },
+            },
+        },
+        "api_urls": {
+            "type": "object",
+            "title": "API地址配置",
+            "description": "随机图片等功能使用的第三方API地址",
+            "x-group": "API配置",
+            "x-order": 30,
+            "x-collapse": True,
+            "properties": {
+                "jk_api": {
+                    "type": "string",
+                    "title": "JK图API",
+                    "description": "随机JK图片API地址",
+                    "default": "https://api.suyanw.cn/api/jk.php",
+                    "x-order": 1,
+                },
+                "ql_api": {
+                    "type": "string",
+                    "title": "清冷图API",
+                    "description": "随机清冷图片API地址",
+                    "default": "https://api.suyanw.cn/api/ql.php",
+                    "x-order": 2,
+                },
+                "lsp_api": {
+                    "type": "string",
+                    "title": "LSP图API",
+                    "description": "随机LSP图片API地址",
+                    "default": "https://api.suyanw.cn/api/lsp.php",
+                    "x-order": 3,
+                },
+                "zd_api": {
+                    "type": "string",
+                    "title": "指定图API",
+                    "description": "随机指定类型图片API地址",
+                    "default": "https://imgapi.cn/api.php?zd=302&fl=meizi&gs=json",
+                    "x-order": 4,
+                },
+                "fallback_api": {
+                    "type": "string",
+                    "title": "备用图API",
+                    "description": "主API失败时的备用图片API，{name}会被替换为图片类型",
+                    "default": "https://ciallo.hxxn.cc/?name={name}",
                     "x-order": 5,
+                },
+            },
+        },
+        "api_timeouts": {
+            "type": "object",
+            "title": "API超时设置",
+            "description": "各种API请求的超时时间(秒)",
+            "x-group": "API配置",
+            "x-order": 31,
+            "x-collapse": True,
+            "properties": {
+                "picture_timeout": {
+                    "type": "integer",
+                    "title": "图片请求超时",
+                    "description": "随机图片API请求超时时间(秒)",
+                    "default": 15,
+                    "minimum": 1,
+                    "maximum": 60,
+                    "x-order": 1,
+                },
+                "poke_timeout": {
+                    "type": "integer",
+                    "title": "戳一戳超时",
+                    "description": "戳一戳相关API请求超时时间(秒)",
+                    "default": 10,
+                    "minimum": 1,
+                    "maximum": 60,
+                    "x-order": 2,
                 },
             },
         },

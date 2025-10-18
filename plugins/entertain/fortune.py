@@ -115,10 +115,15 @@ def _num_to_chinese(num: int) -> str:
 
 async def _get_background_image() -> Image.Image | None:
     # Optional local API for random background
-    local_api_url = "http://127.0.0.1:1520/api/wuthering_waves/role_image/random"
+    from .config import cfg_api_urls, cfg_api_timeouts
+    urls = cfg_api_urls()
+    timeouts = cfg_api_timeouts()
+    local_api_url = str(urls.get("background_api") or "http://127.0.0.1:1520/api/wuthering_waves/role_image/random")
+    timeout = int(timeouts.get("background_image_timeout") or 10)
+
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.get(local_api_url, timeout=10.0)
+            resp = await client.get(local_api_url, timeout=float(timeout))
             resp.raise_for_status()
             return Image.open(io.BytesIO(resp.content)).convert("RGBA")
     except Exception:

@@ -35,18 +35,24 @@ P = Plugin(name="df", display_name="DF")
 
 def _api_handlers() -> List[Tuple[str, Any]]:
     handlers: List[Tuple[str, Any]] = []
+    cfg = load_cfg()
+    api_urls = cfg.get("api_urls", {})
+    api_timeouts = cfg.get("api_timeouts", {})
+    timeout = int(api_timeouts.get("picture_timeout", 15))
 
     # jk 图
-    handlers.append((r"jk(?:图)?", lambda: MessageSegment.image("https://api.suyanw.cn/api/jk.php")))
+    jk_url = str(api_urls.get("jk_api", "https://api.suyanw.cn/api/jk.php"))
+    handlers.append((r"jk(?:图)?", lambda: MessageSegment.image(jk_url)))
 
     async def _hs():
         # 黑丝
-        return Message(MessageSegment.text("黑丝来咯") + MessageSegment.image("https://api.suyanw.cn/api/hs.php"))
+        hs_url = "https://api.suyanw.cn/api/hs.php"  # 暂时保留硬编码,可以后续添加到配置
+        return Message(MessageSegment.text("黑丝来咯") + MessageSegment.image(hs_url))
 
     handlers.append((r"黑丝", _hs))
 
     async def _bs():
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             r = await client.get("https://v2.api-m.com/api/baisi")
             r.raise_for_status()
             link = r.text.replace("\\", "/")
@@ -55,7 +61,7 @@ def _api_handlers() -> List[Tuple[str, Any]]:
     handlers.append((r"白丝", _bs))
 
     async def _cos():
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             r = await client.get("https://api.suyanw.cn/api/cos.php?type=json")
             link = r.text.replace("\\", "/")
         return Message(MessageSegment.text("COS 来咯~") + MessageSegment.image(link))
@@ -63,7 +69,7 @@ def _api_handlers() -> List[Tuple[str, Any]]:
     handlers.append((r"cos", _cos))
 
     async def _leg():
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             r = await client.get("https://api.suyanw.cn/api/meitui.php")
             m = re.search(r"https?://[^ ]+", r.text)
             link = m.group(0) if m else ""
@@ -85,12 +91,22 @@ def _pick_face_image(name: str) -> MessageSegment:
     p = random_local_image(name)
     if p is not None:
         return MessageSegment.image(p.read_bytes())
-    return MessageSegment.image(f"https://ciallo.hxxn.cc/?name={name}")
+
+    # 使用配置中的备用API
+    cfg = load_cfg()
+    api_urls = cfg.get("api_urls", {})
+    fallback_template = str(api_urls.get("fallback_api", "https://ciallo.hxxn.cc/?name={name}"))
+    fallback_url = fallback_template.format(name=name)
+    return MessageSegment.image(fallback_url)
 
 
 async def _hitokoto(api: str) -> Optional[str]:
+    cfg = load_cfg()
+    api_timeouts = cfg.get("api_timeouts", {})
+    timeout = int(api_timeouts.get("poke_timeout", 10))
+
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             r = await client.get(api)
             r.raise_for_status()
             return r.text.strip()

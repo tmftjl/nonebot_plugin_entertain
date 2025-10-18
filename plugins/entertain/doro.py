@@ -2,7 +2,7 @@ import httpx
 from nonebot.matcher import Matcher
 from nonebot.adapters.onebot.v11 import Message, MessageSegment, MessageEvent
 from ...core.api import Plugin
-from .config import cfg_cached  # noqa: F401  # ensure unified config is initialized
+from .config import cfg_cached, cfg_api_urls, cfg_api_timeouts  # noqa: F401  # ensure unified config is initialized
 
 
 P = Plugin(name="entertain", display_name="娱乐")
@@ -18,8 +18,12 @@ _DORO = P.on_regex(
 
 @_DORO.handle()
 async def _(matcher: Matcher, event: MessageEvent):
-    url = "https://doro-api.hxxn.cc/get"
-    async with httpx.AsyncClient(timeout=15) as client:
+    urls = cfg_api_urls()
+    timeouts = cfg_api_timeouts()
+    url = str(urls.get("doro_api") or "https://doro-api.hxxn.cc/get")
+    timeout = int(timeouts.get("doro_api_timeout") or 15)
+
+    async with httpx.AsyncClient(timeout=timeout) as client:
         res = await client.get(url)
         res.raise_for_status()
         data = res.json()

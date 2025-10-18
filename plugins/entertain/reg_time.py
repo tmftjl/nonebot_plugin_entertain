@@ -41,11 +41,17 @@ def _extract_qq(e: MessageEvent, matched: str) -> Optional[str]:
 
 
 async def _query_registration(qq: str) -> Optional[str]:
-    api_url = "https://api.s01s.cn/API/zcsj/"
     cfg = cfg_reg_time()
-    api_key = (cfg.get("qq_reg_time_api_key") or "B9FB02FC6AC1AF34F7D2B5390B468EAC")
+    api_url = str(cfg.get("qq_reg_time_api_url") or "https://api.s01s.cn/API/zcsj/")
+    api_key = str(cfg.get("qq_reg_time_api_key") or "")
+    timeout = int(cfg.get("qq_reg_time_timeout") or 15)
+
+    if not api_key:
+        logger.warning("[reg_time] API key 未配置,请在配置文件中设置 qq_reg_time_api_key")
+        return None
+
     params = {"qq": qq, "key": api_key}
-    async with httpx.AsyncClient(timeout=15) as client:
+    async with httpx.AsyncClient(timeout=timeout) as client:
         r = await client.get(api_url, params=params)
         r.raise_for_status()
         text = r.text

@@ -33,7 +33,7 @@ def _auth(request: Request) -> dict:
 
 def _contact_suffix() -> str:
     cfg = load_cfg()
-    return str(cfg.get("member_renewal_contact_suffix", " 咨询/加入交流QQ群 757463664 联系群管") or "")
+    return str(cfg.get("member_renewal_contact_suffix", " 咨询/加入交流QQ群：757463664 联系群管") or "")
 
 
 def setup_web_console() -> None:
@@ -211,14 +211,20 @@ def setup_web_console() -> None:
                 gid = int(payload.get("group_id"))
             except Exception as e:
                 raise HTTPException(400, f"参数错误: {e}")
+
+            # 读取退群模式配置
+            cfg = load_cfg()
+            leave_mode = str(cfg.get("member_renewal_leave_mode", "leave") or "leave").lower()
+            is_dismiss = (leave_mode == "dismiss")
+
             live = get_bots()
             bot = next(iter(live.values()), None)
             if not bot:
                 raise HTTPException(500, "无可用 Bot 可退群")
             try:
-                await bot.set_group_leave(group_id=gid, is_dismiss=False)
+                await bot.set_group_leave(group_id=gid, is_dismiss=is_dismiss)
             except Exception as e:
-                logger.debug(f"leave_multi failed: {e}")
+                logger.debug(f"leave_multi failed (is_dismiss={is_dismiss}): {e}")
                 raise HTTPException(500, f"退出失败: {e}")
             # 删除记录（可选）
             try:
