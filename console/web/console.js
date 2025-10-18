@@ -87,6 +87,16 @@ async function apiCall(path, options={}){
   return ct.includes('application/json') ? resp.json() : resp.text();
 }
 
+// Fetch batch delay from system config (seconds)
+async function __getBatchDelaySeconds(){
+  try{
+    const c = await apiCall('/config');
+    const v = (((c||{}).system||{}).member_renewal_batch_delay_seconds) || 0;
+    const n = Number(v);
+    return isFinite(n) && n > 0 ? n : 0;
+  }catch{ return 0; }
+}
+
 // 主题切换在下方已增强版本实现，此处移除重复定义
 
 // Tab
@@ -1243,8 +1253,24 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-async function remindGroups(groupIds, content=''){ if(!Array.isArray(groupIds)||!groupIds.length) return; for(const gid of groupIds){ const payload = { group_id: gid }; if(content) payload.content = content; await apiCall('/remind_multi',{method:'POST', body: JSON.stringify(payload)}); } }
-async function leaveGroups(groupIds){ if(!Array.isArray(groupIds)||!groupIds.length) return; for(const gid of groupIds){ await apiCall('/leave_multi',{method:'POST', body: JSON.stringify({ group_id: gid })}); } }
+async function remindGroups(groupIds, content=''){
+  if(!Array.isArray(groupIds)||!groupIds.length) return;
+  const delay = (await __getBatchDelaySeconds()) * 1000;
+  for(const gid of groupIds){
+    const payload = { group_id: gid };
+    if(content) payload.content = content;
+    await apiCall('/remind_multi',{method:'POST', body: JSON.stringify(payload)});
+    if(delay>0) await new Promise(r=>setTimeout(r, delay));
+  }
+}
+async function leaveGroups(groupIds){
+  if(!Array.isArray(groupIds)||!groupIds.length) return;
+  const delay = (await __getBatchDelaySeconds()) * 1000;
+  for(const gid of groupIds){
+    await apiCall('/leave_multi',{method:'POST', body: JSON.stringify({ group_id: gid })});
+    if(delay>0) await new Promise(r=>setTimeout(r, delay));
+  }
+}
 
 function selectedGroupIds(){ return $$('.group-checkbox').filter(cb=>cb.checked).map(cb=> parseInt(cb.dataset.gid)); }
 function selectedRecordIds(){

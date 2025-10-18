@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 from typing import Tuple
+import asyncio
 
 from nonebot.adapters.onebot.v11 import (
     GroupMessageEvent,
@@ -62,6 +63,12 @@ async def _(matcher: Matcher, event: MessageEvent):
         await matcher.finish("请在私聊使用该命令")
     token = str(int(_now_utc().timestamp()))[-6:]
     cfg = load_cfg()
+    try:
+        delay = float(cfg.get("member_renewal_batch_delay_seconds", 0) or 0.0)
+        if delay < 0:
+            delay = 0.0
+    except Exception:
+        delay = 0.0
     console_host = str(
         cfg.get("member_renewal_console_host", "http://localhost:8080")
         or "http://localhost:8080"
@@ -315,11 +322,29 @@ async def _check_and_process() -> Tuple[int, int]:
         non_member_groups = {gid for gid in present_groups if gid not in member_keys}
 
         for gid_str in sorted(non_member_groups):
-            # 逐个尝试让 Bot 退群
+            # 逐个尝试提醒并退群（非会员群）
             for bot in _choose_bots(None):
                 try:
+                    # 先提示后退出
+                    try:
+                        content = "本群未在会员列表中，机器人将退出。如需使用请联系管理员开通。"
+                        await bot.send_group_msg(group_id=int(gid_str), message=Message(content))
+                    except Exception as e:
+                        logger.debug(f"notify non-member failed {gid_str}: {e}")
+                    if delay > 0:
+                        try:
+                            await asyncio.sleep(delay)
+                        except Exception:
+                            pass
+
                     await bot.set_group_leave(group_id=int(gid_str))
                     left += 1
+                    # throttle per group
+                    if delay > 0:
+                        try:
+                            await asyncio.sleep(delay)
+                        except Exception:
+                            pass
                     break
                 except Exception as e:
                     logger.debug(f"leave non-member failed {gid_str}: {e}")
@@ -362,6 +387,11 @@ async def _check_and_process() -> Tuple[int, int]:
                         logger.debug(f"退群失败 {gid} : {e}")
                         continue
                 if left_success:
+                    if delay > 0:
+                        try:
+                            await asyncio.sleep(delay)
+                        except Exception:
+                            pass
                     # 延后统一删除，避免遍历时改动 dict
                     keys_to_remove.append(k)
                     changed = True
@@ -425,6 +455,11 @@ async def _check_and_process() -> Tuple[int, int]:
                     v["last_reminder_on"] = today
                     reminders += 1
                     changed = True
+                    if delay > 0:
+                        try:
+                            await asyncio.sleep(delay)
+                        except Exception:
+                            pass
 
     # 统一删除需要移除的记录
     if keys_to_remove:

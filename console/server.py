@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import asyncio
 from pathlib import Path
 from typing import Any, Dict
 
@@ -223,6 +224,13 @@ def setup_web_console() -> None:
                 raise HTTPException(500, "无可用 Bot 可发送通知")
 
             sent = 0
+            delay = 0.0
+            try:
+                delay = float(load_cfg().get("member_renewal_batch_delay_seconds", 0) or 0.0)
+                if delay < 0:
+                    delay = 0.0
+            except Exception:
+                delay = 0.0
             for gid in group_ids:
                 segs = []
                 if text:
@@ -240,6 +248,12 @@ def setup_web_console() -> None:
                 except Exception as e:
                     logger.debug(f"notify failed for {gid}: {e}")
                     continue
+                # throttle between batch operations to avoid risk control
+                if delay > 0:
+                    try:
+                        await asyncio.sleep(delay)
+                    except Exception:
+                        pass
             return {"sent": sent}
 
         # 退群（不再需要 bot_ids）

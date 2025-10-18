@@ -33,6 +33,7 @@ SYSTEM_DEFAULTS: Dict[str, Any] = {
     "member_renewal_code_random_len": 6,  # 随机码长度（十六进制字符）
     "member_renewal_code_expire_days": 0,  # 过期天数（0 表示永久）
     "member_renewal_code_max_use": 1,
+    "member_renewal_contact_suffix": 1
 }
 
 
@@ -204,6 +205,15 @@ SYSTEM_SCHEMA: Dict[str, Any] = {
             "minimum": 1,
             "x-group": "续费码",
             "x-order": 43
+        },
+        "member_renewal_contact_suffix": {
+            "type": "integer",
+            "title": "延时时间(单位秒)",
+            "description": "延时时间(单位秒)",
+            "default": 1,
+            "minimum": 1,
+            "x-group": "延时",
+            "x-order": 44
         },
     }
 }
