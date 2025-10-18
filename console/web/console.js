@@ -1420,24 +1420,24 @@ async function submitManualExtend(){
   try{
     showLoading(true);
 
-    // 判断是编辑还是新增
-    const isEdit = checkboxes.length === 1;
-    const existingGroup = (state.groups||[]).find(x=> String(x.gid)===String(gid));
-
+    // 根据是否选中行决定编辑/新增；编辑时始终依据所选记录的 id
     const body = {};
+    if(isEdit){
+      const selectedGid = checkboxes[0].dataset.gid;
+      const selectedGroup = (state.groups||[]).find(x=> String(x.gid)===String(selectedGid));
+      if(!selectedGroup || typeof selectedGroup.id === 'undefined'){
+        showToast('选中的群缺少ID，无法编辑，请尝试新增/编辑','warning');
+        return;
+      }
+      body.id = selectedGroup.id;
+      // 允许重命名群号：携带当前输入的群号
+      if(gid) body.group_id = gid;
 
-    // 编辑模式: 使用ID进行更新
-    if(isEdit && existingGroup && existingGroup.id !== undefined){
-      body.id = existingGroup.id;
-      body.group_id = gid;  // 允许修改群号
-
-      // 处理到期时间
+      // 处理到期时间/续费
       if(length > 0){
-        // 如果填了续费时长,则在原基础上续费
         body.length = length;
         body.unit = unit;
       } else if(expiryDate){
-        // 如果没填续费时长但填了到期时间,直接设置到期时间
         try{
           const d = new Date(expiryDate);
           body.expiry = d.toISOString();
@@ -1453,9 +1453,8 @@ async function submitManualExtend(){
 
       await apiCall('/extend', { method:'POST', body: JSON.stringify(body) });
       showToast(`已成功修改群 ${gid} 的信息`,'success');
-    }
-    // 新增模式
-    else {
+    } else {
+      // 新增模式
       body.group_id = gid;
 
       // 新增时必须有到期时间或续费时长
@@ -1544,13 +1543,13 @@ function bindEvents(){
         if(btn.classList.contains('btn-remind')){
           await remindGroups([gid]); showToast(`已向群 ${gid} 发送提醒`,'success');
         } else if(btn.classList.contains('btn-extend')){
-          // 改为使用 id 编辑，去掉按 group_id 编辑
+          // 使用记录 id 执行续费，不再依赖群号进行识别
           const g = (state.groups||[]).find(x=> String(x.gid)===String(gid));
           if(!g || typeof g.id === 'undefined'){
             showToast('该群记录缺少ID，无法直接续费，请使用“新增/编辑”','warning');
             return;
           }
-          await apiCall('/extend',{method:'POST', body: JSON.stringify({ id: g.id, group_id: gid, length:30, unit:'天'})});
+          await apiCall('/extend',{method:'POST', body: JSON.stringify({ id: g.id, length:30, unit:'天'})});
           showToast(`已为群 ${gid} 延长30天`,'success'); await loadRenewalData();
         } else if(btn.classList.contains('btn-leave')){
           if(!confirm(`确认让机器人退出群 ${gid}?`)) return; await leaveGroups([gid]);

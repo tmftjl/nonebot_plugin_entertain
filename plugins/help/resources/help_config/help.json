@@ -9,26 +9,23 @@
       "list": [
         {"icon": 6, "title": "ww帮助", "desc": "鸣潮功能帮助"},
         {"icon": 12, "title": "各种短视频解析", "desc": "分享链接前加上qx即可"},
-        {"icon": 14, "title": "#清语表情列表", "desc": "表情包制作"},
-        {"icon": 1, "title": "#椰奶群管帮助", "desc": "查看群管帮助"}
+        {"icon": 14, "title": "#表情列表", "desc": "表情包制作列表"},
+        {"icon": 1, "title": "#群管帮助", "desc": "查看群管帮助"}
       ]
     },
     {
       "group": "娱乐功能",
       "list": [
-        {"icon": 2, "title": "#点歌", "desc": "点歌"},
-        {"icon": 3, "title": "/touchi", "desc": "三角洲功能帮助"},
-        {"icon": 4, "title": "/今日运势", "desc": "今日运势"},
+        {"icon": 2, "title": "#点歌", "desc": "点歌演员"},
+        {"icon": 4, "title": "#今日运势", "desc": "今日运势"},
         {"icon": 5, "title": "#doro结局", "desc": "抽取doro结局"},
         {"icon": 6, "title": "#看看腿", "desc": "看看腿"},
         {"icon": 8, "title": "#随机doro", "desc": "随机doro"},
-        {"icon": 9, "title": "#来张cos", "desc": "随机cos"},
         {"icon": 10, "title": "#来张黑丝", "desc": "随机黑丝"},
         {"icon": 11, "title": "#发病语录", "desc": "发病语录"},
-        {"icon": 12, "title": "/盒", "desc": "开盒自己或群友"},
+        {"icon": 12, "title": "#盒", "desc": "开盒自己或群友"},
         {"icon": 13, "title": "#注册时间", "desc": "查询qq信息"},
         {"icon": 14, "title": "#联系主人", "desc": "联系主人"},
-        {"icon": 15, "title": "#次元小镇帮助", "desc": "看看美图"}
       ]
     },
     {
