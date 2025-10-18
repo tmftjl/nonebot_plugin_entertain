@@ -376,13 +376,33 @@
           <label style="display:flex; align-items:center; gap:12px;flex-wrap:wrap;">
             <span style="min-width:80px; text-align:right;font-weight:600;color:var(--color-text);">续费时长</span>
             <div style="display:flex;gap:10px;flex:1;">
-              <input id="extend-length" class="input" type="number" min="1" value="7" style="flex:1;min-width:100px;" aria-label="时长" />
+              <input id="extend-length" class="input" type="number" min="1" value="30" style="flex:1;min-width:100px;" aria-label="时长" />
               <select id="extend-unit" class="input" aria-label="单位" style="flex:1;min-width:100px;">
                 <option value="天">天</option>
                 <option value="月">月</option>
                 <option value="年">年</option>
               </select>
             </div>
+          </label>
+        </div>
+        <div>
+          <label style="display:flex; align-items:center; gap:12px;flex-wrap:wrap;">
+            <span style="min-width:80px; text-align:right;font-weight:600;color:var(--color-text);">管理Bot</span>
+            <select id="extend-bot-id" class="input" aria-label="管理Bot" style="flex:1;min-width:200px;">
+              <option value="">自动选择（默认）</option>
+            </select>
+          </label>
+        </div>
+        <div>
+          <label style="display:flex; align-items:center; gap:12px;">
+            <span style="min-width:80px; text-align:right;font-weight:600;color:var(--color-text);">续费人</span>
+            <input id="extend-renewer" class="input" placeholder="填写操作人/续费人（可选）" aria-label="续费人" style="flex:1;" />
+          </label>
+        </div>
+        <div>
+          <label style="display:flex; align-items:center; gap:12px;">
+            <span style="min-width:80px; text-align:right;font-weight:600;color:var(--color-text);">备注</span>
+            <input id="extend-remark" class="input" placeholder="备注信息（可选）" aria-label="备注" style="flex:1;" />
           </label>
         </div>
         <div id="extend-current-info" style="padding:10px;background:var(--color-bg-tertiary);border-radius:var(--radius-md);color:var(--color-text-tertiary);font-size:13px;"></div>

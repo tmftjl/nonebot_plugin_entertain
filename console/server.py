@@ -334,6 +334,18 @@ def setup_web_console() -> None:
         async def api_get_all(_: dict = Depends(_auth)):
             return await _read_data()
 
+        # Bot 列表（用于前端下拉选择管理Bot）
+        @router.get("/bots")
+        async def api_get_bots(_: dict = Depends(_auth)):
+            try:
+                bots_map = get_bots()
+                # 返回 self_id 列表
+                ids = list(bots_map.keys())
+                return {"bots": ids}
+            except Exception as e:
+                logger.debug(f"/bots error: {e}")
+                return {"bots": []}
+
         # 生成续费码
         @router.post("/generate")
         async def api_generate(payload: Dict[str, Any], request: Request, ctx: dict = Depends(_auth)):
@@ -389,7 +401,23 @@ def setup_web_console() -> None:
                 current = now
             new_expiry = _add_duration(current, length, unit)
             rec = data.get(gid) or {}
-            rec.update({"group_id": gid, "expiry": new_expiry.isoformat(), "status": "active"})
+            # 附加可选信息：管理Bot、续费人、备注
+            managed_by_bot = str(payload.get("managed_by_bot") or "").strip()
+            renewed_by = str(payload.get("renewed_by") or "").strip()
+
+            updates: Dict[str, Any] = {
+                "group_id": gid,
+                "expiry": new_expiry.isoformat(),
+                "status": "active",
+            }
+            if managed_by_bot:
+                updates["managed_by_bot"] = managed_by_bot
+            if renewed_by:
+                # 与使用续费码逻辑保持一致字段名
+                updates["last_renewed_by"] = renewed_by
+            # 'remark' 暂不持久化（模型未包含该字段）
+
+            rec.update(updates)
             data[gid] = rec
             await _write_data(data)
             return {"group_id": gid, "expiry": new_expiry.isoformat()}

@@ -37,7 +37,8 @@ function showToast(message, type='info'){
 function showLoading(show=true){ const o=$('#loading-overlay'); if(o) o.classList.toggle('hidden', !show); }
 function formatDate(s){ if(!s) return '-'; try{ const d=new Date(s); return d.toLocaleString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});}catch{return s;}}
 function daysRemaining(s){ try{ const e=new Date(s), n=new Date(); e.setHours(0,0,0,0); n.setHours(0,0,0,0); return Math.round((e-n)/86400000);}catch{return 0;} }
-function getStatusLabel(days){ if(days<0) return '<span class="status-badge status-expired">已到期</span>'; if(days===0) return '<span class="status-badge status-today">今日到期</span>'; if(days<=7) return '<span class="status-badge status-soon">即将到期</span>'; return '<span class="status-badge status-active">有效</span>'; }
+const SOON_THRESHOLD_DAYS = 30;
+function getStatusLabel(days){ if(days<0) return '<span class="status-badge status-expired">已到期</span>'; if(days===0) return '<span class="status-badge status-today">今日到期</span>'; if(days<=SOON_THRESHOLD_DAYS) return '<span class="status-badge status-soon">即将到期</span>'; return '<span class="status-badge status-active">有效</span>'; }
 function maskCode(code){ if(!code) return ''; return String(code).slice(0,4)+'****'+String(code).slice(-4); }
 function normalizeUnit(u){ const x=String(u||'').trim().toLowerCase(); if(['d','day','天'].includes(x)) return '天'; if(['m','month','月'].includes(x)) return '月'; if(['y','year','年'].includes(x)) return '年'; return '天'; }
 async function copyText(text){
@@ -87,7 +88,7 @@ async function loadDashboard(){
     const data=await apiCall('/data');
     state.groups = Object.entries(data)
       .filter(([k,v])=>k!=='generatedCodes'&&typeof v==='object')
-      .map(([gid,info])=>{ const d=daysRemaining(info.expiry); let s='active'; if(d<0)s='expired'; else if(d===0)s='today'; else if(d<=7)s='soon'; return { gid, ...info, days:d, status:s };});
+      .map(([gid,info])=>{ const d=daysRemaining(info.expiry); let s='active'; if(d<0)s='expired'; else if(d===0)s='today'; else if(d<=SOON_THRESHOLD_DAYS)s='soon'; return { gid, ...info, days:d, status:s };});
     $('#stat-active-groups').textContent=state.groups.length;
     $('#stat-valid-members').textContent=state.groups.filter(g=>g.status==='active').length;
     $('#stat-expiring-soon').textContent=state.groups.filter(g=>g.status==='soon'||g.status==='today').length;
@@ -102,7 +103,7 @@ async function loadRenewalData(){
     const data=await apiCall('/data');
     state.groups = Object.entries(data)
       .filter(([k,v])=>k!=='generatedCodes'&&typeof v==='object')
-      .map(([gid,info])=>{ const d=daysRemaining(info.expiry); let s='active'; if(d<0)s='expired'; else if(d===0)s='today'; else if(d<=7)s='soon'; return { gid, ...info, days:d, status:s };});
+      .map(([gid,info])=>{ const d=daysRemaining(info.expiry); let s='active'; if(d<0)s='expired'; else if(d===0)s='today'; else if(d<=SOON_THRESHOLD_DAYS)s='soon'; return { gid, ...info, days:d, status:s };});
     renderGroupsTable();
     const codes=await apiCall('/codes');
     renderCodes(codes);
@@ -149,7 +150,7 @@ function renderGroupsTable(){
       <td>${g.days}</td>
       <td>
         <button class="btn-action btn-remind" data-gid="${g.gid}">提醒</button>
-        <button class="btn-action btn-extend" data-gid="${g.gid}">+7天</button>
+        <button class="btn-action btn-extend" data-gid="${g.gid}">+30天</button>
         <button class="btn-action btn-leave" data-gid="${g.gid}">退群</button>
       </td>
     </tr>`).join('') : '<tr><td colspan="6" class="text-center">暂无数据</td></tr>';
@@ -1228,23 +1229,49 @@ async function sendNotify(){
   }
 }
 
-function openManualExtendModal(){
+async function fetchBots(){
+  try{
+    const r = await apiCall('/bots');
+    if(Array.isArray(r)) return r;
+    if(r && Array.isArray(r.bots)) return r.bots;
+  }catch{}
+  return [];
+}
+
+function populateBotSelect(bots, selected){
+  const sel = document.getElementById('extend-bot-id');
+  if(!sel) return;
+  const opts = ['<option value="">自动选择（默认）</option>'].concat(
+    (bots||[]).map(id=>`<option value="${String(id)}">${String(id)}</option>`)
+  );
+  sel.innerHTML = opts.join('');
+  if(selected){ sel.value = String(selected); }
+}
+
+async function openManualExtendModal(){
   const ids = selectedGroupIds();
   const idEl = $('#extend-group-id');
   const infoEl = $('#extend-selected-info');
   const curEl = $('#extend-current-info');
+  const bots = await fetchBots();
   if(ids.length){
     idEl.value = String(ids[0]);
     if(infoEl) infoEl.textContent = `已选择 ${ids.length} 个群，将优先使用所填群号；未填写则对所选群批量续费`;
     const g = (state.groups||[]).find(x=> String(x.gid)===String(ids[0]));
     if(g && g.expiry){ curEl.textContent = `当前到期：${formatDate(g.expiry)}`; } else { curEl.textContent = ''; }
+    populateBotSelect(bots, g && g.managed_by_bot ? g.managed_by_bot : '');
   } else {
     idEl.value = '';
     if(infoEl) infoEl.textContent = '未选择群，可在下方输入群号进行新增/续费';
     if(curEl) curEl.textContent = '';
+    populateBotSelect(bots, '');
   }
-  $('#extend-length').value = '7';
+  $('#extend-length').value = '30';
   $('#extend-unit').value = '天';
+  // 预填续费人（上次值）
+  try{ const last = localStorage.getItem('extend_renewer')||''; if(last) $('#extend-renewer').value = last; }catch{}
+  // 清空备注
+  const remarkEl = document.getElementById('extend-remark'); if(remarkEl) remarkEl.value = '';
   openModal('extend-modal');
 }
 
@@ -1255,6 +1282,9 @@ async function submitManualExtend(){
   else { ids = selectedGroupIds(); }
   const length = parseInt(($('#extend-length')?.value||'').trim());
   const unit = ($('#extend-unit')?.value||'天');
+  const managed_by_bot = ($('#extend-bot-id')?.value||'').trim();
+  const renewed_by = ($('#extend-renewer')?.value||'').trim();
+  const remark = ($('#extend-remark')?.value||'').trim();
   if(!ids.length){ showToast('请先选择群,或填写群号','warning'); return; }
   if(!length || isNaN(length) || length<=0){ showToast('请输入正确的时长','warning'); return; }
 
@@ -1264,9 +1294,15 @@ async function submitManualExtend(){
   try{
     showLoading(true);
     for(const gid of ids){
-      await apiCall('/extend',{ method:'POST', body: JSON.stringify({ group_id: gid, length, unit }) });
+      const body = { group_id: gid, length, unit };
+      if(managed_by_bot) body.managed_by_bot = managed_by_bot;
+      if(renewed_by) body.renewed_by = renewed_by;
+      if(remark) body.remark = remark;
+      await apiCall('/extend',{ method:'POST', body: JSON.stringify(body) });
     }
     showToast(`已处理 ${ids.length} 个群：+${length}${unit}`,'success');
+    // 记住续费人
+    try{ if(renewed_by) localStorage.setItem('extend_renewer', renewed_by); }catch{}
     await loadRenewalData();
   }catch(e){
     showToast('操作失败: '+(e&&e.message?e.message:e),'error');
@@ -1322,8 +1358,8 @@ function bindEvents(){
         if(btn.classList.contains('btn-remind')){
           await remindGroups([gid]); showToast(`已向群 ${gid} 发送提醒`,'success');
         } else if(btn.classList.contains('btn-extend')){
-          await apiCall('/extend',{method:'POST', body: JSON.stringify({ group_id: gid, length:7, unit:'天'})});
-          showToast(`已为群 ${gid} 延长7天`,'success'); await loadRenewalData();
+          await apiCall('/extend',{method:'POST', body: JSON.stringify({ group_id: gid, length:30, unit:'天'})});
+          showToast(`已为群 ${gid} 延长30天`,'success'); await loadRenewalData();
         } else if(btn.classList.contains('btn-leave')){
           if(!confirm(`确认让机器人退出群 ${gid}?`)) return; await leaveGroups([gid]);
           showToast(`已退出群 ${gid}`,'success'); await loadRenewalData();
