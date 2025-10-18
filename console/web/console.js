@@ -37,7 +37,8 @@ function showToast(message, type='info'){
 function showLoading(show=true){ const o=$('#loading-overlay'); if(o) o.classList.toggle('hidden', !show); }
 function formatDate(s){ if(!s) return '-'; try{ const d=new Date(s); return d.toLocaleString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});}catch{return s;}}
 function daysRemaining(s){ try{ const e=new Date(s), n=new Date(); e.setHours(0,0,0,0); n.setHours(0,0,0,0); return Math.round((e-n)/86400000);}catch{return 0;} }
-const SOON_THRESHOLD_DAYS = 30;
+// 即将到期阈值：默认 7 天；从系统配置动态读取覆盖
+let SOON_THRESHOLD_DAYS = 7;
 function getStatusLabel(days){ if(days<0) return '<span class="status-badge status-expired">已到期</span>'; if(days===0) return '<span class="status-badge status-today">今日到期</span>'; if(days<=SOON_THRESHOLD_DAYS) return '<span class="status-badge status-soon">即将到期</span>'; return '<span class="status-badge status-active">有效</span>'; }
 function maskCode(code){ if(!code) return ''; return String(code).slice(0,4)+'****'+String(code).slice(-4); }
 function normalizeUnit(u){ const x=String(u||'').trim().toLowerCase(); if(['d','day','天'].includes(x)) return '天'; if(['m','month','月'].includes(x)) return '月'; if(['y','year','年'].includes(x)) return '年'; return '天'; }
@@ -1229,23 +1230,20 @@ async function sendNotify(){
   }
 }
 
-async function fetchBots(){
+// 读取系统配置中的“临近到期阈值(天)”配置
+async function loadSoonThreshold(){
   try{
-    const r = await apiCall('/bots');
-    if(Array.isArray(r)) return r;
-    if(r && Array.isArray(r.bots)) return r.bots;
-  }catch{}
-  return [];
-}
-
-function populateBotSelect(bots, selected){
-  const sel = document.getElementById('extend-bot-id');
-  if(!sel) return;
-  const opts = ['<option value="">自动选择（默认）</option>'].concat(
-    (bots||[]).map(id=>`<option value="${String(id)}">${String(id)}</option>`)
-  );
-  sel.innerHTML = opts.join('');
-  if(selected){ sel.value = String(selected); }
+    const cfg = await apiCall('/config');
+    // system 区域内读取 member_renewal_soon_threshold_days
+    const sys = (cfg && cfg.system) ? cfg.system : cfg; // 兼容仅返回 system 的情况
+    const v = sys && (sys.member_renewal_soon_threshold_days ?? sys['member_renewal_soon_threshold_days']);
+    if(typeof v === 'number' && isFinite(v) && v >= 0){
+      SOON_THRESHOLD_DAYS = v;
+    }
+  }catch{
+    // 失败保留默认 7 天
+    SOON_THRESHOLD_DAYS = 7;
+  }
 }
 
 async function openManualExtendModal(){
@@ -1253,18 +1251,20 @@ async function openManualExtendModal(){
   const idEl = $('#extend-group-id');
   const infoEl = $('#extend-selected-info');
   const curEl = $('#extend-current-info');
-  const bots = await fetchBots();
   if(ids.length){
     idEl.value = String(ids[0]);
     if(infoEl) infoEl.textContent = `已选择 ${ids.length} 个群，将优先使用所填群号；未填写则对所选群批量续费`;
     const g = (state.groups||[]).find(x=> String(x.gid)===String(ids[0]));
     if(g && g.expiry){ curEl.textContent = `当前到期：${formatDate(g.expiry)}`; } else { curEl.textContent = ''; }
-    populateBotSelect(bots, g && g.managed_by_bot ? g.managed_by_bot : '');
+    // 预填已保存的管理Bot（如有），不做默认自动选择
+    const botInput = document.getElementById('extend-bot-id');
+    if(botInput){ botInput.value = (g && g.managed_by_bot) ? String(g.managed_by_bot) : ''; }
   } else {
     idEl.value = '';
     if(infoEl) infoEl.textContent = '未选择群，可在下方输入群号进行新增/续费';
     if(curEl) curEl.textContent = '';
-    populateBotSelect(bots, '');
+    const botInput = document.getElementById('extend-bot-id');
+    if(botInput){ botInput.value = ''; }
   }
   $('#extend-length').value = '30';
   $('#extend-unit').value = '天';
@@ -1448,6 +1448,8 @@ async function init(){
   document.body.setAttribute('data-theme', state.theme);
   const i=document.querySelector('#theme-toggle .icon');
   if(i) i.textContent = state.theme==='light' ? '🌞' : '🌙';
+  // 先加载系统配置的“临近到期阈值(天)”
+  await loadSoonThreshold();
   await loadDashboard();
   
   // 添加页面加载动画
