@@ -96,17 +96,21 @@
 
           <div class="panel">
             <div class="panel-header">
-              <div class="toolbar">
-                <button id="notify-open-btn" class="btn btn-secondary btn-sm">通知</button>
-                <button id="manual-open-btn" class="btn btn-primary btn-sm">新增/续费</button>
-                <input id="group-search" class="input" placeholder="搜索群号...">
-                <select id="status-filter" class="input">
-                  <option value="all">全部状态</option>
-                  <option value="active">有效</option>
-                  <option value="soon">即将到期</option>
-                  <option value="today">今日到期</option>
-                  <option value="expired">已到期</option>
-                </select>
+              <div class="toolbar" style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; gap: 10px;">
+                  <button id="notify-open-btn" class="btn btn-secondary btn-sm">通知</button>
+                  <button id="manual-open-btn" class="btn btn-primary btn-sm">新增/编辑</button>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                  <input id="group-search" class="input" placeholder="搜索群号...">
+                  <select id="status-filter" class="input">
+                    <option value="all">全部状态</option>
+                    <option value="active">有效</option>
+                    <option value="soon">即将到期</option>
+                    <option value="today">今日到期</option>
+                    <option value="expired">已到期</option>
+                  </select>
+                </div>
               </div>
             </div>
             <div class="table-container">
@@ -378,7 +382,7 @@
             <span>管理Bot</span>
             <span class="label-hint" style="color: red;">*</span>
           </label>
-          <input id="extend-bot-id" class="form-input" placeholder="请输入要使用的Bot自编号（新增必填）" />
+          <input id="extend-bot-id" class="form-input" placeholder="请输入要使用的Bot自编号" />
         </div>
 
         <div class="form-group-modern">
@@ -386,7 +390,7 @@
             <span>续费人</span>
             <span class="label-hint" style="color: red;">*</span>
           </label>
-          <input id="extend-renewer" class="form-input" placeholder="填写操作人/续费人（新增必填）" />
+          <input id="extend-renewer" class="form-input" placeholder="填写操作人/续费人" />
         </div>
 
         <div class="form-group-modern">
