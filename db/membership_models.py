@@ -96,6 +96,7 @@ async def read_snapshot() -> Dict[str, Any]:
     mem_rows = await Membership.all()
     for m in mem_rows:
         data[m.group_id] = {
+            "id": m.id,
             "group_id": m.group_id,
             "expiry": m.expiry,
             "last_renewed_by": m.last_renewed_by,

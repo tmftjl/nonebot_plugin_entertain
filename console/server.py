@@ -388,6 +388,68 @@ def setup_web_console() -> None:
                 raise HTTPException(400, f"参数无效: {e}")
             now = _now_utc()
             data = await _read_data()
+            # 若传入 id，则按记录主键进行修改（选择群的情况）
+            rid_raw = payload.get("id")
+            if rid_raw is not None and str(rid_raw).strip() != "":
+                try:
+                    rid = int(rid_raw)
+                except Exception:
+                    raise HTTPException(400, "id 无效")
+
+                # 在数据快照中定位该 id 所对应的 group_id
+                target_gid = None
+                rec = None
+                for k, v in data.items():
+                    if k == "generatedCodes" or not isinstance(v, dict):
+                        continue
+                    try:
+                        if int(v.get("id") or -1) == rid:
+                            target_gid = str(k)
+                            rec = v
+                            break
+                    except Exception:
+                        continue
+                if not target_gid:
+                    raise HTTPException(404, "未找到对应记录")
+
+                current = now
+                cur = (rec or {}).get("expiry")
+                if cur:
+                    try:
+                        current = datetime.fromisoformat(cur)
+                        if current.tzinfo is None:
+                            current = current.replace(tzinfo=timezone.utc)
+                    except Exception:
+                        current = now
+                if current < now:
+                    current = now
+                new_expiry = _add_duration(current, length, unit)
+
+                managed_by_bot = str(payload.get("managed_by_bot") or "").strip()
+                renewed_by = str(payload.get("renewed_by") or "").strip()
+
+                updates: Dict[str, Any] = {
+                    "group_id": target_gid,
+                    "expiry": new_expiry.isoformat(),
+                    "status": "active",
+                }
+                if managed_by_bot:
+                    updates["managed_by_bot"] = managed_by_bot
+                if renewed_by:
+                    updates["last_renewed_by"] = renewed_by
+
+                rec = rec or {}
+                rec.update(updates)
+                data[target_gid] = rec
+                await _write_data(data)
+                return {"id": rid, "group_id": target_gid, "expiry": new_expiry.isoformat()}
+            # 新增路径仅允许当未选择记录时使用，且要求有效的 group_id
+            # 若已存在该群记录，则不允许通过群号进行修改
+            if not gid or gid.strip() == "" or gid.strip().lower() == "none":
+                raise HTTPException(400, "缺少或无效的 group_id")
+            if isinstance(data.get(gid), dict):
+                raise HTTPException(400, "该群已存在记录，请在列表中选择后进行修改/续费")
+
             current = now
             cur = (data.get(gid) or {}).get("expiry")
             if cur:
