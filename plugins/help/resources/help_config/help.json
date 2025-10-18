@@ -1,0 +1,52 @@
+{
+  "title": "今汐机器人帮助",
+  "sub_title": "Nonebot2 & 今汐",
+  "footer": "dggb 强力驱动",
+  "col_count": 3,
+  "groups": [
+    {
+      "group": "核心功能",
+      "list": [
+        {"icon": 6, "title": "ww帮助", "desc": "鸣潮功能帮助"},
+        {"icon": 12, "title": "各种短视频解析", "desc": "分享链接前加上qx即可"},
+        {"icon": 14, "title": "#清语表情列表", "desc": "表情包制作"},
+        {"icon": 1, "title": "#椰奶群管帮助", "desc": "查看群管帮助"}
+      ]
+    },
+    {
+      "group": "娱乐功能",
+      "list": [
+        {"icon": 2, "title": "#点歌", "desc": "点歌"},
+        {"icon": 3, "title": "/touchi", "desc": "三角洲功能帮助"},
+        {"icon": 4, "title": "/今日运势", "desc": "今日运势"},
+        {"icon": 5, "title": "#doro结局", "desc": "抽取doro结局"},
+        {"icon": 6, "title": "#看看腿", "desc": "看看腿"},
+        {"icon": 8, "title": "#随机doro", "desc": "随机doro"},
+        {"icon": 9, "title": "#来张cos", "desc": "随机cos"},
+        {"icon": 10, "title": "#来张黑丝", "desc": "随机黑丝"},
+        {"icon": 11, "title": "#发病语录", "desc": "发病语录"},
+        {"icon": 12, "title": "/盒", "desc": "开盒自己或群友"},
+        {"icon": 13, "title": "#注册时间", "desc": "查询qq信息"},
+        {"icon": 14, "title": "#联系主人", "desc": "联系主人"},
+        {"icon": 15, "title": "#次元小镇帮助", "desc": "看看美图"}
+      ]
+    },
+    {
+      "group": "入群欢迎",
+      "list": [
+        {"icon": 16, "title": "#设置欢迎", "desc": "设置入群欢迎语，支持任意格式，但要一起发"},
+        {"icon": 17, "title": "#查看欢迎", "desc": "查看本群欢迎语"},
+        {"icon": 18, "title": "#开启欢迎", "desc": "启用入群欢迎"},
+        {"icon": 19, "title": "#关闭欢迎", "desc": "禁用入群欢迎"}
+      ]
+    },
+    {
+      "group": "机器人续费",
+      "list": [
+        {"icon": 18, "title": "ww拉群", "desc": "获取拉群/续费帮助信息"},
+        {"icon": 19, "title": "ww到期", "desc": "获取到期时间"},
+        {"icon": 20, "title": "ww续费", "desc": "ww续费<时长><单位>-<生成的代码>"}
+      ]
+    }
+  ]
+}

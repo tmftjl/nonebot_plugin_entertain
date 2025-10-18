@@ -1544,7 +1544,13 @@ function bindEvents(){
         if(btn.classList.contains('btn-remind')){
           await remindGroups([gid]); showToast(`已向群 ${gid} 发送提醒`,'success');
         } else if(btn.classList.contains('btn-extend')){
-          await apiCall('/extend',{method:'POST', body: JSON.stringify({ group_id: gid, length:30, unit:'天'})});
+          // 改为使用 id 编辑，去掉按 group_id 编辑
+          const g = (state.groups||[]).find(x=> String(x.gid)===String(gid));
+          if(!g || typeof g.id === 'undefined'){
+            showToast('该群记录缺少ID，无法直接续费，请使用“新增/编辑”','warning');
+            return;
+          }
+          await apiCall('/extend',{method:'POST', body: JSON.stringify({ id: g.id, group_id: gid, length:30, unit:'天'})});
           showToast(`已为群 ${gid} 延长30天`,'success'); await loadRenewalData();
         } else if(btn.classList.contains('btn-leave')){
           if(!confirm(`确认让机器人退出群 ${gid}?`)) return; await leaveGroups([gid]);

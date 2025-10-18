@@ -6,7 +6,7 @@ from fnmatch import fnmatch
 
 
 RES_DIR = Path(__file__).parent / "resources"
-CFG_DIR = RES_DIR / "config"
+CFG_DIR = RES_DIR / "help_config"
 CFG_MAP_FILE = CFG_DIR / "command_map.json"
 
 

@@ -384,42 +384,94 @@ def setup_web_console() -> None:
         # 延长到期
         @router.post("/extend")
         async def api_extend(payload: Dict[str, Any], request: Request, ctx: dict = Depends(_auth)):
-            try:
-                gid = str(payload.get("group_id"))
-                length = int(payload.get("length"))
-                unit = str(payload.get("unit"))
-                if unit not in UNITS:
-                    raise ValueError("单位无效")
-            except Exception as e:
-                raise HTTPException(400, f"参数无效: {e}")
+            """Extend or set expiry for a group membership.
+
+            Supports three modes:
+            - Edit by id: payload contains `id`, optionally `group_id` to rename, and either `length+unit` or `expiry`.
+            - Edit by group_id: payload contains existing `group_id` (no `id`), and either `length+unit` or `expiry`.
+            - Create: payload contains new `group_id` and either `length+unit` or `expiry`.
+            """
+
             now = _now_utc()
             data = await _read_data()
-            # 若传入 id，则按记录主键进行修改（选择群的情况）
+
+            # Parse optional fields
+            gid_raw = payload.get("group_id")
+            gid = str(gid_raw).strip() if gid_raw is not None else ""
+
+            # length/unit optional (only validate when provided)
+            length: int | None = None
+            unit: str | None = None
+            if payload.get("length") is not None:
+                try:
+                    length = int(payload.get("length"))
+                except Exception:
+                    raise HTTPException(400, "length 无效")
+            if payload.get("unit") is not None:
+                unit = str(payload.get("unit"))
+                if unit not in UNITS:
+                    raise HTTPException(400, "单位无效")
+
+            # expiry optional
+            expiry_dt = None
+            expiry_raw = payload.get("expiry")
+            if isinstance(expiry_raw, str) and expiry_raw.strip():
+                try:
+                    expiry_dt = datetime.fromisoformat(expiry_raw)
+                    if expiry_dt.tzinfo is None:
+                        expiry_dt = expiry_dt.replace(tzinfo=timezone.utc)
+                except Exception:
+                    raise HTTPException(400, "expiry 无效")
+
+            # Determine target record: by id, or by existing group_id, or create new
+            rec: Dict[str, Any] | None = None
+            target_gid: str | None = None
+
             rid_raw = payload.get("id")
             if rid_raw is not None and str(rid_raw).strip() != "":
+                # Edit by id
                 try:
                     rid = int(rid_raw)
                 except Exception:
                     raise HTTPException(400, "id 无效")
-
-                # 在数据快照中定位该 id 所对应的 group_id
-                target_gid = None
-                rec = None
                 for k, v in data.items():
                     if k == "generatedCodes" or not isinstance(v, dict):
                         continue
                     try:
                         if int(v.get("id") or -1) == rid:
                             target_gid = str(k)
-                            rec = v
+                            rec = dict(v)
                             break
                     except Exception:
                         continue
                 if not target_gid:
                     raise HTTPException(404, "未找到对应记录")
 
+                # Allow renaming group_id when provided and unused
+                if gid and gid != target_gid:
+                    if isinstance(data.get(gid), dict):
+                        raise HTTPException(400, "目标群已存在记录")
+                    # Move key later by updating target_gid and removing old
+                    data.pop(target_gid, None)
+                    target_gid = gid
+            else:
+                # Only allow create when group_id not exists; editing requires id
+                if not gid or gid.lower() == "none":
+                    raise HTTPException(400, "缺少或无效的 group_id")
+                if isinstance(data.get(gid), dict):
+                    raise HTTPException(400, "该群已存在记录，请在列表中选择后进行修改/续费")
+                target_gid = gid
+                rec = {}
+
+            # Calculate new expiry
+            assert target_gid is not None
+            rec = rec or {}
+
+            new_expiry: datetime | None = None
+            if length is not None and length > 0 and unit:
+                # Add duration from current (or now if past/empty)
                 current = now
-                cur = (rec or {}).get("expiry")
+                cur = rec.get("expiry")
                 if cur:
                     try:
                         current = datetime.fromisoformat(cur)
@@ -430,65 +482,36 @@ def setup_web_console() -> None:
                 if current < now:
                     current = now
                 new_expiry = _add_duration(current, length, unit)
+            elif expiry_dt is not None:
+                new_expiry = expiry_dt
+            else:
+                raise HTTPException(400, "缺少续费信息：需提供 length+unit 或 expiry")
 
-                managed_by_bot = str(payload.get("managed_by_bot") or "").strip()
-                renewed_by = str(payload.get("renewed_by") or "").strip()
-
-                updates: Dict[str, Any] = {
-                    "group_id": target_gid,
-                    "expiry": new_expiry.isoformat(),
-                    "status": "active",
-                }
-                if managed_by_bot:
-                    updates["managed_by_bot"] = managed_by_bot
-                if renewed_by:
-                    updates["last_renewed_by"] = renewed_by
-
-                rec = rec or {}
-                rec.update(updates)
-                data[target_gid] = rec
-                await _write_data(data)
-                return {"id": rid, "group_id": target_gid, "expiry": new_expiry.isoformat()}
-            # 新增路径仅允许当未选择记录时使用，且要求有效的 group_id
-            # 若已存在该群记录，则不允许通过群号进行修改
-            if not gid or gid.strip() == "" or gid.strip().lower() == "none":
-                raise HTTPException(400, "缺少或无效的 group_id")
-            if isinstance(data.get(gid), dict):
-                raise HTTPException(400, "该群已存在记录，请在列表中选择后进行修改/续费")
-
-            current = now
-            cur = (data.get(gid) or {}).get("expiry")
-            if cur:
-                try:
-                    current = datetime.fromisoformat(cur)
-                    if current.tzinfo is None:
-                        current = current.replace(tzinfo=timezone.utc)
-                except Exception:
-                    current = now
-            if current < now:
-                current = now
-            new_expiry = _add_duration(current, length, unit)
-            rec = data.get(gid) or {}
-            # 附加可选信息：管理Bot、续费人、备注
+            # Optional fields
             managed_by_bot = str(payload.get("managed_by_bot") or "").strip()
             renewed_by = str(payload.get("renewed_by") or "").strip()
 
             updates: Dict[str, Any] = {
-                "group_id": gid,
+                "group_id": target_gid,
                 "expiry": new_expiry.isoformat(),
                 "status": "active",
             }
             if managed_by_bot:
                 updates["managed_by_bot"] = managed_by_bot
             if renewed_by:
-                # 与使用续费码逻辑保持一致字段名
                 updates["last_renewed_by"] = renewed_by
-            # 'remark' 暂不持久化（模型未包含该字段）
 
             rec.update(updates)
-            data[gid] = rec
+            data[target_gid] = rec
             await _write_data(data)
-            return {"group_id": gid, "expiry": new_expiry.isoformat()}
+
+            resp: Dict[str, Any] = {"group_id": target_gid, "expiry": new_expiry.isoformat()}
+            if rid_raw is not None and str(rid_raw).strip() != "":
+                try:
+                    resp["id"] = int(rid_raw)
+                except Exception:
+                    pass
+            return resp
 
         # 列出生成的续费码
         @router.get("/codes")
