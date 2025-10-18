@@ -345,14 +345,17 @@
         <div id="extend-selected-info" class="info-badge"></div>
 
         <div class="form-group-modern">
-          <label class="form-label">群号</label>
-          <input id="extend-group-id" class="form-input" placeholder="输入群号" />
+          <label class="form-label">
+            <span>群号</span>
+            <span class="label-hint" style="color: red;">*</span>
+          </label>
+          <input id="extend-group-id" class="form-input" placeholder="输入群号（必填）" />
         </div>
 
         <div class="form-group-modern">
           <label class="form-label">
             <span>到期时间</span>
-            <span class="label-hint">(格式: YYYY-MM-DD HH:mm:ss)</span>
+            <span class="label-hint">(格式: YYYY-MM-DD HH:mm:ss，新增时与续费时长二选一必填)</span>
           </label>
           <input id="extend-expiry-date" class="form-input" type="datetime-local" placeholder="到期时间" />
         </div>
@@ -360,7 +363,7 @@
         <div class="form-group-modern">
           <label class="form-label">
             <span>续费时长</span>
-            <span class="label-hint">(快捷操作,在当前到期时间基础上增加)</span>
+            <span class="label-hint">(快捷操作，新增时与到期时间二选一必填)</span>
           </label>
           <div class="input-group">
             <input id="extend-length" class="form-input" type="number" min="0" value="0" placeholder="0表示不续费" />
@@ -373,13 +376,19 @@
         </div>
 
         <div class="form-group-modern">
-          <label class="form-label">管理Bot</label>
-          <input id="extend-bot-id" class="form-input" placeholder="请输入要使用的Bot自编号（可选）" />
+          <label class="form-label">
+            <span>管理Bot</span>
+            <span class="label-hint" style="color: red;">*</span>
+          </label>
+          <input id="extend-bot-id" class="form-input" placeholder="请输入要使用的Bot自编号（新增必填）" />
         </div>
 
         <div class="form-group-modern">
-          <label class="form-label">续费人</label>
-          <input id="extend-renewer" class="form-input" placeholder="填写操作人/续费人（可选）" />
+          <label class="form-label">
+            <span>续费人</span>
+            <span class="label-hint" style="color: red;">*</span>
+          </label>
+          <input id="extend-renewer" class="form-input" placeholder="填写操作人/续费人（新增必填）" />
         </div>
 
         <div class="form-group-modern">

@@ -1120,7 +1120,15 @@ async function saveCurrentConfig() {
 
     inputs.forEach(input => {
       const fullKey = input.getAttribute('data-config-key');
-      const path = fullKey.split(/[.\[\]]+/).filter(Boolean);
+
+      // 移除插件名前缀,得到相对路径
+      let relativePath = fullKey;
+      const prefix = `${currentActiveConfigTab}.`;
+      if (relativePath.startsWith(prefix)) {
+        relativePath = relativePath.slice(prefix.length);
+      }
+
+      const path = relativePath.split(/[.\[\]]+/).filter(Boolean);
 
       let value;
       if (input.type === 'checkbox') {
@@ -1315,14 +1323,17 @@ async function openManualExtendModal(){
         remarkInput.value = '';
       }
 
-      if(renewerInput && g.renewed_by){
-        renewerInput.value = String(g.renewed_by);
+      if(renewerInput && g.last_renewed_by){
+        renewerInput.value = String(g.last_renewed_by);
       } else if(renewerInput) {
         // 尝试恢复上次保存的续费人
         try{
           const last = localStorage.getItem("extend_renewer")||"";
           if(last) renewerInput.value = last;
-        }catch{}
+          else renewerInput.value = '';
+        }catch{
+          renewerInput.value = '';
+        }
       }
 
       // 续费时长默认为0(修改模式)
@@ -1390,6 +1401,24 @@ async function submitManualExtend(){
   if(!gid){
     showToast('群号无效','warning');
     return;
+  }
+
+  const isEdit = checkboxes.length === 1;
+
+  // 新增模式：群号、到期时间/续费时长、管理Bot、续费人都是必填
+  if(!isEdit){
+    if(!length && !expiryDate){
+      showToast('新增群时必须填写到期时间或续费时长','warning');
+      return;
+    }
+    if(!managed_by_bot){
+      showToast('管理Bot为必填项','warning');
+      return;
+    }
+    if(!renewed_by){
+      showToast('续费人为必填项','warning');
+      return;
+    }
   }
 
   // 立即关闭弹窗,防止重复点击
