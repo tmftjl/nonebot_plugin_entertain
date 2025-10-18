@@ -1,6 +1,6 @@
-﻿// ==================== 浠婃睈鎺у埗鍙板墠绔紙UTF-8锛?====================
+﻿// ==================== 今汐控制台前端（UTF-8） ====================
 
-// 鍏ㄥ眬鐘舵€?
+// 全局状态
 const state = {
   groups: [],
   stats: null,
@@ -8,12 +8,13 @@ const state = {
   config: null,
   schemas: null,
   pluginNames: {},
-  commandNames: {},  // 鍛戒护涓枃鍚? {plugin: {command: displayName}}
+  commandNames: {},  // 命令中文名: {plugin: {command: displayName}}
   theme: localStorage.getItem('theme') || 'light',
   sortBy: 'days', sortDir: 'asc', filter: 'all', keyword: '',
   statsSort: 'total_desc', // total_desc | total_asc | bot_asc | bot_desc | group_desc | private_desc
   statsKeyword: '',
-  // 鍒嗛〉鐘舵€?  pagination: {
+  // 分页状态
+  pagination: {
     currentPage: 1,
     pageSize: 20,
     totalItems: 0,
@@ -21,7 +22,7 @@ const state = {
   }
 };
 
-// 宸ュ叿
+// 工具
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => Array.from(document.querySelectorAll(s));
 function showToast(message, type='info'){
@@ -36,10 +37,11 @@ function showToast(message, type='info'){
 function showLoading(show=true){ const o=$('#loading-overlay'); if(o) o.classList.toggle('hidden', !show); }
 function formatDate(s){ if(!s) return '-'; try{ const d=new Date(s); return d.toLocaleString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});}catch{return s;}}
 function daysRemaining(s){ try{ const e=new Date(s), n=new Date(); e.setHours(0,0,0,0); n.setHours(0,0,0,0); return Math.round((e-n)/86400000);}catch{return 0;} }
-// 鍗冲皢鍒版湡闃堝€硷細榛樿 7 澶╋紱浠庣郴缁熼厤缃姩鎬佽鍙栬鐩?let SOON_THRESHOLD_DAYS = 7;
-function getStatusLabel(days){ if(days<0) return '<span class="status-badge status-expired">宸插埌鏈?/span>'; if(days===0) return '<span class="status-badge status-today">浠婃棩鍒版湡</span>'; if(days<=SOON_THRESHOLD_DAYS) return '<span class="status-badge status-soon">鍗冲皢鍒版湡</span>'; return '<span class="status-badge status-active">鏈夋晥</span>'; }
+// 即将到期阈值：默认 7 天；从系统配置动态读取覆盖
+let SOON_THRESHOLD_DAYS = 7;
+function getStatusLabel(days){ if(days<0) return '<span class="status-badge status-expired">已到期</span>'; if(days===0) return '<span class="status-badge status-today">今日到期</span>'; if(days<=SOON_THRESHOLD_DAYS) return '<span class="status-badge status-soon">即将到期</span>'; return '<span class="status-badge status-active">有效</span>'; }
 function maskCode(code){ if(!code) return ''; return String(code).slice(0,4)+'****'+String(code).slice(-4); }
-function normalizeUnit(u){ const x=String(u||'').trim().toLowerCase(); if(['d','day','澶?].includes(x)) return '澶?; if(['m','month','鏈?].includes(x)) return '鏈?; if(['y','year','骞?].includes(x)) return '骞?; return '澶?; }
+function normalizeUnit(u){ const x=String(u||'').trim().toLowerCase(); if(['d','day','天'].includes(x)) return '天'; if(['m','month','月'].includes(x)) return '月'; if(['y','year','年'].includes(x)) return '年'; return '天'; }
 async function copyText(text){
   try{
     if(navigator.clipboard && navigator.clipboard.writeText){
@@ -69,7 +71,7 @@ async function apiCall(path, options={}){
   return ct.includes('application/json') ? resp.json() : resp.text();
 }
 
-// 涓婚鍒囨崲鍦ㄤ笅鏂瑰凡澧炲己鐗堟湰瀹炵幇锛屾澶勭Щ闄ら噸澶嶅畾涔?
+// 主题切换在下方已增强版本实现，此处移除重复定义
 
 // Tab
 function switchTab(tab){
@@ -81,7 +83,7 @@ function switchTab(tab){
   else if(tab==='config') loadConfig();
 }
 
-// 浠〃鐩?
+// 仪表盘
 async function loadDashboard(){
   try{
     const data=await apiCall('/data');
@@ -92,10 +94,10 @@ async function loadDashboard(){
     $('#stat-valid-members').textContent=state.groups.filter(g=>g.status==='active').length;
     $('#stat-expiring-soon').textContent=state.groups.filter(g=>g.status==='soon'||g.status==='today').length;
     $('#stat-expired').textContent=state.groups.filter(g=>g.status==='expired').length;
-  } catch(e){ showToast('鍔犺浇浠〃鐩樺け璐? '+(e&&e.message?e.message:e),'error'); }
+  } catch(e){ showToast('加载仪表盘失败: '+(e&&e.message?e.message:e),'error'); }
 }
 
-// 缁垂
+// 续费
 async function loadRenewalData(){
   try{
     showLoading(true);
@@ -106,7 +108,7 @@ async function loadRenewalData(){
     renderGroupsTable();
     const codes=await apiCall('/codes');
     renderCodes(codes);
-  } catch(e){ showToast('鍔犺浇缁垂鏁版嵁澶辫触: '+(e&&e.message?e.message:e),'error'); }
+  } catch(e){ showToast('加载续费数据失败: '+(e&&e.message?e.message:e),'error'); }
   finally{ showLoading(false);} }
 
 function renderGroupsTable(){
@@ -123,11 +125,11 @@ function renderGroupsTable(){
     return 0;
   });
 
-  // 鍒嗛〉璁＄畻
+  // 分页计算
   state.pagination.totalItems = list.length;
   state.pagination.totalPages = Math.ceil(list.length / state.pagination.pageSize) || 1;
 
-  // 纭繚褰撳墠椤靛湪鏈夋晥鑼冨洿鍐?
+  // 确保当前页在有效范围内
   if (state.pagination.currentPage > state.pagination.totalPages) {
     state.pagination.currentPage = state.pagination.totalPages;
   }
@@ -135,50 +137,50 @@ function renderGroupsTable(){
     state.pagination.currentPage = 1;
   }
 
-  // 鑾峰彇褰撳墠椤电殑鏁版嵁
+  // 获取当前页的数据
   const startIndex = (state.pagination.currentPage - 1) * state.pagination.pageSize;
   const endIndex = startIndex + state.pagination.pageSize;
   const pageList = list.slice(startIndex, endIndex);
 
   tbody.innerHTML = pageList.length? pageList.map(g=>`
     <tr>
-      <td><input type="checkbox" class="group-checkbox" data-gid="${g.gid}" data-id="${g.id}"></td>
+      <td><input type="checkbox" class="group-checkbox" data-gid="${g.gid}"></td>
       <td>${g.gid}</td>
       <td>${getStatusLabel(g.days)}</td>
       <td>${formatDate(g.expiry)}</td>
       <td>${g.days}</td>
       <td>
-        <button class="btn-action btn-remind" data-gid="${g.gid}">鎻愰啋</button>
-        <button class="btn-action btn-extend" data-gid="${g.gid}">+30澶?/button>
-        <button class="btn-action btn-leave" data-gid="${g.gid}">閫€缇?/button>
+        <button class="btn-action btn-remind" data-gid="${g.gid}">提醒</button>
+        <button class="btn-action btn-extend" data-gid="${g.gid}">+30天</button>
+        <button class="btn-action btn-leave" data-gid="${g.gid}">退群</button>
       </td>
-    </tr>`).join('') : '<tr><td colspan="6" class="text-center">鏆傛棤鏁版嵁</td></tr>';
+    </tr>`).join('') : '<tr><td colspan="6" class="text-center">暂无数据</td></tr>';
 
-  // 鏇存柊鍒嗛〉鎺т欢
+  // 更新分页控件
   updatePaginationControls();
 }
 
 function renderCodes(codes){
   const el=$('#codes-list'); if(!el) return;
   const arr=Object.entries(codes||{});
-  el.innerHTML = arr.length? arr.map(([code,meta])=>`<div class="code-card"><div class="code-info"><div class="code-value">${maskCode(code)}</div><div class="code-meta">${meta.length}${meta.unit} 路 鍙敤${meta.max_use||1}娆?/div></div><button class="btn-copy" data-code="${code}">澶嶅埗</button></div>`).join('') : '<div class="empty-state">鏆傛棤鍙敤缁垂鐮?/div>';
+  el.innerHTML = arr.length? arr.map(([code,meta])=>`<div class="code-card"><div class="code-info"><div class="code-value">${maskCode(code)}</div><div class="code-meta">${meta.length}${meta.unit} · 可用${meta.max_use||1}次</div></div><button class="btn-copy" data-code="${code}">复制</button></div>`).join('') : '<div class="empty-state">暂无可用续费码</div>';
 }
 
-// 鏇存柊鍒嗛〉鎺т欢
+// 更新分页控件
 function updatePaginationControls() {
   const { currentPage, totalPages, totalItems, pageSize } = state.pagination;
 
-  // 鏇存柊淇℃伅鏂囨湰
+  // 更新信息文本
   const infoText = $('#pagination-info-text');
   if (infoText) {
     const start = (currentPage - 1) * pageSize + 1;
     const end = Math.min(currentPage * pageSize, totalItems);
     infoText.textContent = totalItems > 0
-      ? `鍏?${totalItems} 鏉¤褰曪紝鏄剧ず ${start}-${end}`
-      : '鍏?0 鏉¤褰?;
+      ? `共 ${totalItems} 条记录，显示 ${start}-${end}`
+      : '共 0 条记录';
   }
 
-  // 鏇存柊鎸夐挳鐘舵€?
+  // 更新按钮状态
   const firstBtn = $('#pagination-first');
   const prevBtn = $('#pagination-prev');
   const nextBtn = $('#pagination-next');
@@ -189,19 +191,19 @@ function updatePaginationControls() {
   if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
   if (lastBtn) lastBtn.disabled = currentPage >= totalPages;
 
-  // 鏇存柊椤电爜鏄剧ず
+  // 更新页码显示
   const pagesContainer = $('#pagination-pages');
   if (pagesContainer) {
     const pages = [];
-    const maxVisible = 5; // 鏈€澶氭樉绀?涓〉鐮佹寜閽?
+    const maxVisible = 5; // 最多显示5个页码按钮
 
     if (totalPages <= maxVisible) {
-      // 鎬婚〉鏁板皯锛屾樉绀烘墍鏈夐〉鐮?
+      // 总页数少，显示所有页码
       for (let i = 1; i <= totalPages; i++) {
         pages.push(i);
       }
     } else {
-      // 鎬婚〉鏁板锛屾櫤鑳芥樉绀洪〉鐮?
+      // 总页数多，智能显示页码
       if (currentPage <= 3) {
         pages.push(1, 2, 3, 4, '...', totalPages);
       } else if (currentPage >= totalPages - 2) {
@@ -221,7 +223,7 @@ function updatePaginationControls() {
   }
 }
 
-// 鍒嗛〉璺宠浆鍑芥暟
+// 分页跳转函数
 function goToPage(page) {
   const { totalPages } = state.pagination;
   if (page < 1) page = 1;
@@ -232,11 +234,11 @@ function goToPage(page) {
 
 function changePageSize(size) {
   state.pagination.pageSize = parseInt(size) || 20;
-  state.pagination.currentPage = 1; // 閲嶇疆鍒扮涓€椤?
+  state.pagination.currentPage = 1; // 重置到第一页
   renderGroupsTable();
 }
 
-// 缁熻锛堣鍙?/member_renewal/stats/today 骞朵粎灞曠ず浠婂ぉ锛?
+// 统计（读取 /member_renewal/stats/today 并仅展示今天）
 async function loadStatsData(){
   try{
     showLoading(true);
@@ -250,7 +252,7 @@ async function loadStatsData(){
     state.stats = { today };
     renderStatsOverviewAll(today);
     renderStatsDetails(today);
-  } catch(e){ showToast('鍔犺浇缁熻澶辫触: '+(e&&e.message?e.message:e),'error'); }
+  } catch(e){ showToast('加载统计失败: '+(e&&e.message?e.message:e),'error'); }
   finally{ showLoading(false);} }
 
 function renderStatsOverviewAll(today){
@@ -285,13 +287,13 @@ function renderStatsDetails(today){
       return { id, total:s.total_sent||0, gCount:g.count||0, pCount:p.count||0, gT:g.targets||{}, pT:p.targets||{} };
     });
 
-    // 杩囨护
+    // 过滤
     const kw = (state.statsKeyword||'').trim();
     if(kw){
       rows = rows.filter(r=> r.id.includes(kw) || Object.keys(r.gT).some(k=>k.includes(kw)) || Object.keys(r.pT).some(k=>k.includes(kw)) );
     }
 
-    // 鎺掑簭
+    // 排序
     switch(state.statsSort){
       case 'total_asc': rows.sort((a,b)=> a.total-b.total); break;
       case 'bot_asc': rows.sort((a,b)=> String(a.id).localeCompare(String(b.id))); break;
@@ -303,19 +305,19 @@ function renderStatsDetails(today){
     }
 
     if(!rows.length) {
-      container.innerHTML = '<div class="empty-state">馃摥 鏆傛棤鏁版嵁</div>';
+      container.innerHTML = '<div class="empty-state">📭 暂无数据</div>';
       return;
     }
 
-    // 娓叉煋鎵嬮鐞村紡Bot鍒楄〃
+    // 渲染手风琴式Bot列表
     const formatTargets = (targets) => {
       const entries = Object.entries(targets||{});
-      if(!entries.length) return '<div class="empty-state-mini">鏆傛棤鏁版嵁</div>';
+      if(!entries.length) return '<div class="empty-state-mini">暂无数据</div>';
 
-      // 鎸夋秷鎭暟閲忔帓搴?
+      // 按消息数量排序
       entries.sort((a, b) => b[1] - a[1]);
 
-      // 濡傛灉鏁伴噺澶锛屽彧鏄剧ず鍓?0涓紝鍏朵粬鐨勬姌鍙?
+      // 如果数量太多，只显示前10个，其他的折叠
       const showLimit = 10;
       const mainEntries = entries.slice(0, showLimit);
       const moreEntries = entries.slice(showLimit);
@@ -326,7 +328,7 @@ function renderStatsDetails(today){
 
       if(moreEntries.length > 0) {
         const moreCount = moreEntries.reduce((sum, [, count]) => sum + count, 0);
-        html += `<div class="stats-target-more">... 杩樻湁 ${moreEntries.length} 涓璞?(鍏?${moreCount} 鏉℃秷鎭?</div>`;
+        html += `<div class="stats-target-more">... 还有 ${moreEntries.length} 个对象 (共 ${moreCount} 条消息)</div>`;
       }
 
       return html;
@@ -336,26 +338,26 @@ function renderStatsDetails(today){
       <div class="stats-bot-item">
         <div class="stats-bot-header" data-index="${index}">
           <div class="stats-bot-title">
-            <span class="stats-bot-icon">鈻讹笍</span>
-            <span>馃 Bot ${bot.id}</span>
+            <span class="stats-bot-icon">▶️</span>
+            <span>🤖 Bot ${bot.id}</span>
           </div>
           <div class="stats-bot-summary">
-            <span>鎬昏: <strong>${bot.total}</strong></span>
-            <span>缇よ亰: <strong>${bot.gCount}</strong> (${Object.keys(bot.gT).length}涓兢)</span>
-            <span>绉佽亰: <strong>${bot.pCount}</strong> (${Object.keys(bot.pT).length}浜?</span>
+            <span>总计: <strong>${bot.total}</strong></span>
+            <span>群聊: <strong>${bot.gCount}</strong> (${Object.keys(bot.gT).length}个群)</span>
+            <span>私聊: <strong>${bot.pCount}</strong> (${Object.keys(bot.pT).length}人)</span>
           </div>
         </div>
         <div class="stats-bot-content">
           <div class="stats-bot-body">
             <div class="stats-targets-grid">
               <div class="stats-target-section">
-                <div class="stats-target-title">馃懃 缇よ亰娑堟伅璇︽儏 (鍏?{Object.keys(bot.gT).length}涓兢)</div>
+                <div class="stats-target-title">👥 群聊消息详情 (共${Object.keys(bot.gT).length}个群)</div>
                 <div class="stats-target-list">
                   ${formatTargets(bot.gT)}
                 </div>
               </div>
               <div class="stats-target-section">
-                <div class="stats-target-title">馃挰 绉佽亰娑堟伅璇︽儏 (鍏?{Object.keys(bot.pT).length}浜?</div>
+                <div class="stats-target-title">💬 私聊消息详情 (共${Object.keys(bot.pT).length}人)</div>
                 <div class="stats-target-list">
                   ${formatTargets(bot.pT)}
                 </div>
@@ -368,21 +370,21 @@ function renderStatsDetails(today){
 
     container.innerHTML = html;
 
-    // 缁戝畾鎵嬮鐞寸偣鍑讳簨浠?
+    // 绑定手风琴点击事件
     container.querySelectorAll('.stats-bot-header').forEach(header => {
       header.addEventListener('click', function() {
         const item = this.closest('.stats-bot-item');
         const content = item.querySelector('.stats-bot-content');
         const isActive = this.classList.contains('active');
 
-        // 鍏抽棴鍏朵粬椤?
+        // 关闭其他项
         container.querySelectorAll('.stats-bot-header').forEach(h => {
           h.classList.remove('active');
           const c = h.closest('.stats-bot-item').querySelector('.stats-bot-content');
           c.classList.remove('active');
         });
 
-        // 鍒囨崲褰撳墠椤?
+        // 切换当前项
         if (!isActive) {
           this.classList.add('active');
           content.classList.add('active');
@@ -394,67 +396,67 @@ function renderStatsDetails(today){
   }
 }
 
-// 鏂扮殑鎵嬮鐞村紡鏉冮檺鍒楄〃娓叉煋
+// 新的手风琴式权限列表渲染
 function renderPermissionsList(){
   const wrap=document.getElementById('permissions-list');
   if(!wrap) return;
   const data = state.permissions || {};
   const sub = (data.sub_plugins||{});
   const plugins = Object.keys(sub).sort((a,b)=>a.localeCompare(b));
-  if(!plugins.length && !data.top){ wrap.innerHTML = '<div class="empty-state">馃挙 鏆傛棤鏉冮檺鏁版嵁</div>'; return; }
+  if(!plugins.length && !data.top){ wrap.innerHTML = '<div class="empty-state">💤 暂无权限数据</div>'; return; }
   
-  const optLevel = (v)=>`<option value="all" ${v==='all'?'selected':''}>鎵€鏈変汉</option>
-    <option value="member" ${v==='member'?'selected':''}>缇ゆ垚鍛?/option>
-    <option value="admin" ${v==='admin'?'selected':''}>缇ょ鐞?/option>
-    <option value="owner" ${v==='owner'?'selected':''}>缇や富</option>
-    <option value="superuser" ${v==='superuser'?'selected':''}>瓒呯骇鐢ㄦ埛</option>`;
-  const optScene = (v)=>`<option value="all" ${v==='all'?'selected':''}>鍏ㄩ儴</option>
-    <option value="group" ${v==='group'?'selected':''}>缇よ亰</option>
-    <option value="private" ${v==='private'?'selected':''}>绉佽亰</option>`;
+  const optLevel = (v)=>`<option value="all" ${v==='all'?'selected':''}>所有人</option>
+    <option value="member" ${v==='member'?'selected':''}>群成员</option>
+    <option value="admin" ${v==='admin'?'selected':''}>群管理</option>
+    <option value="owner" ${v==='owner'?'selected':''}>群主</option>
+    <option value="superuser" ${v==='superuser'?'selected':''}>超级用户</option>`;
+  const optScene = (v)=>`<option value="all" ${v==='all'?'selected':''}>全部</option>
+    <option value="group" ${v==='group'?'selected':''}>群聊</option>
+    <option value="private" ${v==='private'?'selected':''}>私聊</option>`;
   const toCSV=(arr)=>Array.isArray(arr)?arr.join(','):(arr||'');
   const from=(x)=> (x && typeof x==='object')?x:{};
   const esc=(s)=>String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
-  // 鍏ㄥ眬鏉冮檺鍧楋紙椤朵笂涓€涓€荤殑鎺у埗锛?
+  // 全局权限块（顶上一个总的控制）
   const globalTop = from(data.top);
   const gWl = from(globalTop.whitelist);
   const gBl = from(globalTop.blacklist);
   const globalHTML = `
     <div id="perm-global" class="perm-global-block panel" style="margin-bottom: 16px;">
       <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between;">
-        <div style="font-weight:600;">馃寪 鍏ㄥ眬鏉冮檺</div>
+        <div style="font-weight:600;">🌐 全局权限</div>
         <label class="perm-field">
           <input type="checkbox" class="perm-enabled" ${globalTop.enabled===false?'':'checked'}>
-          <span>榛樿鍚敤</span>
+          <span>默认启用</span>
         </label>
       </div>
       <div class="panel-body">
         <div class="perm-plugin-inline-config">
           <label class="perm-field">
-            <span>馃懁 榛樿鏉冮檺绛夌骇</span>
+            <span>👤 默认权限等级</span>
             <select class="perm-level">${optLevel(String(globalTop.level||'all'))}</select>
           </label>
           <label class="perm-field">
-            <span>馃挰 榛樿浣跨敤鍦烘櫙</span>
+            <span>💬 默认使用场景</span>
             <select class="perm-scene">${optScene(String(globalTop.scene||'all'))}</select>
           </label>
         </div>
         <div class="perm-lists-section" style="margin-top:8px;">
           <div class="perm-list-group">
-            <label class="perm-list-label">鉁?鐧藉悕鍗曠敤鎴?/label>
-            <input type="text" class="perm-list-input perm-wl-users" placeholder="鐢ㄦ埛ID锛屽涓敤閫楀彿鍒嗛殧" value="${esc(toCSV(gWl.users))}">
+            <label class="perm-list-label">✅ 白名单用户</label>
+            <input type="text" class="perm-list-input perm-wl-users" placeholder="用户ID，多个用逗号分隔" value="${esc(toCSV(gWl.users))}">
           </div>
           <div class="perm-list-group">
-            <label class="perm-list-label">鉁?鐧藉悕鍗曠兢缁?/label>
-            <input type="text" class="perm-list-input perm-wl-groups" placeholder="缇ゅ彿锛屽涓敤閫楀彿鍒嗛殧" value="${esc(toCSV(gWl.groups))}">
+            <label class="perm-list-label">✅ 白名单群组</label>
+            <input type="text" class="perm-list-input perm-wl-groups" placeholder="群号，多个用逗号分隔" value="${esc(toCSV(gWl.groups))}">
           </div>
           <div class="perm-list-group">
-            <label class="perm-list-label">鉀?榛戝悕鍗曠敤鎴?/label>
-            <input type="text" class="perm-list-input perm-bl-users" placeholder="鐢ㄦ埛ID锛屽涓敤閫楀彿鍒嗛殧" value="${esc(toCSV(gBl.users))}">
+            <label class="perm-list-label">⛔ 黑名单用户</label>
+            <input type="text" class="perm-list-input perm-bl-users" placeholder="用户ID，多个用逗号分隔" value="${esc(toCSV(gBl.users))}">
           </div>
           <div class="perm-list-group">
-            <label class="perm-list-label">鉀?榛戝悕鍗曠兢缁?/label>
-            <input type="text" class="perm-list-input perm-bl-groups" placeholder="缇ゅ彿锛屽涓敤閫楀彿鍒嗛殧" value="${esc(toCSV(gBl.groups))}">
+            <label class="perm-list-label">⛔ 黑名单群组</label>
+            <input type="text" class="perm-list-input perm-bl-groups" placeholder="群号，多个用逗号分隔" value="${esc(toCSV(gBl.groups))}">
           </div>
         </div>
       </div>
@@ -467,47 +469,47 @@ function renderPermissionsList(){
     const wl = from(top.whitelist);
     const bl = from(top.blacklist);
     
-    // 鍛戒护鍒楄〃HTML - 鏀圭敤鎻掍欢鏍峰紡鐨勭綉鏍煎竷灞€
+    // 命令列表HTML - 改用插件样式的网格布局
     const cmdRows = Object.keys(cmds).sort((a,b)=>a.localeCompare(b)).map(cn=>{
       const c=from(cmds[cn]);
       const cwl=from(c.whitelist);
       const cbl=from(c.blacklist);
-      // 鑾峰彇鍛戒护鐨勪腑鏂囧悕
+      // 获取命令的中文名
       const cmdDisplay = (state.commandNames && state.commandNames[pn] && state.commandNames[pn][cn]) || cn;
       return `<div class="perm-command-item" data-command="${esc(cn)}">
         <div class="perm-command-header">
-          <div class="perm-command-name">馃搶 ${esc(cmdDisplay)}</div>
+          <div class="perm-command-name">📌 ${esc(cmdDisplay)}</div>
           <div class="perm-command-inline-config">
             <label class="perm-field">
               <input type="checkbox" class="perm-enabled" ${c.enabled===false?'':'checked'}>
-              <span>鍚敤</span>
+              <span>启用</span>
             </label>
             <label class="perm-field">
-              <span>馃懁 绛夌骇</span>
+              <span>👤 等级</span>
               <select class="perm-level">${optLevel(String(c.level||'all'))}</select>
             </label>
             <label class="perm-field">
-              <span>馃挰 鍦烘櫙</span>
+              <span>💬 场景</span>
               <select class="perm-scene">${optScene(String(c.scene||'all'))}</select>
             </label>
           </div>
         </div>
         <div class="perm-command-lists">
           <div class="perm-list-group">
-            <label class="perm-list-label">鉁?鐧藉悕鍗曠敤鎴?/label>
-            <input type="text" class="perm-list-input perm-wl-users" placeholder="澶氫釜鐢ㄩ€楀彿鍒嗛殧" value="${esc(toCSV(cwl.users))}">
+            <label class="perm-list-label">✅ 白名单用户</label>
+            <input type="text" class="perm-list-input perm-wl-users" placeholder="多个用逗号分隔" value="${esc(toCSV(cwl.users))}">
           </div>
           <div class="perm-list-group">
-            <label class="perm-list-label">鉁?鐧藉悕鍗曠兢缁?/label>
-            <input type="text" class="perm-list-input perm-wl-groups" placeholder="澶氫釜鐢ㄩ€楀彿鍒嗛殧" value="${esc(toCSV(cwl.groups))}">
+            <label class="perm-list-label">✅ 白名单群组</label>
+            <input type="text" class="perm-list-input perm-wl-groups" placeholder="多个用逗号分隔" value="${esc(toCSV(cwl.groups))}">
           </div>
           <div class="perm-list-group">
-            <label class="perm-list-label">鉀?榛戝悕鍗曠敤鎴?/label>
-            <input type="text" class="perm-list-input perm-bl-users" placeholder="澶氫釜鐢ㄩ€楀彿鍒嗛殧" value="${esc(toCSV(cbl.users))}">
+            <label class="perm-list-label">⛔ 黑名单用户</label>
+            <input type="text" class="perm-list-input perm-bl-users" placeholder="多个用逗号分隔" value="${esc(toCSV(cbl.users))}">
           </div>
           <div class="perm-list-group">
-            <label class="perm-list-label">鉀?榛戝悕鍗曠兢缁?/label>
-            <input type="text" class="perm-list-input perm-bl-groups" placeholder="澶氫釜鐢ㄩ€楀彿鍒嗛殧" value="${esc(toCSV(cbl.groups))}">
+            <label class="perm-list-label">⛔ 黑名单群组</label>
+            <input type="text" class="perm-list-input perm-bl-groups" placeholder="多个用逗号分隔" value="${esc(toCSV(cbl.groups))}">
           </div>
         </div>
       </div>`;
@@ -517,79 +519,81 @@ function renderPermissionsList(){
     return `<div class="perm-accordion-item" data-plugin="${esc(pn)}">
       <div class="perm-accordion-header" data-index="${index}">
         <div class="perm-accordion-title">
-          <span class="perm-accordion-icon">鈻讹笍</span>
-          <span>馃攲 ${esc(display)}</span>
+          <span class="perm-accordion-icon">▶️</span>
+          <span>🔌 ${esc(display)}</span>
         </div>
         <label class="perm-field" onclick="event.stopPropagation()">
           <input type="checkbox" class="perm-enabled" ${top.enabled===false?'':'checked'}>
-          <span>鍚敤鎻掍欢</span>
+          <span>启用插件</span>
         </label>
       </div>
       <div class="perm-accordion-content">
         <div class="perm-accordion-body">
           <div class="perm-plugin-inline-config">
             <label class="perm-field">
-              <span>馃懁 榛樿鏉冮檺绛夌骇</span>
+              <span>👤 默认权限等级</span>
               <select class="perm-level">${optLevel(String(top.level||'all'))}</select>
             </label>
             <label class="perm-field">
-              <span>馃挰 榛樿浣跨敤鍦烘櫙</span>
+              <span>💬 默认使用场景</span>
               <select class="perm-scene">${optScene(String(top.scene||'all'))}</select>
             </label>
           </div>
           
           <div class="perm-lists-section">
             <div class="perm-list-group">
-              <label class="perm-list-label">鉁?鐧藉悕鍗曠敤鎴?/label>
-              <input type="text" class="perm-list-input perm-wl-users" placeholder="澶氫釜ID鐢ㄩ€楀彿鍒嗛殧" value="${esc(toCSV(wl.users))}">
+              <label class="perm-list-label">✅ 白名单用户</label>
+              <input type="text" class="perm-list-input perm-wl-users" placeholder="多个ID用逗号分隔" value="${esc(toCSV(wl.users))}">
             </div>
             <div class="perm-list-group">
-              <label class="perm-list-label">鉁?鐧藉悕鍗曠兢缁?/label>
-              <input type="text" class="perm-list-input perm-wl-groups" placeholder="澶氫釜缇ゅ彿鐢ㄩ€楀彿鍒嗛殧" value="${esc(toCSV(wl.groups))}">
+              <label class="perm-list-label">✅ 白名单群组</label>
+              <input type="text" class="perm-list-input perm-wl-groups" placeholder="多个群号用逗号分隔" value="${esc(toCSV(wl.groups))}">
             </div>
             <div class="perm-list-group">
-              <label class="perm-list-label">鉀?榛戝悕鍗曠敤鎴?/label>
-              <input type="text" class="perm-list-input perm-bl-users" placeholder="澶氫釜ID鐢ㄩ€楀彿鍒嗛殧" value="${esc(toCSV(bl.users))}">
+              <label class="perm-list-label">⛔ 黑名单用户</label>
+              <input type="text" class="perm-list-input perm-bl-users" placeholder="多个ID用逗号分隔" value="${esc(toCSV(bl.users))}">
             </div>
             <div class="perm-list-group">
-              <label class="perm-list-label">鉀?榛戝悕鍗曠兢缁?/label>
-              <input type="text" class="perm-list-input perm-bl-groups" placeholder="澶氫釜缇ゅ彿鐢ㄩ€楀彿鍒嗛殧" value="${esc(toCSV(bl.groups))}">
+              <label class="perm-list-label">⛔ 黑名单群组</label>
+              <input type="text" class="perm-list-input perm-bl-groups" placeholder="多个群号用逗号分隔" value="${esc(toCSV(bl.groups))}">
             </div>
           </div>
           
           ${Object.keys(cmds).length ? `
             <div class="perm-commands-section">
-              <div class="perm-commands-title">馃幆 鍛戒护鏉冮檺閰嶇疆 (${Object.keys(cmds).length}涓懡浠?</div>
+              <div class="perm-commands-title">🎯 命令权限配置 (${Object.keys(cmds).length}个命令)</div>
               <div class="perm-commands-list">${cmdRows}</div>
             </div>
-          ` : '<div class="empty-state" style="padding: 40px 20px;">馃挙 璇ユ彃浠舵殏鏃犲懡浠?/div>'}
+          ` : '<div class="empty-state" style="padding: 40px 20px;">💤 该插件暂无命令</div>'}
         </div>
       </div>
     </div>`;
   });
   
-  const pluginsHTML = rows.join('') || '<div class="empty-state">鏆傛棤瀛愭彃锟?/div>';
+  const pluginsHTML = rows.join('') || '<div class="empty-state">暂无子插�?/div>';
   wrap.innerHTML = globalHTML + pluginsHTML;
   
-  // 缁戝畾鎵嬮鐞寸偣鍑讳簨浠讹紙鍔ㄦ€侀珮搴︼紝閬垮厤鍐呭杩囬暱琚鍒囷級
+  // 绑定手风琴点击事件（动态高度，避免内容过长被裁切）
   wrap.querySelectorAll('.perm-accordion-header').forEach(header => {
     header.addEventListener('click', function() {
       const item = this.closest('.perm-accordion-item');
       const content = item.querySelector('.perm-accordion-content');
       const isActive = this.classList.contains('active');
 
-      // 鍏抽棴鎵€鏈夊叾浠栭」骞堕噸缃珮搴?      wrap.querySelectorAll('.perm-accordion-header').forEach(h => {
+      // 关闭所有其他项并重置高度
+      wrap.querySelectorAll('.perm-accordion-header').forEach(h => {
         h.classList.remove('active');
         const c = h.closest('.perm-accordion-item').querySelector('.perm-accordion-content');
         c.classList.remove('active');
         c.style.maxHeight = '0px';
       });
 
-      // 鎵撳紑褰撳墠椤瑰苟鏍规嵁鍐呭璁＄畻楂樺害
+      // 打开当前项并根据内容计算高度
       if (!isActive) {
         this.classList.add('active');
         content.classList.add('active');
-        // 鍏堟竻绌哄啀璇诲彇 scrollHeight 浠ヨЕ鍙戞纭绠?        content.style.maxHeight = 'none';
+        // 先清空再读取 scrollHeight 以触发正确计算
+        content.style.maxHeight = 'none';
         const target = content.scrollHeight;
         content.style.maxHeight = target + 'px';
       }
@@ -597,14 +601,14 @@ function renderPermissionsList(){
   });
 }
 
-// 浠嶶I鏀堕泦鏉冮檺閰嶇疆锛堥€傞厤鏂扮殑鎵嬮鐞寸粨鏋勶級
+// 从UI收集权限配置（适配新的手风琴结构）
 function collectPermissionsFromUI(){
   const wrap=document.getElementById('permissions-list');
   if(!wrap){
     try{ const txt=$('#permissions-json')?.value||'{}'; return JSON.parse(txt); }catch{ return {}; }
   }
   const out={ top: { enabled:true, level:'all', scene:'all', whitelist:{users:[],groups:[]}, blacklist:{users:[],groups:[]} }, sub_plugins: {} };
-  // 鏀堕泦鍏ㄥ眬(top)璁剧疆
+  // 收集全局(top)设置
   try{
     const g = document.getElementById('perm-global') || wrap;
     const gTop = {};
@@ -626,7 +630,7 @@ function collectPermissionsFromUI(){
     const node = {};
     const top={};
     
-    // 鑾峰彇鎻掍欢椤剁骇閰嶇疆
+    // 获取插件顶级配置
     const header = item.querySelector('.perm-accordion-header');
     const body = item.querySelector('.perm-accordion-body');
     
@@ -649,7 +653,7 @@ function collectPermissionsFromUI(){
     top.blacklist = bl;
     node.top = top;
     
-    // 鑾峰彇鍛戒护閰嶇疆
+    // 获取命令配置
     const cmds={};
     body.querySelectorAll('.perm-command-item').forEach(cmdEl=>{
       const cn = cmdEl.getAttribute('data-command')||'';
@@ -693,60 +697,60 @@ async function loadPermissions(){
     state.pluginNames=plugins||{};
     const ta=$('#permissions-json'); if(ta) ta.value=JSON.stringify(p,null,2);
     renderPermissionsList();
-  } catch(e){ showToast('鍔犺浇鏉冮檺澶辫触: '+(e&&e.message?e.message:e),'error'); }
+  } catch(e){ showToast('加载权限失败: '+(e&&e.message?e.message:e),'error'); }
   finally{ showLoading(false);} }
 async function savePermissions(){
   try{
     const cfg = collectPermissionsFromUI();
     showLoading(true);
     await apiCall('/permissions',{method:'PUT', body: JSON.stringify(cfg)});
-    showToast('鏉冮檺閰嶇疆宸蹭繚瀛?,'success');
+    showToast('权限配置已保存','success');
     state.permissions=cfg;
     const ta=$('#permissions-json'); if(ta) ta.value=JSON.stringify(cfg,null,2);
-  } catch(e){ showToast('淇濆瓨澶辫触: '+(e&&e.message?e.message:e),'error'); }
+  } catch(e){ showToast('保存失败: '+(e&&e.message?e.message:e),'error'); }
   finally{ showLoading(false);} }
-// 閰嶇疆绠＄悊鐩稿叧
+// 配置管理相关
 let currentActiveConfigTab = null;
 
-// 閰嶇疆椤逛腑鏂囨弿杩版槧灏?
+// 配置项中文描述映射
 const CONFIG_DESCRIPTIONS = {
-  // 閫氱敤閰嶇疆鎻忚堪
-  'enabled': '鏄惁鍚敤姝ら厤缃」',
-  'enable': '鏄惁鍚敤姝ゅ姛鑳?,
-  'debug': '鏄惁寮€鍚皟璇曟ā寮?,
-  'log_level': '鏃ュ織杈撳嚭绾у埆',
-  'max_retry': '鏈€澶ч噸璇曟鏁?,
-  'timeout': '瓒呮椂鏃堕棿锛堢锛?,
-  'interval': '鎵ц闂撮殧锛堢锛?,
-  'port': '鏈嶅姟绔彛鍙?,
-  'host': '鏈嶅姟涓绘満鍦板潃',
-  'api_key': 'API瀵嗛挜',
-  'secret_key': '瀵嗛挜',
-  'token': '璁块棶浠ょ墝',
-  'url': '鎺ュ彛鍦板潃',
-  'path': '鏂囦欢璺緞',
-  'prefix': '鍛戒护鍓嶇紑',
-  'suffix': '鍛戒护鍚庣紑',
-  'max_length': '鏈€澶ч暱搴?,
-  'min_length': '鏈€灏忛暱搴?,
-  'cache_time': '缂撳瓨鏃堕棿锛堢锛?,
-  'rate_limit': '閫熺巼闄愬埗锛堟/绉掞級',
+  // 通用配置描述
+  'enabled': '是否启用此配置项',
+  'enable': '是否启用此功能',
+  'debug': '是否开启调试模式',
+  'log_level': '日志输出级别',
+  'max_retry': '最大重试次数',
+  'timeout': '超时时间（秒）',
+  'interval': '执行间隔（秒）',
+  'port': '服务端口号',
+  'host': '服务主机地址',
+  'api_key': 'API密钥',
+  'secret_key': '密钥',
+  'token': '访问令牌',
+  'url': '接口地址',
+  'path': '文件路径',
+  'prefix': '命令前缀',
+  'suffix': '命令后缀',
+  'max_length': '最大长度',
+  'min_length': '最小长度',
+  'cache_time': '缓存时间（秒）',
+  'rate_limit': '速率限制（次/秒）',
 
-  // 鏍规嵁瀹為檯閰嶇疆娣诲姞鏇村鎻忚堪
-  'whitelist': '鐧藉悕鍗曞垪琛?,
-  'blacklist': '榛戝悕鍗曞垪琛?,
-  'admin_list': '绠＄悊鍛樺垪琛?,
-  'superusers': '瓒呯骇鐢ㄦ埛鍒楄〃',
+  // 根据实际配置添加更多描述
+  'whitelist': '白名单列表',
+  'blacklist': '黑名单列表',
+  'admin_list': '管理员列表',
+  'superusers': '超级用户列表',
 };
 
-// 鑾峰彇閰嶇疆椤圭殑涓枃鎻忚堪
+// 获取配置项的中文描述
 function getConfigDescription(key) {
-  // 鍏堟煡鎵剧簿纭尮閰?
+  // 先查找精确匹配
   if (CONFIG_DESCRIPTIONS[key]) {
     return CONFIG_DESCRIPTIONS[key];
   }
 
-  // 灏濊瘯妯＄硦鍖归厤
+  // 尝试模糊匹配
   const lowerKey = key.toLowerCase();
   for (const [k, v] of Object.entries(CONFIG_DESCRIPTIONS)) {
     if (lowerKey.includes(k)) {
@@ -754,7 +758,7 @@ function getConfigDescription(key) {
     }
   }
 
-  // 濡傛灉娌℃湁鎻忚堪锛岃繑鍥炴牸寮忓寲鐨刱ey
+  // 如果没有描述，返回格式化的key
   return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
 }
 
@@ -769,13 +773,13 @@ async function loadConfig(){
     state.config = c || {};
     renderConfigTabs();
   } catch(e){
-    showToast('鍔犺浇閰嶇疆澶辫触: '+(e&&e.message?e.message:e),'error');
+    showToast('加载配置失败: '+(e&&e.message?e.message:e),'error');
   } finally{
     showLoading(false);
   }
 }
 
-// 娓叉煋鏍囩椤靛鑸拰鍐呭
+// 渲染标签页导航和内容
 function renderConfigTabs() {
   const navContainer = $('#config-tabs-nav');
   const contentContainer = $('#config-tabs-content');
@@ -786,14 +790,14 @@ function renderConfigTabs() {
   const configKeys = Object.keys(configs).sort((a, b) => a.localeCompare(b));
 
   if (configKeys.length === 0) {
-    navContainer.innerHTML = '<div class="empty-state">鏆傛棤閰嶇疆椤?/div>';
-    contentContainer.innerHTML = '<div class="empty-state">鏆傛棤閰嶇疆鏁版嵁</div>';
+    navContainer.innerHTML = '<div class="empty-state">暂无配置项</div>';
+    contentContainer.innerHTML = '<div class="empty-state">暂无配置数据</div>';
     return;
   }
 
-  // 娓叉煋涓绘爣绛惧鑸?
+  // 渲染主标签导航
   const tabsHtml = configKeys.map(key => {
-    // 浼樺厛浣跨敤 schema 鐨?title锛屾渶鍚庣敤 key
+    // 优先使用 schema 的 title，最后用 key
     const schema = (state.schemas && state.schemas[key]) || {};
     const label = schema.title || key;
     return `
@@ -804,15 +808,15 @@ function renderConfigTabs() {
   }).join('');
   navContainer.innerHTML = tabsHtml;
 
-  // 娓叉煋鎵€鏈夋爣绛鹃〉鍐呭
+  // 渲染所有标签页内容
   const contentsHtml = configKeys.map(key => {
     const configData = configs[key];
     const subKeys = getConfigSubKeys(configData, key);
-    // 涓烘覆鏌撴鎻掍欢鐨勮〃鍗曚复鏃惰缃?Schema 涓婁笅鏂?
+    // 为渲染此插件的表单临时设置 Schema 上下文
     const __prevSchemaCtx = (typeof schemaContextPlugin !== 'undefined') ? schemaContextPlugin : null;
     window.schemaContextPlugin = key;
 
-    // 濡傛灉鏈夊涓瓙閰嶇疆椤癸紝浣跨敤浜岀骇鏍囩椤?
+    // 如果有多个子配置项，使用二级标签页
     if (subKeys.length > 1) {
       const subTabsHtml = subKeys.map(subKey => {
         const props = (state.schemas && state.schemas[key] && state.schemas[key].properties) || {};
@@ -843,7 +847,7 @@ function renderConfigTabs() {
       window.schemaContextPlugin = __prevSchemaCtx;
       return __section;
     } else {
-      // 鍗曚釜閰嶇疆椤癸紝鐩存帴灞曠ず
+      // 单个配置项，直接展示
       const __section = `
         <div class="config-content-section" data-config-key="${escapeHtml(key)}">
           <div class="config-items-column">
@@ -857,7 +861,7 @@ function renderConfigTabs() {
   }).join('');
   contentContainer.innerHTML = contentsHtml;
 
-  // 缁戝畾涓绘爣绛剧偣鍑讳簨浠?
+  // 绑定主标签点击事件
   navContainer.querySelectorAll('.config-tab-item').forEach(tab => {
     tab.addEventListener('click', () => {
       const key = tab.getAttribute('data-config-key');
@@ -865,7 +869,7 @@ function renderConfigTabs() {
     });
   });
 
-  // 缁戝畾瀛愭爣绛剧偣鍑讳簨浠?
+  // 绑定子标签点击事件
   contentContainer.querySelectorAll('.config-sub-tabs-nav').forEach(subNav => {
     subNav.querySelectorAll('.config-sub-tab-item').forEach(subTab => {
       subTab.addEventListener('click', () => {
@@ -876,19 +880,19 @@ function renderConfigTabs() {
     });
   });
 
-  // 榛樿婵€娲荤涓€涓爣绛?
+  // 默认激活第一个标签
   if (configKeys.length > 0) {
     switchConfigTab(configKeys[0]);
   }
 }
 
-// 鑾峰彇閰嶇疆鐨勫瓙閿?
+// 获取配置的子键
 function getConfigSubKeys(data, parentKey) {
   if (typeof data !== 'object' || data === null) return [parentKey];
   if (Array.isArray(data)) return [parentKey];
 
   const keys = Object.keys(data);
-  // 濡傛灉瀵硅薄鐨勫€奸兘鏄璞＄被鍨嬶紙宓屽閰嶇疆锛夛紝鍒欎綔涓哄瓙鏍囩
+  // 如果对象的值都是对象类型（嵌套配置），则作为子标签
   const allObjectValues = keys.every(k => typeof data[k] === 'object' && data[k] !== null && !Array.isArray(data[k]));
 
   // Don't create sub-tabs, always render as nested sections within a single view
@@ -896,40 +900,40 @@ function getConfigSubKeys(data, parentKey) {
   return [parentKey];
 }
 
-// 鑾峰彇瀛愰厤缃暟鎹?
+// 获取子配置数据
 function getSubConfigData(data, subKey, parentKey) {
   if (subKey === parentKey) return data;
   return data[subKey] || {};
 }
 
-// 鍒囨崲瀛愭爣绛鹃〉
+// 切换子标签页
 function switchConfigSubTab(section, subKey) {
-  // 鏇存柊瀛愭爣绛炬縺娲荤姸鎬?
+  // 更新子标签激活状态
   section.querySelectorAll('.config-sub-tab-item').forEach(tab => {
     tab.classList.toggle('active', tab.getAttribute('data-sub-key') === subKey);
   });
 
-  // 鏇存柊瀛愬唴瀹规樉绀?
+  // 更新子内容显示
   section.querySelectorAll('.config-sub-content').forEach(content => {
     content.classList.toggle('active', content.getAttribute('data-sub-key') === subKey);
   });
 }
 
-// 鍒囨崲鏍囩椤?
+// 切换标签页
 function switchConfigTab(configKey) {
   currentActiveConfigTab = configKey;
 
-  // 鏇存柊鏍囩婵€娲荤姸鎬?
+  // 更新标签激活状态
   $$('.config-tab-item').forEach(tab => {
     tab.classList.toggle('active', tab.getAttribute('data-config-key') === configKey);
   });
 
-  // 鏇存柊鍐呭鏄剧ず
+  // 更新内容显示
   $$('.config-content-section').forEach(section => {
     const isActive = section.getAttribute('data-config-key') === configKey;
     section.classList.toggle('active', isActive);
 
-    // 濡傛灉鏈夊瓙鏍囩椤碉紝婵€娲荤涓€涓?
+    // 如果有子标签页，激活第一个
     if (isActive) {
       const firstSubTab = section.querySelector('.config-sub-tab-item');
       if (firstSubTab) {
@@ -950,36 +954,36 @@ function renderConfigForm(data, parentKey = '') {
   if (Array.isArray(data)) {
     html += `<div class="config-section">`;
     html += `<div class="config-section-header">
-      <span class="config-section-icon">馃搵</span>
-      <span class="config-section-title">鍒楄〃閰嶇疆</span>
+      <span class="config-section-icon">📋</span>
+      <span class="config-section-title">列表配置</span>
     </div>`;
 
     data.forEach((item, index) => {
       if (typeof item === 'object' && item !== null) {
         html += `<div class="config-array-item">
           <div class="config-array-header">
-            <span class="config-array-label">椤圭洰 ${index + 1}</span>
+            <span class="config-array-label">项目 ${index + 1}</span>
           </div>
           <div class="config-array-body">
             ${renderConfigForm(item, `${parentKey}[${index}]`)}
           </div>
         </div>`;
       } else {
-        html += renderConfigField(`${parentKey}[${index}]`, item, `椤圭洰 ${index + 1}`);
+        html += renderConfigField(`${parentKey}[${index}]`, item, `项目 ${index + 1}`);
       }
     });
     html += `</div>`;
   } else {
-    // 瀵硅薄绫诲瀷
+    // 对象类型
     const entries = Object.entries(data);
     entries.forEach(([key, value]) => {
       const fullKey = parentKey ? `${parentKey}.${key}` : key;
 
       if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-        // 宓屽瀵硅薄锛屽垱寤烘姌鍙犲尯鍩?
+        // 嵌套对象，创建折叠区域
         html += `<div class="config-nested-section">
           <div class="config-nested-header">
-            <span class="config-nested-icon">馃搧</span>
+            <span class="config-nested-icon">📁</span>
             <span class="config-nested-title">${escapeHtml(__schemaGetTitle(fullKey, key))}</span>
             <span class="config-nested-desc">${__schemaGetDescription(fullKey)}</span>
           </div>
@@ -1038,12 +1042,12 @@ function renderConfigField(fullKey, value, displayKey = null) {
   let inputHtml = '';
 
   if (type === 'boolean') {
-    // 浣跨敤缇庤鐨勫紑鍏?
+    // 使用美观的开关
     inputHtml = `
       <label class="config-switch">
         <input type="checkbox" data-config-key="${escapedKey}" ${value ? 'checked' : ''}>
         <span class="config-switch-slider"></span>
-        <span class="config-switch-label">${value ? '宸插惎鐢? : '宸茬鐢?}</span>
+        <span class="config-switch-label">${value ? '已启用' : '已禁用'}</span>
       </label>
     `;
   } else if (type === 'number') {
@@ -1052,7 +1056,7 @@ function renderConfigField(fullKey, value, displayKey = null) {
              class="config-input"
              data-config-key="${escapedKey}"
              value="${value}"
-             placeholder="璇疯緭鍏ユ暟瀛?>
+             placeholder="请输入数字">
     `;
   } else if (Array.isArray(value)) {
     inputHtml = `
@@ -1060,18 +1064,18 @@ function renderConfigField(fullKey, value, displayKey = null) {
              class="config-input"
              data-config-key="${escapedKey}"
              value="${escapeHtml(value.join(', '))}"
-             placeholder="澶氫釜鍊肩敤閫楀彿鍒嗛殧">
-      <div class="config-field-hint">澶氫釜鍊艰鐢ㄩ€楀彿鍒嗛殧</div>
+             placeholder="多个值用逗号分隔">
+      <div class="config-field-hint">多个值请用逗号分隔</div>
     `;
   } else {
-    // 瀛楃涓茬被鍨?
+    // 字符串类型
     const valueStr = String(value || '');
     if (valueStr.length > 50) {
       inputHtml = `
         <textarea class="config-textarea"
                   data-config-key="${escapedKey}"
                   rows="3"
-                  placeholder="璇疯緭鍏?{description}">${escapeHtml(valueStr)}</textarea>
+                  placeholder="请输入${description}">${escapeHtml(valueStr)}</textarea>
       `;
     } else {
       inputHtml = `
@@ -1079,7 +1083,7 @@ function renderConfigField(fullKey, value, displayKey = null) {
                class="config-input"
                data-config-key="${escapedKey}"
                value="${escapeHtml(valueStr)}"
-               placeholder="璇疯緭鍏?{description}">
+               placeholder="请输入${description}">
       `;
     }
   }
@@ -1097,17 +1101,17 @@ function renderConfigField(fullKey, value, displayKey = null) {
   `;
 }
 
-// 淇濆瓨褰撳墠鏍囩椤电殑閰嶇疆
+// 保存当前标签页的配置
 async function saveCurrentConfig() {
   if (!currentActiveConfigTab) {
-    showToast('璇烽€夋嫨瑕佷繚瀛樼殑閰嶇疆椤?, 'warning');
+    showToast('请选择要保存的配置项', 'warning');
     return;
   }
 
   try {
     showLoading(true);
 
-    // 鏌ユ壘褰撳墠婵€娲绘爣绛鹃〉鐨勫唴瀹瑰尯鍩?
+    // 查找当前激活标签页的内容区域
     const section = document.querySelector(`.config-content-section[data-config-key="${currentActiveConfigTab}"]`);
     if (!section) return;
 
@@ -1125,32 +1129,32 @@ async function saveCurrentConfig() {
         value = parseFloat(input.value) || 0;
       } else {
         value = input.value;
-        // 灏濊瘯瑙ｆ瀽涓烘暟缁?
+        // 尝试解析为数组
         if (value.includes(',')) {
           const arr = value.split(',').map(s => s.trim()).filter(Boolean);
           if (arr.length > 0) value = arr;
         }
       }
 
-      // 璁剧疆宓屽鍊?
+      // 设置嵌套值
       setNestedValue(updatedConfig, path.join('.'), value);
     });
 
-    // 鏇存柊閰嶇疆
+    // 更新配置
     const newConfig = {...state.config};
     newConfig[currentActiveConfigTab] = updatedConfig;
 
-    // 淇濆瓨鍒版湇鍔″櫒
+    // 保存到服务器
     await apiCall('/config', {method: 'PUT', body: JSON.stringify(newConfig)});
 
     state.config = newConfig;
-    showToast(`閰嶇疆 "${currentActiveConfigTab}" 宸蹭繚瀛樺苟閲嶆柊鍔犺浇`, 'success');
+    showToast(`配置 "${currentActiveConfigTab}" 已保存并重新加载`, 'success');
 
     await loadConfig();
-    // 閲嶆柊鍒囨崲鍒板綋鍓嶆爣绛?
+    // 重新切换到当前标签
     setTimeout(() => switchConfigTab(currentActiveConfigTab), 100);
   } catch(e) {
-    showToast('淇濆瓨澶辫触: ' + (e && e.message ? e.message : e), 'error');
+    showToast('保存失败: ' + (e && e.message ? e.message : e), 'error');
   } finally {
     showLoading(false);
   }
@@ -1197,7 +1201,7 @@ function closeModal(id){ const m = document.getElementById(id); if(m) m.classLis
 
 function openNotifyModal(){
   const ids = selectedGroupIds();
-  if(!ids.length){ showToast('璇峰厛鍕鹃€夎閫氱煡鐨勭兢','warning'); return; }
+  if(!ids.length){ showToast('请先勾选要通知的群','warning'); return; }
   $('#notify-selected-count').textContent = String(ids.length);
   $('#notify-text').value = '';
   const file = $('#notify-images'); if(file) file.value = '';
@@ -1217,43 +1221,46 @@ async function filesToBase64List(fileInput){
 
 async function sendNotify(){
   const ids = selectedGroupIds();
-  if(!ids.length){ showToast('鏈€夋嫨浠讳綍缇?,'warning'); return; }
+  if(!ids.length){ showToast('未选择任何群','warning'); return; }
   const text = ($('#notify-text')?.value||'').trim();
   const imgs = await filesToBase64List($('#notify-images'));
-  if(!text && (!imgs || !imgs.length)){ showToast('璇峰～鍐欐枃鏈垨閫夋嫨鍥剧墖','warning'); return; }
+  if(!text && (!imgs || !imgs.length)){ showToast('请填写文本或选择图片','warning'); return; }
 
-  // 绔嬪嵆鍏抽棴寮圭獥,闃叉閲嶅鐐瑰嚮
+  // 立即关闭弹窗,防止重复点击
   closeModal('notify-modal');
 
   try{
     showLoading(true);
     await apiCall('/notify', { method:'POST', body: JSON.stringify({ group_ids: ids, text, images: imgs }) });
-    showToast(`宸插悜 ${ids.length} 涓兢鍙戦€侀€氱煡`,'success');
+    showToast(`已向 ${ids.length} 个群发送通知`,'success');
   }catch(e){
-    showToast('鍙戦€佸け璐? '+(e&&e.message?e.message:e),'error');
+    showToast('发送失败: '+(e&&e.message?e.message:e),'error');
   }finally{
     showLoading(false);
   }
 }
 
-// 璇诲彇绯荤粺閰嶇疆涓殑鈥滀复杩戝埌鏈熼槇鍊?澶?鈥濋厤缃?async function loadSoonThreshold(){
+// 读取系统配置中的“临近到期阈值(天)”配置
+async function loadSoonThreshold(){
   try{
     const cfg = await apiCall('/config');
-    // system 鍖哄煙鍐呰鍙?member_renewal_soon_threshold_days
-    const sys = (cfg && cfg.system) ? cfg.system : cfg; // 鍏煎浠呰繑鍥?system 鐨勬儏鍐?    const v = sys && (sys.member_renewal_soon_threshold_days ?? sys['member_renewal_soon_threshold_days']);
+    // system 区域内读取 member_renewal_soon_threshold_days
+    const sys = (cfg && cfg.system) ? cfg.system : cfg; // 兼容仅返回 system 的情况
+    const v = sys && (sys.member_renewal_soon_threshold_days ?? sys['member_renewal_soon_threshold_days']);
     if(typeof v === 'number' && isFinite(v) && v >= 0){
       SOON_THRESHOLD_DAYS = v;
     }
   }catch{
-    // 澶辫触淇濈暀榛樿 7 澶?    SOON_THRESHOLD_DAYS = 7;
+    // 失败保留默认 7 天
+    SOON_THRESHOLD_DAYS = 7;
   }
 }
 
 async function openManualExtendModal(){
-  const ids = selectedRecordIds();
-  const idEl = $("#extend-group-id");
-  const infoEl = $("#extend-selected-info");
-  const curEl = $("#extend-current-info");
+  const ids = selectedGroupIds();
+  const idEl = $('#extend-group-id');
+  const infoEl = $('#extend-selected-info');
+  const curEl = $('#extend-current-info');
   if(ids.length){
     const g = (state.groups||[]).find(x=> String(x.id)===String(ids[0]));
     idEl.value = g ? String(g.gid) : "";
@@ -1279,13 +1286,13 @@ async function submitManualExtend(){
   const inputId = ($('#extend-group-id')?.value||'').trim();
   let ids = selectedRecordIds();
   const length = parseInt(($('#extend-length')?.value||'').trim());
-  const unit = ($('#extend-unit')?.value||'澶?);
+  const unit = ($('#extend-unit')?.value||'天');
   const managed_by_bot = ($('#extend-bot-id')?.value||'').trim();
   const renewed_by = ($('#extend-renewer')?.value||'').trim();
   if(!ids.length && !inputId){ showToast('请先选择群，或填写群号','warning'); return; }
-  if(!length || isNaN(length) || length<=0){ showToast('璇疯緭鍏ユ纭殑鏃堕暱','warning'); return; }
+  if(!length || isNaN(length) || length<=0){ showToast('请输入正确的时长','warning'); return; }
 
-  // 绔嬪嵆鍏抽棴寮圭獥,闃叉閲嶅鐐瑰嚮
+  // 立即关闭弹窗,防止重复点击
   closeModal('extend-modal');
 
   try{
@@ -1307,17 +1314,18 @@ async function submitManualExtend(){
       if(remark) body.remark = remark;
       await apiCall('/extend',{ method:'POST', body: JSON.stringify(body) });
     }
-    showToast(`宸插鐞?${ids.length} 涓兢锛?${length}${unit}`,'success');
-    // 璁颁綇缁垂浜?    try{ if(renewed_by) localStorage.setItem('extend_renewer', renewed_by); }catch{}
+    showToast(`已处理 ${ids.length} 个群：+${length}${unit}`,'success');
+    // 记住续费人
+    try{ if(renewed_by) localStorage.setItem('extend_renewer', renewed_by); }catch{}
     await loadRenewalData();
   }catch(e){
-    showToast('鎿嶄綔澶辫触: '+(e&&e.message?e.message:e),'error');
+    showToast('操作失败: '+(e&&e.message?e.message:e),'error');
   }finally{
     showLoading(false);
   }
 }
 
-// 浜嬩欢缁戝畾
+// 事件绑定
 function bindEvents(){
   $('#theme-toggle')?.addEventListener('click', toggleTheme);
   $$('.nav-item').forEach(i=> i.addEventListener('click', e=>{ e.preventDefault(); switchTab(i.dataset.tab);}));
@@ -1341,14 +1349,14 @@ function bindEvents(){
   $('#select-all')?.addEventListener('change', e=> $$('.group-checkbox').forEach(cb=> cb.checked=e.target.checked));
   $('#refresh-btn')?.addEventListener('click', ()=>{ const active=$('.nav-item.active'); if(active) switchTab(active.dataset.tab); });
 
-  // 鍒嗛〉鎺т欢浜嬩欢
+  // 分页控件事件
   $('#pagination-first')?.addEventListener('click', () => goToPage(1));
   $('#pagination-prev')?.addEventListener('click', () => goToPage(state.pagination.currentPage - 1));
   $('#pagination-next')?.addEventListener('click', () => goToPage(state.pagination.currentPage + 1));
   $('#pagination-last')?.addEventListener('click', () => goToPage(state.pagination.totalPages));
   $('#pagination-size-select')?.addEventListener('change', e => changePageSize(e.target.value));
 
-  // 椤电爜鐐瑰嚮浜嬩欢锛堜娇鐢ㄤ簨浠跺鎵橈級
+  // 页码点击事件（使用事件委托）
   $('#pagination-pages')?.addEventListener('click', e => {
     if (e.target.classList.contains('pagination-page')) {
       const page = parseInt(e.target.dataset.page);
@@ -1359,31 +1367,31 @@ function bindEvents(){
   const tbl=$('#groups-table-body');
   if(tbl){
     tbl.addEventListener('click', async (e)=>{
-      const btn=e.target.closest('.btn-action'); if(!btn) return; const gid=parseInt(btn.dataset.gid); const g=(state.groups||[]).find(x=> String(x.gid)===String(gid)); const rid=g&&g.id;
+      const btn=e.target.closest('.btn-action'); if(!btn) return; const gid=parseInt(btn.dataset.gid);
       try{
         if(btn.classList.contains('btn-remind')){
-          await remindGroups([gid]); showToast(`宸插悜缇?${gid} 鍙戦€佹彁閱抈,'success');
+          await remindGroups([gid]); showToast(`已向群 ${gid} 发送提醒`,'success');
         } else if(btn.classList.contains('btn-extend')){
-          if(!rid){ showToast('记录ID缺失，无法续费','error'); return; } await apiCall('/extend',{method:'POST', body: JSON.stringify({ id: rid, length:30, unit:'天'})});
-          showToast(`宸蹭负缇?${gid} 寤堕暱30澶ー,'success'); await loadRenewalData();
+          await apiCall('/extend',{method:'POST', body: JSON.stringify({ group_id: gid, length:30, unit:'天'})});
+          showToast(`已为群 ${gid} 延长30天`,'success'); await loadRenewalData();
         } else if(btn.classList.contains('btn-leave')){
-          if(!confirm(`纭璁╂満鍣ㄤ汉閫€鍑虹兢 ${gid}?`)) return; await leaveGroups([gid]);
-          showToast(`宸查€€鍑虹兢 ${gid}`,'success'); await loadRenewalData();
+          if(!confirm(`确认让机器人退出群 ${gid}?`)) return; await leaveGroups([gid]);
+          showToast(`已退出群 ${gid}`,'success'); await loadRenewalData();
         }
-      } catch(err){ showToast('鎿嶄綔澶辫触: '+(err&&err.message?err.message:err),'error'); }
+      } catch(err){ showToast('操作失败: '+(err&&err.message?err.message:err),'error'); }
     });
   }
-  $('#codes-list')?.addEventListener('click', async (e)=>{ const btn=e.target.closest('.btn-copy'); if(!btn) return; const code=btn.dataset.code||''; const ok=await copyText(code); showToast(ok?'缁垂鐮佸凡澶嶅埗':'澶嶅埗澶辫触', ok?'success':'error'); });
+  $('#codes-list')?.addEventListener('click', async (e)=>{ const btn=e.target.closest('.btn-copy'); if(!btn) return; const code=btn.dataset.code||''; const ok=await copyText(code); showToast(ok?'续费码已复制':'复制失败', ok?'success':'error'); });
 
-  // 缁熻绛涢€?鎺掑簭鎺т欢
-  const kw = document.createElement('input'); kw.id='stats-keyword'; kw.className='input'; kw.placeholder='馃攳 鎸塀ot杩囨护';
+  // 统计筛选/排序控件
+  const kw = document.createElement('input'); kw.id='stats-keyword'; kw.className='input'; kw.placeholder='🔍 按Bot过滤';
   const sel = document.createElement('select'); sel.id='stats-sort'; sel.className='input'; sel.innerHTML = `
-    <option value="total_desc">馃搳 鎸夋€诲彂閫?闄嶅簭)</option>
-    <option value="total_asc">馃搳 鎸夋€诲彂閫?鍗囧簭)</option>
-    <option value="bot_asc">馃 鎸塀ot(鍗囧簭)</option>
-    <option value="bot_desc">馃 鎸塀ot(闄嶅簭)</option>
-    <option value="group_desc">馃懃 鎸夌兢鑱婃暟(闄嶅簭)</option>
-    <option value="private_desc">馃挰 鎸夌鑱婃暟(闄嶅簭)</option>`;
+    <option value="total_desc">📊 按总发送(降序)</option>
+    <option value="total_asc">📊 按总发送(升序)</option>
+    <option value="bot_asc">🤖 按Bot(升序)</option>
+    <option value="bot_desc">🤖 按Bot(降序)</option>
+    <option value="group_desc">👥 按群聊数(降序)</option>
+    <option value="private_desc">💬 按私聊数(降序)</option>`;
   const statsTab = document.getElementById('tab-stats');
   if(statsTab){
     const panel = statsTab.querySelector('.panel');
@@ -1402,27 +1410,27 @@ function bindEvents(){
   $('#stats-keyword')?.addEventListener('input', e=>{ state.statsKeyword=e.target.value.trim(); renderStatsDetails(state.stats?.today||{}); });
   $('#stats-sort')?.addEventListener('change', e=>{ state.statsSort=e.target.value; renderStatsDetails(state.stats?.today||{}); });
 
-  // 閰嶇疆琛ㄥ崟涓殑寮€鍏冲垏鎹簨浠讹紙浣跨敤浜嬩欢濮旀墭锛?
+  // 配置表单中的开关切换事件（使用事件委托）
   document.addEventListener('change', (e) => {
     if (e.target.matches('.config-switch input[type="checkbox"]')) {
       const label = e.target.closest('.config-switch').querySelector('.config-switch-label');
       if (label) {
-        label.textContent = e.target.checked ? '宸插惎鐢? : '宸茬鐢?;
+        label.textContent = e.target.checked ? '已启用' : '已禁用';
       }
     }
   });
 }
 
-// 鐢熸垚缁垂鐮?
+// 生成续费码
 async function generateCode(){
   const btn=$('#generate-code-btn'); if(btn && btn.dataset.busy==='1') return; if(btn){ btn.dataset.busy='1'; btn.setAttribute('disabled','disabled'); }
-  const length=parseInt($("#renewal-length").value)||30; let unit=$("#renewal-unit")?.value||"澶?; unit = normalizeUnit(unit);
-  try{ showLoading(true); const r=await apiCall('/generate',{method:'POST', body: JSON.stringify({ length, unit })}); showToast(`缁垂鐮佸凡鐢熸垚: ${r.code}`,'success'); await loadRenewalData(); }
-  catch(e){ showToast('鐢熸垚澶辫触: '+(e&&e.message?e.message:e),'error'); }
+  const length=parseInt($("#renewal-length").value)||30; let unit=$("#renewal-unit")?.value||"天"; unit = normalizeUnit(unit);
+  try{ showLoading(true); const r=await apiCall('/generate',{method:'POST', body: JSON.stringify({ length, unit })}); showToast(`续费码已生成: ${r.code}`,'success'); await loadRenewalData(); }
+  catch(e){ showToast('生成失败: '+(e&&e.message?e.message:e),'error'); }
   finally{ showLoading(false); if(btn){ delete btn.dataset.busy; btn.removeAttribute('disabled'); } }
 }
 
-// 鏉冮檺JSON寮圭獥
+// 权限JSON弹窗
 function openPermJsonModal(){
   const modal=document.getElementById('perm-json-modal');
   if(!modal) return;
@@ -1443,25 +1451,26 @@ async function savePermJson(){
     await apiCall('/permissions',{method:'PUT', body: JSON.stringify(cfg)});
     state.permissions = cfg;
     renderPermissionsList();
-    showToast('JSON 宸蹭繚瀛?,'success');
+    showToast('JSON 已保存','success');
     closePermJsonModal();
-  }catch(e){ showToast('JSON 淇濆瓨澶辫触: '+(e&&e.message?e.message:e),'error'); }
+  }catch(e){ showToast('JSON 保存失败: '+(e&&e.message?e.message:e),'error'); }
   finally{ showLoading(false); }
 }
 
-// 鍒濆鍖?
+// 初始化
 async function init(){
   document.body.setAttribute('data-theme', state.theme);
   const i=document.querySelector('#theme-toggle .icon');
-  if(i) i.textContent = state.theme==='light' ? '馃尀' : '馃寵';
-  // 鍏堝姞杞界郴缁熼厤缃殑鈥滀复杩戝埌鏈熼槇鍊?澶?鈥?  await loadSoonThreshold();
+  if(i) i.textContent = state.theme==='light' ? '🌞' : '🌙';
+  // 先加载系统配置的“临近到期阈值(天)”
+  await loadSoonThreshold();
   await loadDashboard();
   
-  // 娣诲姞椤甸潰鍔犺浇鍔ㄧ敾
+  // 添加页面加载动画
   animatePageLoad();
 }
 
-// 椤甸潰鍔犺浇鍔ㄧ敾
+// 页面加载动画
 function animatePageLoad() {
   const cards = document.querySelectorAll('.stat-card');
   cards.forEach((card, index) => {
@@ -1475,7 +1484,7 @@ function animatePageLoad() {
   });
 }
 
-// 娣诲姞鍗＄墖鐐瑰嚮娉㈢汗鏁堟灉
+// 添加卡片点击波纹效果
 function addRippleEffect(e) {
   const card = e.currentTarget;
   const ripple = document.createElement('span');
@@ -1503,7 +1512,7 @@ function addRippleEffect(e) {
   setTimeout(() => ripple.remove(), 600);
 }
 
-// 娣诲姞CSS鍔ㄧ敾
+// 添加CSS动画
 if (!document.getElementById('ripple-animation')) {
   const style = document.createElement('style');
   style.id = 'ripple-animation';
@@ -1522,12 +1531,12 @@ if (!document.getElementById('ripple-animation')) {
   document.head.appendChild(style);
 }
 
-// 澧炲己涓婚鍒囨崲鍔ㄧ敾
+// 增强主题切换动画
 function toggleTheme(){
   const oldTheme = state.theme;
   state.theme = state.theme==='light' ? 'dark':'light';
   
-  // 娣诲姞鍒囨崲鍔ㄧ敾
+  // 添加切换动画
   document.body.style.transition = 'background 0.5s ease, color 0.5s ease';
   document.body.setAttribute('data-theme', state.theme);
   localStorage.setItem('theme', state.theme);
@@ -1537,16 +1546,16 @@ function toggleTheme(){
     i.style.transform = 'rotate(360deg)';
     i.style.transition = 'transform 0.6s cubic-bezier(0.68, -0.55, 0.265, 1.55)';
     setTimeout(() => {
-      i.textContent = state.theme==='light' ? '馃尀' : '馃寵';
+      i.textContent = state.theme==='light' ? '🌞' : '🌙';
       i.style.transform = 'rotate(0deg)';
     }, 300);
   }
   
-  // 鏄剧ず鍒囨崲鎻愮ず
-  showToast(`宸插垏鎹㈠埌${state.theme==='light'?'浜壊':'鏆楄壊'}涓婚 鉁╜, 'success');
+  // 显示切换提示
+  showToast(`已切换到${state.theme==='light'?'亮色':'暗色'}主题 ✨`, 'success');
 }
 
-// 澧炲己鍒锋柊鎸夐挳鍔ㄧ敾
+// 增强刷新按钮动画
 function enhanceRefreshButton() {
   const btn = $('#refresh-btn');
   if (btn) {
@@ -1562,13 +1571,13 @@ function enhanceRefreshButton() {
   }
 }
 
-// 涓虹粺璁″崱鐗囨坊鍔犱氦浜掓晥鏋?
+// 为统计卡片添加交互效果
 function enhanceStatCards() {
   const cards = document.querySelectorAll('.stat-card');
   cards.forEach(card => {
     card.addEventListener('click', addRippleEffect);
     
-    // 娣诲姞鎮仠鏁板瓧璺冲姩鏁堟灉
+    // 添加悬停数字跳动效果
     card.addEventListener('mouseenter', () => {
       const value = card.querySelector('.stat-value');
       if (value && value.textContent !== '-') {
@@ -1586,7 +1595,7 @@ function enhanceStatCards() {
   });
 }
 
-// 琛ㄦ牸琛屽姩鐢?
+// 表格行动画
 function animateTableRows() {
   const rows = document.querySelectorAll('.data-table tbody tr');
   rows.forEach((row, index) => {
@@ -1602,7 +1611,7 @@ function animateTableRows() {
   });
 }
 
-// 澧炲己鎸夐挳鐐瑰嚮鍙嶉
+// 增强按钮点击反馈
 function enhanceButtons() {
   document.querySelectorAll('.btn').forEach(btn => {
     btn.addEventListener('click', function(e) {
@@ -1614,7 +1623,7 @@ function enhanceButtons() {
   });
 }
 
-// 骞虫粦婊氬姩鍒伴《閮?
+// 平滑滚动到顶部
 function smoothScrollToTop() {
   window.scrollTo({
     top: 0,
@@ -1622,21 +1631,21 @@ function smoothScrollToTop() {
   });
 }
 
-// 鐩戝惉鏍囩椤靛垏鎹紝娣诲姞鍔ㄧ敾
+// 监听标签页切换，添加动画
 const originalSwitchTab = switchTab;
 switchTab = function(tab) {
   originalSwitchTab(tab);
   
-  // 鍒囨崲鍔ㄧ敾
+  // 切换动画
   const content = document.querySelector(`#tab-${tab}`);
   if (content) {
     content.style.animation = 'fadeInContent 0.4s ease-out';
   }
   
-  // 婊氬姩鍒伴《閮?
+  // 滚动到顶部
   smoothScrollToTop();
   
-  // 鏍规嵁涓嶅悓鏍囩椤垫坊鍔犵壒瀹氬姩鐢?
+  // 根据不同标签页添加特定动画
   setTimeout(() => {
     if (tab === 'renewal') {
       animateTableRows();
@@ -1650,12 +1659,12 @@ window.addEventListener('DOMContentLoaded', ()=>{
   init();
   bindEvents();
 
-  // 澧炲己浜や簰鏁堟灉
+  // 增强交互效果
   enhanceRefreshButton();
   enhanceStatCards();
   enhanceButtons();
 
-  // 娣诲姞椤甸潰鍙鎬х洃鍚紝鍒囨崲鍥炴潵鏃跺埛鏂版暟鎹?
+  // 添加页面可见性监听，切换回来时刷新数据
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
       const activeTab = document.querySelector('.nav-item.active');
@@ -1674,17 +1683,17 @@ window.runScheduledTask = async function(){
   try{
     showLoading(true);
     const r=await apiCall('/job/run',{method:'POST'});
-    showToast(`鉁?妫€鏌ュ畬鎴愶紒鎻愰啋 ${r.reminded} 涓兢锛岄€€鍑?${r.left} 涓兢`,'success');
+    showToast(`✅ 检查完成！提醒 ${r.reminded} 个群，退出 ${r.left} 个群`,'success');
   } catch(e){
-    showToast('鉂?鎵ц澶辫触: '+(e&&e.message?e.message:e),'error');
+    showToast('❌ 执行失败: '+(e&&e.message?e.message:e),'error');
   } finally{
     showLoading(false);
   }
 };
 
-// 娣诲姞閿洏蹇嵎閿敮鎸?
+// 添加键盘快捷键支持
 document.addEventListener('keydown', (e) => {
-  // Ctrl/Cmd + K: 鎼滅储
+  // Ctrl/Cmd + K: 搜索
   if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
     e.preventDefault();
     const searchInput = document.querySelector('#group-search');
@@ -1694,7 +1703,7 @@ document.addEventListener('keydown', (e) => {
     }
   }
   
-  // Ctrl/Cmd + R: 鍒锋柊
+  // Ctrl/Cmd + R: 刷新
   if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
     e.preventDefault();
     const refreshBtn = document.querySelector('#refresh-btn');
@@ -1703,7 +1712,7 @@ document.addEventListener('keydown', (e) => {
     }
   }
   
-  // Ctrl/Cmd + D: 鍒囨崲涓婚
+  // Ctrl/Cmd + D: 切换主题
   if ((e.ctrlKey || e.metaKey) && e.key === 'd') {
     e.preventDefault();
     const themeBtn = document.querySelector('#theme-toggle');
@@ -1712,7 +1721,7 @@ document.addEventListener('keydown', (e) => {
     }
   }
   
-  // ESC: 鍏抽棴妯℃€佹
+  // ESC: 关闭模态框
   if (e.key === 'Escape') {
     const modal = document.querySelector('.modal:not(.hidden)');
     if (modal) {
@@ -1721,10 +1730,7 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// 鎺у埗鍙版杩庝俊鎭?
-console.log('%c馃尭 浠婃睈绠＄悊鎺у埗鍙?, 'font-size: 24px; color: #667eea; font-weight: bold;');
-console.log('%c鉁?娆㈣繋浣跨敤鐜颁唬鍖栫鐞嗙晫闈?, 'font-size: 14px; color: #6366f1;');
-console.log('%c蹇嵎閿彁绀?\n  Ctrl+K: 鎼滅储\n  Ctrl+R: 鍒锋柊\n  Ctrl+D: 鍒囨崲涓婚\n  ESC: 鍏抽棴寮圭獥', 'font-size: 12px; color: #94a3b8; line-height: 1.8;');
-
-
-
+// 控制台欢迎信息
+console.log('%c🌸 今汐管理控制台', 'font-size: 24px; color: #667eea; font-weight: bold;');
+console.log('%c✨ 欢迎使用现代化管理界面', 'font-size: 14px; color: #6366f1;');
+console.log('%c快捷键提示:\n  Ctrl+K: 搜索\n  Ctrl+R: 刷新\n  Ctrl+D: 切换主题\n  ESC: 关闭弹窗', 'font-size: 12px; color: #94a3b8; line-height: 1.8;');
