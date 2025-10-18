@@ -290,6 +290,7 @@ async def _check_and_process() -> Tuple[int, int]:
     reminders = 0
     left = 0
     changed = False
+    keys_to_remove: list[str] = []
 
     for k, v in data.items():
         if k == "generatedCodes" or not isinstance(v, dict):
@@ -312,17 +313,26 @@ async def _check_and_process() -> Tuple[int, int]:
 
         # 已过期
         if days < 0 and status != "expired":
+            # 若配置开启自动退群，先尝试退群，成功则从数据库删除该记录
             if bool(cfg.get("member_renewal_auto_leave_on_expire", True)):
-                # 读取退群模式配置
                 preferred = v.get("managed_by_bot")
+                left_success = False
                 for bot in _choose_bots(preferred):
                     try:
                         await bot.set_group_leave(group_id=gid)
                         left += 1
+                        left_success = True
                         break
                     except Exception as e:
                         logger.debug(f"退群失败 {gid} : {e}")
                         continue
+                if left_success:
+                    # 延后统一删除，避免遍历时改动 dict
+                    keys_to_remove.append(k)
+                    changed = True
+                    # 已删除该记录，继续处理下一个
+                    continue
+            # 未配置自动退群或退群未成功：标记为已到期
             v["status"] = "expired"
             v["expired_at"] = _now_utc().isoformat()
             changed = True
@@ -381,6 +391,14 @@ async def _check_and_process() -> Tuple[int, int]:
                     reminders += 1
                     changed = True
 
+    # 统一删除需要移除的记录
+    if keys_to_remove:
+        for rk in keys_to_remove:
+            try:
+                data.pop(rk, None)
+            except Exception:
+                pass
+        changed = True
     if changed:
         await _write_data(data)
     return reminders, left
