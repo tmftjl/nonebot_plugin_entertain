@@ -83,3 +83,18 @@ def _load_system_via_nonebot() -> None:
         pass
 
 _load_system_via_nonebot()
+
+
+# 启动时尝试将旧版 JSON 数据迁移至数据库（仅在数据库为空时执行）
+try:
+    from .db.migrate import migrate_legacy_json_on_startup
+
+    @driver.on_startup
+    async def _entertain_migrate_legacy_json():
+        try:
+            await migrate_legacy_json_on_startup()
+        except Exception as e:
+            logger.debug("[membership] 旧版数据迁移过程出现异常（已忽略）")
+            logger.exception(e)
+except Exception:
+    pass
