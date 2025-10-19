@@ -164,13 +164,29 @@ SYSTEM_SCHEMA: Dict[str, Any] = {
             "x-group": "控制台",
             "x-order": 33
         },
+        "member_renewal_console_token": {
+            "type": "string",
+            "title": "控制台访问token",
+            "description": "控制台访问token",
+            "default": "123456",
+            "x-group": "控制台",
+            "x-order": 33
+        },
+        "member_renewal_console_token_updated_at": {
+            "type": "date",
+            "title": "token创建时间",
+            "description": "token创建时间",
+            "default": "123456",
+            "x-group": "控制台",
+            "x-order": 35
+        },
         "member_renewal_stats_api_url": {
             "type": "string",
             "title": "统计API地址",
             "description": "前端转发的统计服务 API 根地址",
             "default": "http://127.0.0.1:8000",
             "x-group": "控制台",
-            "x-order": 34
+            "x-order": 36
         },
 
         # 续费码生成
