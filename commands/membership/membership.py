@@ -16,7 +16,7 @@ from nonebot.matcher import Matcher
 from nonebot.permission import SUPERUSER
 from nonebot.plugin import PluginMetadata
 from ...core.framework.registry import Plugin
-from ...core.system_config import load_cfg
+from ...core.system_config import load_cfg, save_cfg
 from ...console.membership_service import (
     _add_duration,
     _choose_bots,
@@ -61,8 +61,17 @@ login_cmd = P.on_regex(
 async def _(matcher: Matcher, event: MessageEvent):
     if not isinstance(event, PrivateMessageEvent):
         await matcher.finish("请在私聊使用该命令")
-    token = str(int(_now_utc().timestamp()))[-6:]
+    # 生成并持久化控制台访问令牌（稳定，不设过期；每次“今汐登录”会重置）
+    import secrets
+    token = secrets.token_hex(16)  # 32位十六进制令牌
     cfg = load_cfg()
+    try:
+        cfg["member_renewal_console_token"] = token
+        cfg["member_renewal_console_token_updated_at"] = _now_utc().isoformat()
+        save_cfg(cfg)
+    except Exception:
+        # 即使保存失败，也尽量继续返回链接（但无法通过服务端校验）
+        pass
     try:
         delay = float(cfg.get("member_renewal_batch_delay_seconds", 0) or 0.0)
         if delay < 0:

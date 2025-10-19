@@ -48,21 +48,18 @@ def _extract_token(request: Request) -> str:
     return (token_q or token_h or token_c or "").strip()
 
 
-def _validate_token(token: str, *, window_seconds: int = 600) -> bool:
-    """校验令牌：匹配最近 window_seconds 秒内时间戳的后 6 位。
+def _validate_token(token: str) -> bool:
+    """校验令牌：与系统配置中保存的控制台令牌完全匹配。
 
-    与“今汐登录”命令的令牌生成逻辑保持一致（最后 6 位）。
+    令牌不设过期，仅在每次“今汐登录”时重置。
     """
     try:
-        token = str(token or "").strip()
-        if not token:
+        provided = str(token or "").strip()
+        if not provided:
             return False
-        now = int(_now_utc().timestamp())
-        start = max(0, now - max(0, int(window_seconds)))
-        for t in range(start, now + 1):
-            if str(t)[-6:] == token:
-                return True
-        return False
+        cfg = load_cfg()
+        saved = str(cfg.get("member_renewal_console_token") or "").strip()
+        return bool(saved) and (provided == saved)
     except Exception:
         return False
 
@@ -337,13 +334,42 @@ def setup_web_console() -> None:
 
                 # 检查payload是否包含多个插件配置
                 if "system" in payload or len(payload) > 1:
-                    # 批量更新模式
+                    # 批量更新模式：保护控制台令牌不被覆盖/丢失
+                    try:
+                        if "system" in payload and isinstance(payload.get("system"), dict):
+                            existing = load_cfg()
+                            sys_in = payload.get("system") or {}
+                            if isinstance(existing, dict) and isinstance(sys_in, dict):
+                                if "member_renewal_console_token" in existing and "member_renewal_console_token" not in sys_in:
+                                    sys_in["member_renewal_console_token"] = existing["member_renewal_console_token"]
+                                if "member_renewal_console_token_updated_at" in existing and "member_renewal_console_token_updated_at" not in sys_in:
+                                    sys_in["member_renewal_console_token_updated_at"] = existing["member_renewal_console_token_updated_at"]
+                                payload["system"] = sys_in
+                    except Exception:
+                        pass
                     success, errors = save_all_plugin_configs(payload)
-                    if not success:
-                        raise HTTPException(500, f"部分配置更新失败: {errors}")
+                if not success:
+                    raise HTTPException(500, f"部分配置更新失败: {errors}")
                 else:
-                    # 向后兼容：单个system配置更新
-                    save_cfg(payload)
+                    # 向后兼容：单个system配置更新（合并以保留令牌）
+                    try:
+                        existing = load_cfg()
+                        if not isinstance(existing, dict):
+                            existing = {}
+                    except Exception:
+                        existing = {}
+                    try:
+                        merged = dict(existing)
+                        for k, v in (payload or {}).items():
+                            merged[k] = v
+                        # 若提交中缺少令牌字段，使用已有值
+                        if "member_renewal_console_token" not in merged and "member_renewal_console_token" in existing:
+                            merged["member_renewal_console_token"] = existing["member_renewal_console_token"]
+                        if "member_renewal_console_token_updated_at" not in merged and "member_renewal_console_token_updated_at" in existing:
+                            merged["member_renewal_console_token_updated_at"] = existing["member_renewal_console_token_updated_at"]
+                    except Exception:
+                        merged = payload
+                    save_cfg(merged)
 
                 # 保存成功后，立即重载所有配置到内存缓存
                 ok, details = reload_all_configs()

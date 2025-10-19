@@ -26,6 +26,9 @@ SYSTEM_DEFAULTS: Dict[str, Any] = {
     # 控制台/网页
     "member_renewal_console_enable": True,
     "member_renewal_console_host": "http://localhost:8080",
+    # 控制台访问令牌（由“今汐登录”生成并重置；不设过期）
+    "member_renewal_console_token": "",
+    "member_renewal_console_token_updated_at": None,
     # 可选：统计服务 API 地址（供网页端转发）
     "member_renewal_stats_api_url": "http://127.0.0.1:8000",
     # 续费码生成
