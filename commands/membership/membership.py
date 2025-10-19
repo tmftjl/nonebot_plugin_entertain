@@ -331,13 +331,14 @@ async def _check_and_process() -> Tuple[int, int]:
                         await bot.send_group_msg(group_id=int(gid_str), message=Message(content))
                     except Exception as e:
                         logger.debug(f"notify non-member failed {gid_str}: {e}")
+                    delay = float(cfg.get("member_renewal_batch_delay_seconds", 0) or 0.0)
                     if delay > 0:
                         try:
                             await asyncio.sleep(delay)
                         except Exception:
                             pass
 
-                    await bot.set_group_leave(group_id=int(gid_str),is_dismiss=False)
+                    await bot.set_group_leave(group_id=int(gid_str))
                     left += 1
                     # throttle per group
                     if delay > 0:
@@ -379,7 +380,7 @@ async def _check_and_process() -> Tuple[int, int]:
                 left_success = False
                 for bot in _choose_bots(preferred):
                     try:
-                        await bot.set_group_leave(group_id=gid,is_dismiss=False)
+                        await bot.set_group_leave(group_id=gid)
                         left += 1
                         left_success = True
                         break

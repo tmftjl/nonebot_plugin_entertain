@@ -272,7 +272,7 @@ def setup_web_console() -> None:
             if not bot:
                 raise HTTPException(500, "无可用 Bot 可退群")
             try:
-                await bot.set_group_leave(group_id=gid,is_dismiss=False)
+                await bot.set_group_leave(group_id=gid)
             except Exception as e:
                 logger.debug(f"leave_multi failed: {e}")
                 raise HTTPException(500, f"退出失败: {e}")
