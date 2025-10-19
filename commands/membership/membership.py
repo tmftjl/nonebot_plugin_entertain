@@ -327,7 +327,7 @@ async def _check_and_process() -> Tuple[int, int]:
                 try:
                     # 先提示后退出
                     try:
-                        content = "本群未在会员列表中，机器人将退出。如需使用请联系管理员开通。"
+                        content = "本群未在会员列表中，机器人将退出。如需使用请加群757463664联系管理员开通。"
                         await bot.send_group_msg(group_id=int(gid_str), message=Message(content))
                     except Exception as e:
                         logger.debug(f"notify non-member failed {gid_str}: {e}")
@@ -387,6 +387,7 @@ async def _check_and_process() -> Tuple[int, int]:
                     except Exception as e:
                         logger.debug(f"退群失败 {gid} : {e}")
                         continue
+                delay = float(cfg.get("member_renewal_batch_delay_seconds", 0) or 0.0)
                 if left_success:
                     if delay > 0:
                         try:
@@ -419,9 +420,9 @@ async def _check_and_process() -> Tuple[int, int]:
 
             if should_remind:
                 preferred = v.get("managed_by_bot")
-                if days == 0:
+                if days <= 0:
                     content = (
-                        "本群会员今天到期。请尽快联系管理员购买续费码（首次开通与续费同用），并在群内发送完成续费"
+                        "本群会员已到期。请尽快加群757463664联系管理员购买续费码（首次开通与续费同用），并在群内发送完成续费"
                     )
                 else:
                     content = (
