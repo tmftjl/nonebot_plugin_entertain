@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import Field, SQLModel, delete
 
 from .base_models import BaseIDModel, with_session
+from nonebot.log import logger
 
 
 class Membership(BaseIDModel, table=True):
@@ -130,16 +131,25 @@ async def write_snapshot(obj: Dict[str, Any]) -> None:
     for k, v in obj.items():
         if k == "generatedCodes" or not isinstance(v, dict):
             continue
+        # Normalize types to match model schema (strings in DB for these fields)
+        def _s(val: Any) -> Optional[str]:
+            if val is None:
+                return None
+            try:
+                return str(val)
+            except Exception:
+                return None
+
         mem_rows.append(
             {
                 "group_id": str(v.get("group_id") or k),
-                "expiry": v.get("expiry"),
-                "last_renewed_by": v.get("last_renewed_by"),
-                "renewal_code_used": v.get("renewal_code_used"),
-                "managed_by_bot": v.get("managed_by_bot"),
+                "expiry": _s(v.get("expiry")),
+                "last_renewed_by": _s(v.get("last_renewed_by")),
+                "renewal_code_used": _s(v.get("renewal_code_used")),
+                "managed_by_bot": _s(v.get("managed_by_bot")),
                 "status": str(v.get("status") or "active"),
-                "last_reminder_on": v.get("last_reminder_on"),
-                "expired_at": v.get("expired_at"),
+                "last_reminder_on": _s(v.get("last_reminder_on")),
+                "expired_at": _s(v.get("expired_at")),
             }
         )
 
@@ -149,14 +159,31 @@ async def write_snapshot(obj: Dict[str, Any]) -> None:
     if isinstance(gen_map, dict):
         for code, rec in gen_map.items():
             try:
+                # Convert and validate integers to fit SQLite 64-bit range
+                SQLITE_INT64_MIN = -9223372036854775808
+                SQLITE_INT64_MAX = 9223372036854775807
+
+                length_val = int(rec.get("length"))
+                max_use_val = int(rec.get("max_use", 1) or 1)
+                used_count_val = int(rec.get("used_count", 0) or 0)
+
+                def _in_sqlite_range(v: int) -> bool:
+                    return SQLITE_INT64_MIN <= v <= SQLITE_INT64_MAX
+
+                if not (_in_sqlite_range(length_val) and _in_sqlite_range(max_use_val) and _in_sqlite_range(used_count_val)):
+                    logger.warning(
+                        f"[membership] 跳过无效兑换码记录（整数超出SQLite范围）: code={code}, length={length_val}, max_use={max_use_val}, used_count={used_count_val}"
+                    )
+                    continue
+
                 code_rows.append(
                     {
                         "code": str(code),
-                        "length": int(rec.get("length")),
+                        "length": length_val,
                         "unit": str(rec.get("unit")),
                         "generated_time": str(rec.get("generated_time")),
-                        "max_use": int(rec.get("max_use", 1) or 1),
-                        "used_count": int(rec.get("used_count", 0) or 0),
+                        "max_use": max_use_val,
+                        "used_count": used_count_val,
                         "expire_at": str(rec.get("expire_at")) if rec.get("expire_at") else None,
                     }
                 )
