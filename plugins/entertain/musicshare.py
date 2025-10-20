@@ -20,9 +20,8 @@ from .config import cfg_music, cfg_api_timeouts
 
 
 try:
-    from nonebot.adapters.onebot.v11 import Message, MessageEvent, MessageSegment
+    from nonebot.adapters.onebot.v11 import MessageEvent, MessageSegment
 except Exception:  # pragma: no cover - allow import without adapter during static analysis
-    Message = object  # type: ignore
     MessageEvent = object  # type: ignore
 
     class _Dummy:  # type: ignore
@@ -32,10 +31,6 @@ except Exception:  # pragma: no cover - allow import without adapter during stat
 
         @staticmethod
         def record(_: str):
-            return None
-
-        @staticmethod
-        def music_custom(url: str, audio: str, title: str, content: str, image: str):
             return None
 
     MessageSegment = _Dummy  # type: ignore
@@ -56,7 +51,6 @@ class Song:
     link: Optional[str] = None
     # platform specific
     mid: Optional[str] = None  # qq
-    hash: Optional[str] = None  # kugou
 
 
 # In-memory search cache per user
@@ -95,83 +89,7 @@ def _platform_name_human(p: Platform) -> str:
 
 
 async def _search_songs(platform: Platform, keyword: str) -> List[Song]:
-    timeout = httpx.Timeout(10.0, connect=10.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        if platform == "kugou":
-            url = (
-                "http://mobilecdn.kugou.com/api/v3/search/song"
-                f"?format=json&keyword={quote_plus(keyword)}&page=1&pagesize=20&showtype=1"
-            )
-            r = await client.get(url)
-            r.raise_for_status()
-            data = r.json()
-            infos = data.get("data", {}).get("info", []) or []
-            results: List[Song] = []
-            for item in infos:
-                name = item.get("songname") or "未知歌曲"
-                artist = item.get("singername") or "未知歌手"
-                song_hash = item.get("hash")
-                album_id = str(item.get("album_id") or "")
-                cover = None
-                if item.get("imgurl"):
-                    cover = "http://" + str(item["imgurl"]).lstrip("http://").lstrip("https://")
-                results.append(
-                    Song(
-                        id=f"{song_hash or ''}:{album_id}",
-                        name=name,
-                        artist=artist,
-                        cover=cover,
-                        hash=song_hash,
-                        link="https://www.kugou.com/song/",
-                    )
-                )
-            return results
-
-        if platform == "qq":
-            url = (
-                "http://datukuai.top:1450/djs/API/QQ_Music/api.php"
-                f"?msg={quote_plus(keyword)}&limit=30"
-            )
-            r = await client.get(url)
-            r.raise_for_status()
-            data = r.json()
-            items = data.get("data") or []
-            results: List[Song] = []
-            for item in items:
-                name = item.get("song") or "未知歌曲"
-                artist = item.get("singers") or "未知歌手"
-                mid = item.get("mid")
-                cover = item.get("picture")
-                results.append(
-                    Song(
-                        id=str(item.get("id") or mid or name),
-                        name=name,
-                        artist=artist,
-                        cover=cover,
-                        link=f"https://y.qq.com/n/ryqq/songDetail/{mid}" if mid else None,
-                        mid=mid,
-                    )
-                )
-            return results
-
-        # wangyiyun
-        url = f"http://datukuai.top:3000/search?keywords={quote_plus(keyword)}"
-        r = await client.get(url)
-        r.raise_for_status()
-        data = r.json()
-        songs = (data.get("result") or {}).get("songs") or []
-        results: List[Song] = []
-        for s in songs:
-            sid = str(s.get("id"))
-            name = s.get("name") or "未知歌曲"
-            artists = s.get("artists") or []
-            artist = artists[0].get("name") if artists else "未知歌手"
-            cover = None
-            if s.get("al") and s["al"].get("picUrl"):
-                cover = s["al"]["picUrl"]
-            link = f"https://music.163.com/#/song?id={sid}"
-            results.append(Song(id=sid, name=name, artist=artist, cover=cover, link=link))
-        return results
+    return await _lv_search_songs(platform, keyword)
 
 
 def _lv_provider_from_platform(platform: Platform) -> Provider:
@@ -253,102 +171,7 @@ async def _lv_resolve_audio_url(platform: Platform, song: Song) -> Optional[str]
             return None
 
 async def _resolve_audio_url(platform: Platform, song: Song) -> Optional[str]:
-    timeout = httpx.Timeout(10.0, connect=10.0)
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        try:
-            if platform == "wangyiyun":
-                # Prefer public NCM API endpoint if available
-                try:
-                    r = await client.get(
-                        f"http://datukuai.top:3000/song/url?id={song.id}"
-                    )
-                    if r.status_code == 200:
-                        j = r.json()
-                        data = (j.get("data") or [{}])[0]
-                        url = data.get("url")
-                        if url:
-                            return url
-                except Exception:
-                    pass
-
-                # Fallback to official API (requires cookie), optional via env var
-                wy_ck = os.getenv("MUSIC_WYY_COOKIE", "")
-                payload = {
-                    "ids": f"[{song.id}]",
-                    "level": "standard",
-                    "encodeType": "mp3",
-                }
-                headers = {
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 12; Build/SKQ1.211230.001)",
-                }
-                if wy_ck:
-                    headers["Cookie"] = f"MUSIC_U={wy_ck}"
-                r = await client.post(
-                    "https://music.163.com/api/song/enhance/player/url/v1",
-                    data="&".join(f"{k}={v}" for k, v in payload.items()),
-                    headers=headers,
-                )
-                if r.status_code == 200:
-                    j = r.json()
-                    data = (j.get("data") or [{}])[0]
-                    return data.get("url")
-                # Final fallback for NCM: public outer URL (may redirect)
-                return f"http://music.163.com/song/media/outer/url?id={song.id}"
-
-            if platform == "qq":
-                url = (
-                    "http://datukuai.top:1450/djs/API/QQ_Music/api.php"
-                    f"?msg={quote_plus(song.name)}&n=1&q=7"
-                )
-                r = await client.get(url)
-                r.raise_for_status()
-                j = r.json()
-                audio = (j.get("data") or {}).get("music")
-                if audio:
-                    return audio
-                # Fallback: try using QQ mid when available
-                if song.mid:
-                    try:
-                        r2 = await client.get(
-                            "http://datukuai.top:1450/djs/API/QQ_Music/api.php"
-                            f"?msg={quote_plus(song.mid)}&n=1&q=7"
-                        )
-                        r2.raise_for_status()
-                        j2 = r2.json()
-                        audio2 = (j2.get("data") or {}).get("music")
-                        if audio2:
-                            return audio2
-                    except Exception:
-                        pass
-                return None
-
-            if platform == "kugou":
-                url = (
-                    "https://wenxin110.top/api/kugou_music"
-                    f"?msg={quote_plus(song.name)}&n=1"
-                )
-                r = await client.get(url)
-                r.raise_for_status()
-                text = r.text
-                # The API returns a messy text; try to extract lines
-                cleaned = (
-                    text.replace("±", "")
-                    .replace("\\", "")
-                    .replace("img=", "")
-                    .replace("播放地址", "")
-                    .replace("\r", "")
-                )
-                parts = [p for p in cleaned.split("\n") if p.strip()]
-                # Heuristic: expect [pic, name, artist, url]
-                if len(parts) >= 4:
-                    return parts[3].strip()
-                return None
-        except Exception as e:  # pragma: no cover - network errors
-            logger.warning(f"resolve audio url failed: {e}")
-            return None
-
-    return None
+    return await _lv_resolve_audio_url(platform, song)
 
 
 def _ffmpeg_path() -> Optional[str]:
@@ -626,7 +449,9 @@ async def _(matcher: Matcher, event: MessageEvent, groups: Tuple[Optional[str], 
         return
 
     USER_RESULTS[event.get_user_id()] = (platform, songs)
-    img_bytes = _make_song_list_image_grid(platform, keyword, songs)
+    prov = _lv_provider_from_platform(platform)
+    platform_for_display: Platform = "qq" if prov == "tencent" else "wangyiyun"
+    img_bytes = _make_song_list_image_grid(platform_for_display, keyword, songs)
     b64 = base64.b64encode(img_bytes).decode()
     await matcher.finish(MessageSegment.image(f"base64://{b64}"))
 
