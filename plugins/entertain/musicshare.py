@@ -16,6 +16,7 @@ from nonebot.matcher import Matcher
 from nonebot.params import RegexGroup
 from nonebot.exception import FinishedException
 from ...core.api import Plugin
+from .config import cfg_music, cfg_api_timeouts
 
 
 try:
@@ -43,6 +44,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 
 Platform = Literal["qq", "kugou", "wangyiyun"]
+Provider = Literal["tencent", "netease"]
 
 
 @dataclass
@@ -171,6 +173,84 @@ async def _search_songs(platform: Platform, keyword: str) -> List[Song]:
             results.append(Song(id=sid, name=name, artist=artist, cover=cover, link=link))
         return results
 
+
+def _lv_provider_from_platform(platform: Platform) -> Provider:
+    if platform == "qq":
+        return "tencent"
+    if platform == "wangyiyun":
+        return "netease"
+    mcfg = cfg_music()
+    pd = str(mcfg.get("provider_default") or "tencent").lower()
+    return "netease" if pd == "netease" else "tencent"
+
+
+async def _lv_search_songs(platform: Platform, keyword: str) -> List[Song]:
+    mcfg = cfg_music()
+    atime = cfg_api_timeouts()
+    api_base = str(mcfg.get("api_base") or "https://api.vkeys.cn").rstrip("/")
+    num = int(mcfg.get("search_num") or 20)
+    prov = _lv_provider_from_platform(platform)
+    timeout_sec = float(atime.get("music_api_timeout") or 15)
+    timeout = httpx.Timeout(timeout_sec, connect=timeout_sec)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        url = f"{api_base}/v2/music/{prov}?word={quote_plus(keyword)}&num={num}"
+        r = await client.get(url)
+        r.raise_for_status()
+        data = r.json()
+        items = data.get("data")
+        if isinstance(items, dict):
+            items = [items]
+        items = items or []
+        results: List[Song] = []
+        for item in items:
+            name = item.get("song") or "未知歌曲"
+            artist = item.get("singer") or "未知歌手"
+            mid = item.get("mid")
+            sid = item.get("id")
+            cover = item.get("cover")
+            link = item.get("link")
+            if not link:
+                if prov == "tencent" and mid:
+                    link = f"https://i.y.qq.com/v8/playsong.html?songmid={mid}"
+                elif prov == "netease" and sid:
+                    link = f"https://music.163.com/#/song?id={sid}"
+            results.append(Song(id=str(sid or mid or name), name=str(name), artist=str(artist), cover=cover, link=link, mid=mid))
+        return results
+
+
+async def _lv_resolve_audio_url(platform: Platform, song: Song) -> Optional[str]:
+    mcfg = cfg_music()
+    atime = cfg_api_timeouts()
+    api_base = str(mcfg.get("api_base") or "https://api.vkeys.cn").rstrip("/")
+    prov = _lv_provider_from_platform(platform)
+    quality = int(mcfg.get("quality") or 4)
+    if prov == "netease":
+        quality = max(1, min(9, quality))
+    else:
+        quality = max(0, min(16, quality))
+    timeout_sec = float(atime.get("music_api_timeout") or 15)
+    timeout = httpx.Timeout(timeout_sec, connect=timeout_sec)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        try:
+            params = f"quality={quality}"
+            if prov == "tencent":
+                if song.mid:
+                    url = f"{api_base}/v2/music/{prov}?mid={quote_plus(song.mid)}&{params}"
+                else:
+                    url = f"{api_base}/v2/music/{prov}?id={quote_plus(song.id)}&{params}"
+            else:
+                url = f"{api_base}/v2/music/{prov}?id={quote_plus(song.id)}&{params}"
+            r = await client.get(url)
+            r.raise_for_status()
+            j = r.json()
+            data = j.get("data") or {}
+            audio_url = data.get("url")
+            if audio_url:
+                return audio_url
+            return data.get("link")
+        except Exception:
+            logger.exception("resolve audio url failed")
+            return None
 
 async def _resolve_audio_url(platform: Platform, song: Song) -> Optional[str]:
     timeout = httpx.Timeout(10.0, connect=10.0)
@@ -525,7 +605,7 @@ async def _(matcher: Matcher, event: MessageEvent, groups: Tuple[Optional[str], 
 
     platform = _platform_alias_to_key(alias)
     try:
-        songs = await _search_songs(platform, keyword)
+        songs = await _lv_search_songs(platform, keyword)
     except Exception:
         logger.exception("search songs failed")
         await matcher.finish("搜索歌曲时发生错误，请稍后再试。")
@@ -566,7 +646,7 @@ async def _(matcher: Matcher, event: MessageEvent, groups: Tuple[str] = RegexGro
     await matcher.send(f"正在获取：{song.name} - {song.artist}，请稍等...")
 
     # 先尝试返回直链（若失败则后续返回跳转链接）
-    audio_url = await _resolve_audio_url(platform, song)
+    audio_url = await _lv_resolve_audio_url(platform, song)
 
     # 若已转码并生成可用文件，直接 finish 发送，终止后续流程
     if audio_url:
