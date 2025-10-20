@@ -1066,7 +1066,7 @@ function renderConfigForm(data, parentKey = '') {
       }
     });
     // 单个复选框：更新跨页选择集合，并同步全选状态
-    tbl.addEventListener('change', (e)=>{
+    if (typeof tbl !== 'undefined' && tbl && tbl.addEventListener) tbl.addEventListener('change', (e)=>{
       const cb = e.target && e.target.closest && e.target.closest('.group-checkbox');
       if(!cb) return;
       const gid = Number(cb.dataset.gid);
