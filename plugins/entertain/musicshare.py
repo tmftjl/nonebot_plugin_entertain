@@ -369,8 +369,10 @@ async def _download_audio_via_ffmpeg(url: str, name_hint: str) -> Optional[Path]
         logger.error("FFmpeg not found in PATH and FFMPEG_BIN not set; cannot download locally.")
         return None
     logger.info(f"Found ffmpeg executable at: {ffmpeg}")
-    host_base_path = Path("/opt/bot/data/temp/musicshare")
-    container_base_path = Path("/root/data/temp/musicshare")
+    # 通用化的输出目录：默认使用项目下 data/temp/musicshare，可通过环境变量覆盖
+    host_base_path = Path(os.getenv("NPE_MUSIC_VOICE_DIR") or (Path.cwd() / "data" / "temp" / "musicshare"))
+    container_base_env = os.getenv("NPE_CONTAINER_VOICE_DIR")
+    container_base_path: Optional[Path] = Path(container_base_env) if container_base_env else None
 
     try:
         # 确保主机上的临时目录存在
@@ -423,11 +425,17 @@ async def _download_audio_via_ffmpeg(url: str, name_hint: str) -> Optional[Path]
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120.0)
         if proc.returncode == 0 and host_out_path.exists() and host_out_path.stat().st_size > 1024:
-            container_return_path = container_base_path / host_out_path.name
-            logger.success(
-                f"FFmpeg created file {host_out_path}, returning container path {container_return_path}"
-            )
-            return container_return_path
+            if container_base_path:
+                container_return_path = container_base_path / host_out_path.name
+                logger.success(
+                    f"FFmpeg created file {host_out_path}, returning container path {container_return_path}"
+                )
+                return container_return_path
+            else:
+                logger.success(
+                    f"FFmpeg created file {host_out_path}, returning host path"
+                )
+                return host_out_path
         else:
             error_message = stderr.decode(errors="ignore").strip()
             logger.error(f"FFmpeg process failed with exit code {proc.returncode}.")
@@ -650,6 +658,13 @@ async def _(matcher: Matcher, event: MessageEvent, groups: Tuple[str] = RegexGro
 
     # 若已转码并生成可用文件，直接 finish 发送，终止后续流程
     if audio_url:
+        # 优先尝试通过远程直链发送语音（由适配器下载处理）
+        try:
+            await matcher.finish(MessageSegment.record(str(audio_url)))
+        except FinishedException:
+            raise
+        except Exception as e:
+            logger.warning(f"远程语音发送失败，尝试本地转码: {e}")
         try:
             local_path = await _download_audio_via_ffmpeg(
                 audio_url, f"{song.name}-{song.artist}"
