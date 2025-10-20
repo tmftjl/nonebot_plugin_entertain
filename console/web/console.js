@@ -19,7 +19,9 @@ const state = {
     pageSize: 20,
     totalItems: 0,
     totalPages: 0
-  }
+  },
+  // 跨页选择集合：存放已选群ID
+  selectedIds: new Set()
 };
 
 // 工具
@@ -170,7 +172,7 @@ function renderGroupsTable(){
 
   tbody.innerHTML = pageList.length? pageList.map(g=>`
     <tr>
-      <td><input type="checkbox" class="group-checkbox" data-gid="${g.gid}"></td>
+      <td><input type="checkbox" class="group-checkbox" data-gid="${g.gid}" ${state.selectedIds.has(Number(g.gid))?'checked':''}></td>
       <td>${g.gid}</td>
       <td>${getStatusLabel(g.days)}</td>
       <td>${formatDate(g.expiry)}</td>
@@ -184,6 +186,20 @@ function renderGroupsTable(){
 
   // 更新分页控件
   updatePaginationControls();
+
+  // 更新“全选”复选框状态（基于当前筛选结果，跨页）
+  const selAll = document.getElementById('select-all');
+  if(selAll){
+    if(list.length === 0){
+      selAll.checked = false;
+      selAll.indeterminate = false;
+    } else {
+      let selected = 0;
+      for(const g of list){ if(state.selectedIds.has(Number(g.gid))) selected++; }
+      selAll.checked = selected === list.length;
+      selAll.indeterminate = selected > 0 && selected < list.length;
+    }
+  }
 }
 
 function renderCodes(codes){
@@ -1049,6 +1065,24 @@ function renderConfigForm(data, parentKey = '') {
         html += renderConfigField(fullKey, value, key);
       }
     });
+    // 单个复选框：更新跨页选择集合，并同步全选状态
+    tbl.addEventListener('change', (e)=>{
+      const cb = e.target && e.target.closest && e.target.closest('.group-checkbox');
+      if(!cb) return;
+      const gid = Number(cb.dataset.gid);
+      if(!Number.isFinite(gid)) return;
+      if(cb.checked) state.selectedIds.add(gid); else state.selectedIds.delete(gid);
+      const selAll = document.getElementById('select-all');
+      if(selAll){
+        let list=[...state.groups];
+        if(state.filter!=='all') list=list.filter(g=>g.status===state.filter);
+        if(state.keyword) list=list.filter(g=>String(g.gid).includes(state.keyword));
+        if(list.length===0){ selAll.checked=false; selAll.indeterminate=false; return; }
+        let cnt=0; for(const g of list){ if(state.selectedIds.has(Number(g.gid))) cnt++; }
+        selAll.checked = cnt === list.length;
+        selAll.indeterminate = cnt > 0 && cnt < list.length;
+      }
+    });
   }
 
   return html;
@@ -1272,7 +1306,7 @@ async function leaveGroups(groupIds){
   }
 }
 
-function selectedGroupIds(){ return $$('.group-checkbox').filter(cb=>cb.checked).map(cb=> parseInt(cb.dataset.gid)); }
+function selectedGroupIds(){ return Array.from(state.selectedIds.values()); }
 function selectedRecordIds(){
   const list = [];
   const sel = $$('.group-checkbox').filter(cb=>cb.checked);
@@ -1597,7 +1631,18 @@ function bindEvents(){
   $('#extend-confirm')?.addEventListener('click', submitManualExtend);
   $('#group-search')?.addEventListener('input', e=>{ state.keyword=e.target.value.trim(); state.pagination.currentPage=1; renderGroupsTable(); });
   $('#status-filter')?.addEventListener('change', e=>{ state.filter=e.target.value; state.pagination.currentPage=1; renderGroupsTable(); });
-  $('#select-all')?.addEventListener('change', e=> $$('.group-checkbox').forEach(cb=> cb.checked=e.target.checked));
+  // 全选（跨页）：基于当前筛选结果
+  $('#select-all')?.addEventListener('change', e=>{
+    let list=[...state.groups];
+    if(state.filter!=='all') list=list.filter(g=>g.status===state.filter);
+    if(state.keyword) list=list.filter(g=>String(g.gid).includes(state.keyword));
+    if(e.target.checked){
+      for(const g of list){ state.selectedIds.add(Number(g.gid)); }
+    } else {
+      for(const g of list){ state.selectedIds.delete(Number(g.gid)); }
+    }
+    renderGroupsTable();
+  });
   $('#refresh-btn')?.addEventListener('click', ()=>{ const active=$('.nav-item.active'); if(active) switchTab(active.dataset.tab); });
 
   // 分页控件事件
