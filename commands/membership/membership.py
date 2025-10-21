@@ -15,7 +15,7 @@ from nonebot.log import logger
 from nonebot.matcher import Matcher
 from nonebot.permission import SUPERUSER
 from nonebot.plugin import PluginMetadata
-from ...core.framework.registry import Plugin
+from nonebot import on_regex
 from ...core.system_config import load_cfg, save_cfg
 from ...console.membership_service import (
     _add_duration,
@@ -41,19 +41,19 @@ __plugin_meta__ = PluginMetadata(
 
 
 # 系统命令注册（中文、UTF-8、精简注释）
-P = Plugin(name="core", category="system", enabled=True, level="all", scene="all")
+# 系统命令使用 NoneBot 原生 on_regex，不再通过 Plugin 包装
 
 
 # 控制台登录
-login_cmd = P.on_regex(
+login_cmd = on_regex(
     r"^今汐登录$",
-    name="console_login",
+    
     priority=5,
     block=True,
     permission=SUPERUSER,
-    enabled=True,
-    level="superuser",
-    scene="private",
+    
+    
+    
 )
 
 
@@ -87,15 +87,15 @@ async def _(matcher: Matcher, event: MessageEvent):
 
 
 # 生成续费码（超级用户）
-gen_code_cmd = P.on_regex(
+gen_code_cmd = on_regex(
     r"^ww生成续费码(\d+)(天|月|年)$",
-    name="gen_code",
+    
     priority=5,
     block=True,
     permission=SUPERUSER,
-    enabled=True,
-    level="superuser",
-    scene="all",
+    
+    
+    
 )
 
 
@@ -127,14 +127,14 @@ async def _(matcher: Matcher, event: MessageEvent):
 
 
 # 使用续费码（群聊）
-redeem_cmd = P.on_regex(
+redeem_cmd = on_regex(
     r"^ww续费(\d+)(天|月|年)-([A-Za-z0-9_]+)$",
-    name="redeem",
+    
     priority=5,
     block=True,
-    enabled=True,
-    level="all",
-    scene="group",
+    
+    
+    
 )
 
 
@@ -193,14 +193,14 @@ async def _(matcher: Matcher, event: MessageEvent):
 
 
 # 到期查询（群聊）
-check_group = P.on_regex(
+check_group = on_regex(
     r"^ww到期$",
-    name="check_group",
+    
     priority=5,
     block=True,
-    enabled=True,
-    level="all",
-    scene="group",
+    
+    
+    
 )
 
 
@@ -231,14 +231,14 @@ async def _(_: Matcher, event: MessageEvent):
 
 
 # 引导提示（不拦截）
-prompt = P.on_regex(
+prompt = on_regex(
     r"^ww(拉群|续费)$",
-    name="prompt",
+    
     priority=5,
     block=True,
-    enabled=True,
-    level="all",
-    scene="all",
+    
+    
+    
 )
 
 
@@ -250,15 +250,15 @@ async def _(_: Matcher):
 
 
 # 手动检查
-manual_check = P.on_regex(
+manual_check = on_regex(
     r"^ww检查会员$",
-    name="manual_check",
+    
     priority=5,
     block=True,
-    permission=P.permission_cmd("manual_check"),
-    enabled=True,
-    level="superuser",
-    scene="all",
+    permission=SUPERUSER,
+    
+    
+    
 )
 
 

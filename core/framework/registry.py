@@ -6,6 +6,7 @@ from typing import Any, Optional
 from nonebot import on_regex
 from nonebot import logger
 from nonebot.matcher import Matcher
+from nonebot.permission import Permission, SUPERUSER
 
 from .config import (
     upsert_plugin_defaults,
@@ -134,6 +135,7 @@ class Plugin:
     ) -> None:
         self.name = name or _infer_plugin_name()
         self.category = category if category in ("sub", "system") else "sub"
+        self._cmd_levels: dict[str, Optional[str]] = {}
         # record display name if provided
         try:
             if display_name:
@@ -164,6 +166,12 @@ class Plugin:
         return permission_for_plugin(self.name, category=self.category)
 
     def permission_cmd(self, command: str):
+        # 系统命令不接入外置权限：默认放行；若声明为 superuser 则仅限超管
+        if self.category == "system":
+            lvl = self._cmd_levels.get(command)
+            if str(lvl or "").lower() == "superuser":
+                return SUPERUSER
+            return Permission()
         return permission_for_cmd(self.name, command, category=self.category)
 
     # ----- Builders -----
@@ -201,21 +209,15 @@ class Plugin:
                 bl_users=bl_users,
                 bl_groups=bl_groups,
             )
+            # 外部插件：注入基于 permissions.json 的权限对象
+            if "permission" not in kwargs:
+                kwargs["permission"] = self.permission_cmd(name)
         else:
-            upsert_system_command_defaults(
-                self.name,
-                name,
-                enabled=enabled,
-                level=level,
-                scene=scene,
-                wl_users=wl_users,
-                wl_groups=wl_groups,
-                bl_users=bl_users,
-                bl_groups=bl_groups,
-            )
-        # Auto-bind permission if not provided by caller
-        if "permission" not in kwargs:
-            kwargs["permission"] = self.permission_cmd(name)
+            # 系统命令：不写入权限配置，不使用外置权限控制
+            # 仅当声明 level=superuser 且未显式指定 permission 时，使用 NoneBot 的 SUPERUSER
+            self._cmd_levels[name] = level
+            if "permission" not in kwargs and str(level or "").lower() == "superuser":
+                kwargs["permission"] = SUPERUSER
         
         # 1. 先创建原始的 Matcher
         matcher = on_regex(pattern, **kwargs)
