@@ -113,16 +113,35 @@ async def check_superuser(event: MessageEvent) -> bool:
 # ==================== 对话触发命令 ====================
 
 
-# @ 机器人触发对话（群聊）
-at_cmd = P.on_regex(r"^(.+)$", name="ai_chat_at", display_name="@ 机器人对话", priority=10, block=False)
+# 统一触发（群聊需@，私聊无需@）
+# 提高优先级数值以让 /chat 等更早处理（避免重复回复）
+at_cmd = P.on_regex(
+    r"^(.+)$",
+    name="ai_chat_at",
+    display_name="@ 机器人对话",
+    priority=12,
+    block=False,
+)
 
 
 @at_cmd.handle()
-async def handle_at_chat(bot: Bot, event: GroupMessageEvent):
-    """处理 @ 机器人的消息"""
+async def handle_chat_auto(bot: Bot, event: MessageEvent):
+    """统一处理：
+    - 群聊：只有@机器人才触发
+    - 私聊：任意文本直接触发
+    - 为避免与 /chat 冲突，优先级低于 /chat，或在此处遇到 /chat 时直接跳过
+    """
 
-    # 检查是否 @ 了机器人
-    if not _is_at_bot_robust(bot, event):
+    # 若是 /chat 开头，交给专用命令处理
+    try:
+        raw = str(event.get_message())
+        if raw.strip().lower().startswith(('/chat', '\\chat')):
+            return
+    except Exception:
+        pass
+
+    # 群聊必须 @ 机器人
+    if isinstance(event, GroupMessageEvent) and not _is_at_bot_robust(bot, event):
         return
 
     # 获取纯文本消息
@@ -131,9 +150,11 @@ async def handle_at_chat(bot: Bot, event: GroupMessageEvent):
         return
 
     # 获取会话信息
+    session_type = "group" if isinstance(event, GroupMessageEvent) else "private"
     session_id = get_session_id(event)
     user_id = str(event.user_id)
     user_name = get_user_name(event)
+    group_id = str(getattr(event, "group_id", "")) if isinstance(event, GroupMessageEvent) else None
 
     # 处理消息
     try:
@@ -142,18 +163,21 @@ async def handle_at_chat(bot: Bot, event: GroupMessageEvent):
             user_id=user_id,
             user_name=user_name,
             message=message,
-            session_type="group",
-            group_id=str(event.group_id),
+            session_type=session_type,
+            group_id=group_id,
         )
 
         if response:
-            cfg = get_config()
-            if cfg.response.enable_at_reply:
-                await at_cmd.send(Message(f"[CQ:at,qq={user_id}] {response}"))
+            if session_type == "group":
+                cfg = get_config()
+                if cfg.response.enable_at_reply:
+                    await at_cmd.send(Message(f"[CQ:at,qq={user_id}] {response}"))
+                else:
+                    await at_cmd.send(response)
             else:
                 await at_cmd.send(response)
     except Exception as e:
-        logger.exception(f"[AI Chat] @ 对话处理失败: {e}")
+        logger.exception(f"[AI Chat] 对话处理失败: {e}")
 
 
 # /chat 命令（通用）
@@ -196,33 +220,7 @@ async def handle_chat_cmd(event: MessageEvent, matched: str = RegexMatched()):
         await chat_cmd.finish("抱歉，处理消息时遇到错误")
 
 
-# 私聊直接对话（无需 @ 或 /chat），不拦截其它命令
-private_any_cmd = P.on_regex(r"^(.+)$", name="ai_chat_private", display_name="私聊对话", priority=12, block=False)
-
-
-@private_any_cmd.handle()
-async def handle_private_any(event: PrivateMessageEvent):
-    message = extract_plain_text(event.message)
-    if not message:
-        return
-
-    session_id = get_session_id(event)
-    user_id = str(event.user_id)
-    user_name = get_user_name(event)
-
-    try:
-        response = await chat_manager.process_message(
-            session_id=session_id,
-            user_id=user_id,
-            user_name=user_name,
-            message=message,
-            session_type="private",
-            group_id=None,
-        )
-        if response:
-            await private_any_cmd.send(response)
-    except Exception as e:
-        logger.exception(f"[AI Chat] 私聊对话处理失败: {e}")
+# 取消单独的私聊匹配器，统一在 at_cmd 中判断场景
 
 
 # ==================== 会话管理命令 ====================
