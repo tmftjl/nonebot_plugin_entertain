@@ -67,6 +67,21 @@ def is_at_bot(bot: Bot, event: MessageEvent) -> bool:
     return False
 
 
+def _is_at_bot_robust(bot: Bot, event: MessageEvent) -> bool:
+    """更稳健的 @ 检测：支持 at 段、[CQ:at,qq=xxx]、[at:qq=xxx]，任意位置。"""
+    if not isinstance(event, GroupMessageEvent):
+        return False
+    try:
+        for seg in event.message:
+            if seg.type == "at" and seg.data.get("qq") == bot.self_id:
+                return True
+        raw = str(event.message)
+        if f"[CQ:at,qq={bot.self_id}]" in raw or f"[at:qq={bot.self_id}]" in raw:
+            return True
+    except Exception:
+        pass
+    return False
+
 def extract_plain_text(message: Message) -> str:
     """提取纯文本消息"""
 
@@ -107,7 +122,7 @@ async def handle_at_chat(bot: Bot, event: GroupMessageEvent):
     """处理 @ 机器人的消息"""
 
     # 检查是否 @ 了机器人
-    if not is_at_bot(bot, event):
+    if not _is_at_bot_robust(bot, event):
         return
 
     # 获取纯文本消息
@@ -179,6 +194,35 @@ async def handle_chat_cmd(event: MessageEvent, matched: str = RegexMatched()):
     except Exception as e:
         logger.exception(f"[AI Chat] /chat 对话处理失败: {e}")
         await chat_cmd.finish("抱歉，处理消息时遇到错误")
+
+
+# 私聊直接对话（无需 @ 或 /chat），不拦截其它命令
+private_any_cmd = P.on_regex(r"^(.+)$", name="ai_chat_private", display_name="私聊对话", priority=12, block=False)
+
+
+@private_any_cmd.handle()
+async def handle_private_any(event: PrivateMessageEvent):
+    message = extract_plain_text(event.message)
+    if not message:
+        return
+
+    session_id = get_session_id(event)
+    user_id = str(event.user_id)
+    user_name = get_user_name(event)
+
+    try:
+        response = await chat_manager.process_message(
+            session_id=session_id,
+            user_id=user_id,
+            user_name=user_name,
+            message=message,
+            session_type="private",
+            group_id=None,
+        )
+        if response:
+            await private_any_cmd.send(response)
+    except Exception as e:
+        logger.exception(f"[AI Chat] 私聊对话处理失败: {e}")
 
 
 # ==================== 会话管理命令 ====================

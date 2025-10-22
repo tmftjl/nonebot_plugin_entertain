@@ -16,8 +16,6 @@ from nonebot.log import logger
 from openai import AsyncOpenAI
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select, and_, desc
-
-from ...db.base_models import async_maker
 from .config import get_config, get_personas, PersonaConfig
 from .models import ChatSession, MessageHistory, UserFavorability
 from .tools import get_enabled_tools, execute_tool
@@ -140,33 +138,26 @@ class ChatManager:
         if cached:
             return cached
 
-        # 从数据库查询
-        async with async_maker() as session:
-            stmt = select(ChatSession).where(ChatSession.session_id == session_id)
-            result = await session.execute(stmt)
-            chat_session = result.scalar_one_or_none()
+        # 从数据库查询（使用 models 的便捷方法）
+        chat_session = await ChatSession.get_by_session_id(session_id=session_id)
 
-            # 自动创建会话
-            if not chat_session and cfg.session.auto_create:
-                chat_session = ChatSession(
-                    session_id=session_id,
-                    session_type=session_type,
-                    group_id=group_id,
-                    user_id=user_id,
-                    persona_name="default",
-                    max_history=cfg.session.default_max_history,
-                    is_active=True,
-                )
-                session.add(chat_session)
-                await session.commit()
-                await session.refresh(chat_session)
-                logger.info(f"[AI Chat] 创建新会话: {session_id}")
+        # 自动创建会话
+        if not chat_session and cfg.session.auto_create:
+            chat_session = await ChatSession.create_session(
+                session_id=session_id,
+                session_type=session_type,
+                group_id=group_id,
+                user_id=user_id,
+                persona_name="default",
+                max_history=cfg.session.default_max_history,
+            )
+            logger.info(f"[AI Chat] 创建新会话: {session_id}")
 
-            # 缓存会话
-            if chat_session:
-                await self.cache.set(cache_key, chat_session, ttl=cfg.cache.session_ttl)
+        # 缓存会话
+        if chat_session:
+            await self.cache.set(cache_key, chat_session, ttl=cfg.cache.session_ttl)
 
-            return chat_session
+        return chat_session
 
     async def _get_history(self, session_id: str, max_history: int = 20) -> List[MessageHistory]:
         """获取历史消息（带缓存）"""
@@ -179,21 +170,13 @@ class ChatManager:
         if cached:
             return cached
 
-        # 从数据库查询
-        async with async_maker() as session:
-            stmt = (
-                select(MessageHistory)
-                .where(MessageHistory.session_id == session_id)
-                .order_by(desc(MessageHistory.created_at))
-                .limit(max_history)
-            )
-            result = await session.execute(stmt)
-            history = list(reversed(result.scalars().all()))
+        # 从数据库查询（使用 models 的便捷方法）
+        history = await MessageHistory.get_recent_history(session_id=session_id, limit=max_history)
 
-            # 缓存历史
-            await self.cache.set(cache_key, history, ttl=cfg.cache.history_ttl)
+        # 缓存历史
+        await self.cache.set(cache_key, history, ttl=cfg.cache.history_ttl)
 
-            return history
+        return history
 
     async def _get_favorability(self, user_id: str, session_id: str) -> UserFavorability:
         """获取或创建用户好感度（带缓存）"""
@@ -206,30 +189,19 @@ class ChatManager:
         if cached:
             return cached
 
-        # 从数据库查询
-        async with async_maker() as session:
-            stmt = select(UserFavorability).where(
-                and_(UserFavorability.user_id == user_id, UserFavorability.session_id == session_id)
+        # 从数据库查询（使用 models 的便捷方法）
+        favo = await UserFavorability.get_favorability(user_id=user_id, session_id=session_id)
+
+        # 创建好感度记录
+        if not favo:
+            favo = await UserFavorability.create_favorability(
+                user_id=user_id, session_id=session_id, initial_favorability=50
             )
-            result = await session.execute(stmt)
-            favo = result.scalar_one_or_none()
 
-            # 创建好感度记录
-            if not favo:
-                favo = UserFavorability(
-                    user_id=user_id,
-                    session_id=session_id,
-                    favorability=50,
-                    interaction_count=0,
-                )
-                session.add(favo)
-                await session.commit()
-                await session.refresh(favo)
+        # 缓存好感度
+        await self.cache.set(cache_key, favo, ttl=cfg.cache.favorability_ttl)
 
-            # 缓存好感度
-            await self.cache.set(cache_key, favo, ttl=cfg.cache.favorability_ttl)
-
-            return favo
+        return favo
 
     # ==================== 核心处理 ====================
 
@@ -451,36 +423,33 @@ class ChatManager:
         """异步保存对话历史和好感度"""
 
         try:
-            async with async_maker() as session:
-                # 保存用户消息
-                user_msg = MessageHistory(
-                    session_id=session_id,
+            # 保存用户消息与 AI 回复（使用 models 的便捷方法）
+            await MessageHistory.add_message(
+                session_id=session_id,
+                user_id=user_id,
+                user_name=user_name,
+                role="user",
+                content=message,
+            )
+
+            await MessageHistory.add_message(
+                session_id=session_id,
+                role="assistant",
+                content=response,
+            )
+
+            # 更新好感度
+            cfg = get_config()
+            if cfg.favorability.enabled:
+                await UserFavorability.update_favorability(
                     user_id=user_id,
-                    user_name=user_name,
-                    role="user",
-                    content=message,
+                    session_id=session_id,
+                    delta=cfg.favorability.per_message_delta,
                 )
-                session.add(user_msg)
 
-                # 保存 AI 回复
-                ai_msg = MessageHistory(session_id=session_id, role="assistant", content=response)
-                session.add(ai_msg)
-
-                # 更新好感度
-                cfg = get_config()
-                if cfg.favorability.enabled:
-                    favo.interaction_count += 1
-                    favo.favorability = min(100, favo.favorability + cfg.favorability.per_message_delta)
-                    now = datetime.now().isoformat()
-                    favo.last_interaction = now
-                    favo.updated_at = now
-                    session.add(favo)
-
-                await session.commit()
-
-                # 清除缓存
-                await self.cache.delete(f"history:{session_id}")
-                await self.cache.delete(f"favo:{user_id}:{session_id}")
+            # 清除缓存
+            await self.cache.delete(f"history:{session_id}")
+            await self.cache.delete(f"favo:{user_id}:{session_id}")
 
         except Exception as e:
             logger.error(f"[AI Chat] 保存对话失败: {e}")
@@ -490,61 +459,35 @@ class ChatManager:
     async def clear_history(self, session_id: str):
         """清空会话历史"""
 
-        async with async_maker() as session:
-            # 删除历史消息
-            stmt = select(MessageHistory).where(MessageHistory.session_id == session_id)
-            result = await session.execute(stmt)
-            messages = result.scalars().all()
-            for msg in messages:
-                await session.delete(msg)
-            await session.commit()
+        # 使用 models 的便捷方法
+        await MessageHistory.clear_history(session_id=session_id)
 
-            # 清除缓存
-            await self.cache.delete(f"history:{session_id}")
+        # 清除缓存
+        await self.cache.delete(f"history:{session_id}")
 
-            logger.info(f"[AI Chat] 清空会话历史: {session_id}")
+        logger.info(f"[AI Chat] 清空会话历史: {session_id}")
 
     async def set_persona(self, session_id: str, persona_name: str):
         """切换会话人格"""
 
-        async with async_maker() as session:
-            stmt = select(ChatSession).where(ChatSession.session_id == session_id)
-            result = await session.execute(stmt)
-            chat_session = result.scalar_one_or_none()
-
-            if chat_session:
-                chat_session.persona_name = persona_name
-                chat_session.updated_at = datetime.now().isoformat()
-                await session.commit()
-
-                # 清除缓存
-                await self.cache.delete(f"session:{session_id}")
-
-                logger.info(f"[AI Chat] 切换人格: {session_id} -> {persona_name}")
+        updated = await ChatSession.update_persona(session_id=session_id, persona_name=persona_name)
+        if updated:
+            # 清除缓存
+            await self.cache.delete(f"session:{session_id}")
+            logger.info(f"[AI Chat] 切换人格: {session_id} -> {persona_name}")
 
     async def set_session_active(self, session_id: str, is_active: bool):
         """设置会话启用状态"""
 
-        async with async_maker() as session:
-            stmt = select(ChatSession).where(ChatSession.session_id == session_id)
-            result = await session.execute(stmt)
-            chat_session = result.scalar_one_or_none()
-
-            if chat_session:
-                chat_session.is_active = is_active
-                chat_session.updated_at = datetime.now().isoformat()
-                await session.commit()
-
-                # 清除缓存
-                await self.cache.delete(f"session:{session_id}")
+        updated = await ChatSession.update_active_status(session_id=session_id, is_active=is_active)
+        if updated:
+            # 清除缓存
+            await self.cache.delete(f"session:{session_id}")
 
     async def get_session_info(self, session_id: str) -> Optional[ChatSession]:
         """获取会话信息"""
 
-        async with async_maker() as session:
-            stmt = select(ChatSession).where(ChatSession.session_id == session_id)
-            result = await session.execute(stmt)
-            return result.scalar_one_or_none()
+        return await ChatSession.get_by_session_id(session_id=session_id)
 
 
 # ==================== 全局实例 ====================
