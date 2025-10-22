@@ -9,14 +9,12 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from nonebot.log import logger
 from openai import AsyncOpenAI
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import select, and_, desc
-from .config import get_config, get_personas, PersonaConfig
+
+from .config import get_config, get_personas, PersonaConfig, get_active_api
 from .models import ChatSession, MessageHistory, UserFavorability
 from .tools import get_enabled_tools, execute_tool
 
@@ -94,18 +92,19 @@ class ChatManager:
         self.reset_client()
 
     def reset_client(self) -> None:
-        """根据当前配置重建 OpenAI 客户端。"""
+        """根据当前配置重建 OpenAI 客户端"""
 
-        cfg = get_config()
+        _ = get_config()  # 预热配置
         try:
-            if not cfg.api.api_key:
+            active_api = get_active_api()
+            if not active_api.api_key:
                 self.client = None
-                logger.warning("[AI Chat] OpenAI 未配置 API Key，已禁用对话能力。")
+                logger.warning("[AI Chat] OpenAI 未配置 API Key，已禁用对话能力")
                 return
             self.client = AsyncOpenAI(
-                api_key=cfg.api.api_key,
-                base_url=cfg.api.base_url,
-                timeout=cfg.api.timeout,
+                api_key=active_api.api_key,
+                base_url=active_api.base_url,
+                timeout=active_api.timeout,
             )
             logger.debug("[AI Chat] OpenAI 客户端已初始化")
         except Exception as e:
@@ -164,16 +163,13 @@ class ChatManager:
 
         cfg = get_config()
 
-        # 尝试从缓存获取
         cache_key = f"history:{session_id}"
         cached = await self.cache.get(cache_key)
         if cached:
             return cached
 
-        # 从数据库查询（使用 models 的便捷方法）
         history = await MessageHistory.get_recent_history(session_id=session_id, limit=max_history)
 
-        # 缓存历史
         await self.cache.set(cache_key, history, ttl=cfg.cache.history_ttl)
 
         return history
@@ -183,22 +179,18 @@ class ChatManager:
 
         cfg = get_config()
 
-        # 尝试从缓存获取
         cache_key = f"favo:{user_id}:{session_id}"
         cached = await self.cache.get(cache_key)
         if cached:
             return cached
 
-        # 从数据库查询（使用 models 的便捷方法）
         favo = await UserFavorability.get_favorability(user_id=user_id, session_id=session_id)
 
-        # 创建好感度记录
         if not favo:
             favo = await UserFavorability.create_favorability(
                 user_id=user_id, session_id=session_id, initial_favorability=50
             )
 
-        # 缓存好感度
         await self.cache.set(cache_key, favo, ttl=cfg.cache.favorability_ttl)
 
         return favo
@@ -250,7 +242,7 @@ class ChatManager:
 
             except Exception as e:
                 logger.exception(f"[AI Chat] 处理消息失败: {e}")
-                return "抱歉，我遇到了一点问题..."
+                return "抱歉，我遇到了一点问题.."
 
     def _build_messages(
         self,
@@ -312,14 +304,15 @@ class ChatManager:
         personas = get_personas()
         persona = personas.get(session.persona_name, personas["default"])
 
-        # 获取模型与温度
-        model = persona.model or cfg.api.model
-        temperature = persona.temperature
+        # 获取模型与温度（模型来自当前激活的 API，温度使用全局默认）
+        active_api = get_active_api()
+        model = active_api.model
+        temperature = cfg.session.default_temperature
 
-        # 获取启用的工具
+        # 获取启用的工具（使用全局配置）
         tools = None
-        if cfg.tools.enabled and persona.enabled_tools:
-            tools = get_enabled_tools(persona.enabled_tools)
+        if cfg.tools.enabled and cfg.tools.builtin_tools:
+            tools = get_enabled_tools(cfg.tools.builtin_tools)
 
         try:
             # 调用 OpenAI
@@ -341,7 +334,7 @@ class ChatManager:
 
         except Exception as e:
             logger.error(f"[AI Chat] OpenAI API 调用失败: {e}")
-            return "抱歉，AI 服务暂时不可用..."
+            return "抱歉，AI 服务暂时不可用.."
 
     async def _handle_tool_calls(
         self,

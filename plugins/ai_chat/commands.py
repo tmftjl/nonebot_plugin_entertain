@@ -19,7 +19,7 @@ from nonebot.log import logger
 from ...core.framework.registry import Plugin
 from ...core.framework.perm import _is_superuser, _uid, _has_group_role
 from .manager import chat_manager
-from .config import get_config, get_personas, reload_all
+from .config import get_config, get_personas, reload_all, save_config
 
 
 # 创建插件实例（带统一权限）
@@ -354,14 +354,11 @@ async def handle_persona(event: MessageEvent):
         if not persona:
             await persona_cmd.finish(f"人格不存在: {session.persona_name}")
 
-        tools_text = ", ".join(persona.enabled_tools) if persona.enabled_tools else "无"
         info_text = (
             f"🎭 当前人格\n"
             f"━━━━━━━━━━━━━━━━\n"
             f"名称: {persona.name}\n"
             f"描述: {persona.description}\n"
-            f"温度: {persona.temperature}\n"
-            f"启用工具: {tools_text}\n"
             f"━━━━━━━━━━━━━━━━\n"
             f"系统提示:\n{persona.system_prompt}"
         )
@@ -427,6 +424,45 @@ async def handle_switch_persona(event: MessageEvent, matched: str = RegexMatched
     except Exception as e:
         logger.error(f"[AI Chat] 切换人格失败: {e}")
         await switch_persona_cmd.finish("❌ 切换人格失败")
+
+
+# ==================== 服务商切换命令 ====================
+
+
+# 切换服务商
+switch_api_cmd = P.on_regex(
+    r"^#切换服务商\s+(.+)$",
+    name="ai_switch_api",
+    display_name="切换服务商",
+    priority=5,
+    block=True,
+    level="admin",
+)
+
+
+@switch_api_cmd.handle()
+async def handle_switch_api(event: MessageEvent, matched: str = RegexMatched()):
+    """切换当前生效的 AI 服务商（按名称）"""
+
+    if not await check_admin(event):
+        await switch_api_cmd.finish("仅管理员可用")
+
+    target = matched.strip()
+    cfg = get_config()
+    names = [it.name for it in cfg.api]
+    if target not in names:
+        available = ", ".join(names) if names else "无"
+        await switch_api_cmd.finish(f"服务商不存在\n可用: {available}")
+
+    try:
+        cfg.api_active = target
+        save_config(cfg)
+        # 重建客户端
+        chat_manager.reset_client()
+        await switch_api_cmd.finish(f"✅ 已切换到服务商: {target}")
+    except Exception as e:
+        logger.error(f"[AI Chat] 切换服务商失败: {e}")
+        await switch_api_cmd.finish("❌ 切换服务商失败")
 
 
 # ==================== 好感度命令 ====================

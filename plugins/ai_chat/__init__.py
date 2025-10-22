@@ -17,7 +17,7 @@ require("nonebot_plugin_entertain")
 
 # 注册并加载配置/人格
 from . import config as _config  # noqa: F401
-from .config import load_config, load_personas, get_config_path
+from .config import load_config, load_personas, get_config_path, get_active_api
 from .manager import chat_manager  # noqa: F401
 
 # 导入命令（注册所有命令处理器）
@@ -29,7 +29,7 @@ __plugin_usage__ = """
 AI 对话插件
 
 基础对话:
-  @机器人 <消息>  - 群聊中 @ 机器人对话
+  @机器人 <消息>  - 群聊需 @ 机器人对话
   /chat <消息>    - 通用对话命令
 
 会话管理:
@@ -44,7 +44,7 @@ AI 对话插件
   #切换人格 <名称> - 切换会话人格（管理员）
 
 好感度:
-  #好感度         - 查看自己的好感度
+  #好感度        - 查看自己的好感度
 
 系统管理:
   #重载AI配置     - 热重载配置和人格（超级用户）
@@ -60,17 +60,18 @@ try:
     personas = load_personas()
     logger.info(f"[AI Chat] 人格加载完成，共 {len(personas)} 个人格")
 
-    # 检查 API 密钥
-    if not config.api.api_key:
+    # 检查 API 密钥（按当前启用服务商）
+    active_api = get_active_api()
+    if not active_api.api_key:
         logger.warning(
-            "[AI Chat] ⚠️ 未配置 OpenAI API 密钥，请在配置文件中设置 api.api_key\n"
+            "[AI Chat] ⚠️ 未配置 OpenAI API 密钥，请在配置文件中设置 api[*].api_key 并选择 api_active\n"
             f"配置文件位置: {get_config_path()}"
         )
     else:
-        logger.info("[AI Chat] ✅ OpenAI API 已配置")
+        logger.info("[AI Chat] ✓ OpenAI API 已配置")
 
     logger.success("[AI Chat] 🚀 AI 对话插件加载成功")
 
 except Exception as e:
-    logger.exception(f"[AI Chat] ❌ 插件初始化失败: {e}")
+    logger.exception(f"[AI Chat] ✖ 插件初始化失败: {e}")
 

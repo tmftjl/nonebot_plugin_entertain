@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 from nonebot.log import logger
 from pydantic import BaseModel, Field
@@ -21,15 +21,16 @@ from ...core.api import (
     register_plugin_schema,
     register_reload_callback,
 )
-from ...core.framework.utils import config_dir, data_dir
+from ...core.framework.utils import config_dir
 
 
 # ==================== Pydantic 配置对象 ====================
 
 
 class APIConfig(BaseModel):
-    """OpenAI API 配置"""
+    """AI 服务商配置（以 name 作为唯一标识，可切换）"""
 
+    name: str = Field(description="唯一名称，用于切换标识")
     base_url: str = Field(default="https://api.openai.com/v1", description="API 基础 URL")
     api_key: str = Field(default="", description="API 密钥")
     model: str = Field(default="gpt-4o-mini", description="默认模型")
@@ -88,7 +89,10 @@ class ResponseConfig(BaseModel):
 class AIChatConfig(BaseModel):
     """AI 对话总配置"""
 
-    api: APIConfig = Field(default_factory=APIConfig)
+    # api 改为数组，支持多服务商；增加 api_active 通过名称切换
+    api: List[APIConfig] = Field(default_factory=list, description="AI 服务商配置列表")
+    api_active: str = Field(default="default", description="当前启用的服务商名称")
+
     cache: CacheConfig = Field(default_factory=CacheConfig)
     session: SessionConfig = Field(default_factory=SessionConfig)
     favorability: FavorabilityConfig = Field(default_factory=FavorabilityConfig)
@@ -98,26 +102,27 @@ class AIChatConfig(BaseModel):
 
 
 class PersonaConfig(BaseModel):
-    """人格配置"""
+    """人格配置（仅保留人格信息）"""
 
     name: str = Field(description="人格名称")
     description: str = Field(description="人格描述")
-    system_prompt: str = Field(description="系统提示词")
-    temperature: float = Field(default=0.7, description="温度")
-    model: Optional[str] = Field(default=None, description="使用的模型（可覆盖全局模型）")
-    enabled_tools: list[str] = Field(default_factory=list, description="启用的工具")
+    system_prompt: str = Field(description="系统提示语")
 
 
 # ==================== 统一配置注册 ====================
 
 
 DEFAULTS: Dict[str, Any] = {
-    "api": {
-        "base_url": "https://api.openai.com/v1",
-        "api_key": "",
-        "model": "gpt-4o-mini",
-        "timeout": 60,
-    },
+    "api": [
+        {
+            "name": "default",
+            "base_url": "https://api.openai.com/v1",
+            "api_key": "",
+            "model": "gpt-4o-mini",
+            "timeout": 60,
+        }
+    ],
+    "api_active": "default",
     "cache": {
         "session_ttl": 300,
         "history_ttl": 60,
@@ -160,43 +165,53 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
     "title": "AI 对话",
     "properties": {
         "api": {
-            "type": "object",
-            "title": "OpenAI API",
+            "type": "array",
+            "title": "AI 服务商配置列表",
             "x-order": 1,
-            "x-collapse": True,
-            "properties": {
-                "base_url": {
-                    "type": "string",
-                    "title": "API 基址",
-                    "default": DEFAULTS["api"]["base_url"],
-                    "x-order": 1,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "title": "名称", "x-order": 1},
+                    "base_url": {
+                        "type": "string",
+                        "title": "API 基址",
+                        "default": DEFAULTS["api"][0]["base_url"],
+                        "x-order": 2,
+                    },
+                    "api_key": {
+                        "type": "string",
+                        "title": "API 密钥",
+                        "default": DEFAULTS["api"][0]["api_key"],
+                        "x-order": 3,
+                    },
+                    "model": {
+                        "type": "string",
+                        "title": "默认模型",
+                        "default": DEFAULTS["api"][0]["model"],
+                        "x-order": 4,
+                    },
+                    "timeout": {
+                        "type": "integer",
+                        "title": "超时（秒）",
+                        "minimum": 1,
+                        "maximum": 300,
+                        "default": DEFAULTS["api"][0]["timeout"],
+                        "x-order": 5,
+                    },
                 },
-                "api_key": {
-                    "type": "string",
-                    "title": "API 密钥",
-                    "default": DEFAULTS["api"]["api_key"],
-                    "x-order": 2,
-                },
-                "model": {
-                    "type": "string",
-                    "title": "默认模型",
-                    "default": DEFAULTS["api"]["model"],
-                    "x-order": 3,
-                },
-                "timeout": {
-                    "type": "integer",
-                    "title": "超时（秒）",
-                    "minimum": 1,
-                    "maximum": 300,
-                    "default": DEFAULTS["api"]["timeout"],
-                    "x-order": 4,
-                },
+                "required": ["name"],
             },
+        },
+        "api_active": {
+            "type": "string",
+            "title": "当前启用服务商名",
+            "default": DEFAULTS["api_active"],
+            "x-order": 2,
         },
         "cache": {
             "type": "object",
             "title": "缓存",
-            "x-order": 2,
+            "x-order": 3,
             "x-collapse": True,
             "properties": {
                 "session_ttl": {
@@ -228,7 +243,7 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
         "session": {
             "type": "object",
             "title": "会话",
-            "x-order": 3,
+            "x-order": 4,
             "x-collapse": True,
             "properties": {
                 "default_max_history": {
@@ -258,7 +273,7 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
         "favorability": {
             "type": "object",
             "title": "好感度",
-            "x-order": 4,
+            "x-order": 5,
             "x-collapse": True,
             "properties": {
                 "enabled": {
@@ -290,7 +305,7 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
         "tools": {
             "type": "object",
             "title": "工具",
-            "x-order": 5,
+            "x-order": 6,
             "x-collapse": True,
             "properties": {
                 "enabled": {
@@ -319,7 +334,7 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
         "response": {
             "type": "object",
             "title": "回复",
-            "x-order": 6,
+            "x-order": 7,
             "x-collapse": True,
             "properties": {
                 "max_length": {
@@ -352,7 +367,7 @@ _personas: Dict[str, PersonaConfig] = {}
 
 
 def get_config_dir() -> Path:
-    """获取配置目录（config/ai_chat）"""
+    """获取配置目录（config/ai_chat/）"""
 
     cfg_dir = config_dir("ai_chat")
     cfg_dir.mkdir(parents=True, exist_ok=True)
@@ -377,24 +392,31 @@ def load_config() -> AIChatConfig:
 
     global _config
     try:
-        # 兼容旧版：若旧路径 data/ai_chat/config.json 存在而新路径不存在，则迁移
-        new_path = get_config_path()
-        old_path = data_dir("ai_chat") / "config.json"
-        if (not new_path.exists()) and old_path.exists():
-            try:
-                old_raw = json.loads(old_path.read_text(encoding="utf-8"))
-                # 保存到新位置
-                CFG.save(old_raw if isinstance(old_raw, dict) else DEFAULTS)
-                logger.info("[AI Chat] 已迁移旧版配置到 config/ai_chat/")
-            except Exception:
-                pass
+        data = CFG.load() or {}
+        _config = AIChatConfig(**data)
 
-        data = CFG.load()
-        _config = AIChatConfig(**(data or {}))
+        # 基础校验：api 名称唯一 + api_active 合法
+        try:
+            names: List[str] = []
+            unique: List[APIConfig] = []
+            for item in _config.api:
+                if item.name in names:
+                    logger.warning(f"[AI Chat] api 名称重复已忽略: {item.name}")
+                    continue
+                names.append(item.name)
+                unique.append(item)
+            if len(unique) != len(_config.api):
+                _config.api = unique
+            # 修正 api_active
+            if _config.api and _config.api_active not in names:
+                _config.api_active = _config.api[0].name
+        except Exception:
+            pass
+
         logger.info("[AI Chat] 配置加载成功")
     except Exception as e:
         logger.error(f"[AI Chat] 配置加载失败: {e}，使用默认配置")
-        _config = AIChatConfig()
+        _config = AIChatConfig(**DEFAULTS)
     return _config
 
 
@@ -417,48 +439,50 @@ def get_config() -> AIChatConfig:
     return _config
 
 
+def get_active_api() -> APIConfig:
+    """获取当前启用的 API 配置（按名称选择）。"""
+
+    cfg = get_config()
+    if not cfg.api:
+        # 回退到默认
+        defaults = DEFAULTS["api"][0]
+        return APIConfig(
+            name="default",
+            base_url=defaults["base_url"],
+            api_key=defaults["api_key"],
+            model=defaults["model"],
+            timeout=defaults["timeout"],
+        )
+    for item in cfg.api:
+        if item.name == cfg.api_active:
+            return item
+    return cfg.api[0]
+
+
 def load_personas() -> Dict[str, PersonaConfig]:
     """加载人格配置（JSON 文件）"""
 
     global _personas
     path = get_personas_path()
 
-    # 文件不存在：尝试从旧路径迁移；否则写入默认人格
+    # 文件不存在则写入默认人格
     if not path.exists():
-        old_path = data_dir("ai_chat") / "personas.json"
-        if old_path.exists():
-            try:
-                raw = json.loads(old_path.read_text(encoding="utf-8"))
-                _personas = {k: PersonaConfig(**v) for k, v in (raw or {}).items()}
-                save_personas(_personas)
-                logger.info("[AI Chat] 已迁移旧版人格配置到 config/ai_chat/")
-                return _personas
-            except Exception:
-                pass
-
         logger.info("[AI Chat] 人格配置文件不存在，创建默认人格")
         _personas = {
             "default": PersonaConfig(
                 name="默认助手",
                 description="一个友好的 AI 助手",
                 system_prompt="你是一个友好、乐于助人的 AI 助手。你的回复简洁明了，富有同理心。",
-                temperature=0.7,
-                model="gpt-4o-mini",
-                enabled_tools=["get_time", "get_weather"],
             ),
             "tsundere": PersonaConfig(
                 name="傲娇少女",
                 description="傲娇性格的少女。",
                 system_prompt="你是一个傲娇少女，说话带有傲娇口癖，经常说‘才不是’、‘哼’之类的话。虽然嘴上不承认，但内心很关心对方。",
-                temperature=0.9,
-                enabled_tools=[],
             ),
             "professional": PersonaConfig(
                 name="专业顾问",
                 description="专业的技术顾问。",
                 system_prompt="你是一个专业的技术顾问，擅长编程、系统架构等领域。回复准确、专业，提供实用建议。",
-                temperature=0.5,
-                enabled_tools=["get_time"],
             ),
         }
         save_personas(_personas)
@@ -476,8 +500,6 @@ def load_personas() -> Dict[str, PersonaConfig]:
                 name="默认助手",
                 description="一个友好的 AI 助手",
                 system_prompt="你是一个友好、乐于助人的 AI 助手。你的回复简洁明了，富有同理心。",
-                temperature=0.7,
-                enabled_tools=[],
             )
         }
     return _personas
@@ -516,3 +538,4 @@ def reload_all() -> None:
 
 # 注册框架级重载回调：当统一配置被重载时刷新模块缓存
 register_reload_callback("ai_chat", reload_all)
+
