@@ -1,7 +1,7 @@
 """AI 对话命令处理
 
 包含所有命令的处理逻辑：
-- 对话触发（@ 机器人 /chat）
+- 对话触发（@ 机器人）
 - 会话管理（#清空会话、#会话信息、#开启AI、#关闭AI）
 - 人格系统（#人格、#人格列表、#切换人格）
 - 好感度（#好感度）
@@ -114,12 +114,11 @@ async def check_superuser(event: MessageEvent) -> bool:
 
 
 # 统一触发（群聊需@，私聊无需@）
-# 提高优先级数值以让 /chat 等更早处理（避免重复回复）
 at_cmd = P.on_regex(
     r"^(.+)$",
     name="ai_chat_at",
     display_name="@ 机器人对话",
-    priority=12,
+    priority=100,
     block=False,
 )
 
@@ -129,16 +128,7 @@ async def handle_chat_auto(bot: Bot, event: MessageEvent):
     """统一处理：
     - 群聊：只有@机器人才触发
     - 私聊：任意文本直接触发
-    - 为避免与 /chat 冲突，优先级低于 /chat，或在此处遇到 /chat 时直接跳过
     """
-
-    # 若是 /chat 开头，交给专用命令处理
-    try:
-        raw = str(event.get_message())
-        if raw.strip().lower().startswith(('/chat', '\\chat')):
-            return
-    except Exception:
-        pass
 
     # 群聊必须 @ 机器人
     if isinstance(event, GroupMessageEvent) and not _is_at_bot_robust(bot, event):
@@ -179,53 +169,6 @@ async def handle_chat_auto(bot: Bot, event: MessageEvent):
     except Exception as e:
         logger.exception(f"[AI Chat] 对话处理失败: {e}")
 
-
-# /chat 命令（通用）
-chat_cmd = P.on_regex(r"^[/\\]chat\s+(.+)$", name="ai_chat_cmd", display_name="/chat 对话", priority=10, block=True)
-
-
-@chat_cmd.handle()
-async def handle_chat_cmd(event: MessageEvent, matched: str = RegexMatched()):
-    """处理 /chat 命令"""
-
-    message = matched.strip()
-    if not message:
-        await chat_cmd.finish("请输入消息内容")
-
-    # 获取会话信息
-    session_id = get_session_id(event)
-    user_id = str(event.user_id)
-    user_name = get_user_name(event)
-
-    session_type = "group" if isinstance(event, GroupMessageEvent) else "private"
-    group_id = str(event.group_id) if isinstance(event, GroupMessageEvent) else None
-
-    # 处理消息
-    try:
-        response = await chat_manager.process_message(
-            session_id=session_id,
-            user_id=user_id,
-            user_name=user_name,
-            message=message,
-            session_type=session_type,
-            group_id=group_id,
-        )
-
-        if response:
-            await chat_cmd.finish(response)
-        else:
-            await chat_cmd.finish("AI 未启用或暂不可用")
-    except Exception as e:
-        logger.exception(f"[AI Chat] /chat 对话处理失败: {e}")
-        await chat_cmd.finish("抱歉，处理消息时遇到错误")
-
-
-# 取消单独的私聊匹配器，统一在 at_cmd 中判断场景
-
-
-# ==================== 会话管理命令 ====================
-
-
 # 清空会话
 clear_cmd = P.on_regex(r"^#清空会话$", name="ai_clear_session", display_name="清空会话", priority=5, block=True)
 
@@ -237,10 +180,10 @@ async def handle_clear(event: MessageEvent):
     session_id = get_session_id(event)
     try:
         await chat_manager.clear_history(session_id)
-        await clear_cmd.finish("✅ 已清空当前会话的历史记录")
     except Exception as e:
         logger.error(f"[AI Chat] 清空会话失败: {e}")
         await clear_cmd.finish("❌ 清空会话失败")
+    await clear_cmd.finish("✅ 已清空当前会话的历史记录")
 
 
 # 会话信息
@@ -252,29 +195,25 @@ async def handle_info(event: MessageEvent):
     """查看当前会话信息"""
 
     session_id = get_session_id(event)
-    try:
-        session = await chat_manager.get_session_info(session_id)
-        if not session:
-            await info_cmd.finish("未找到当前会话")
+    session = await chat_manager.get_session_info(session_id)
+    if not session:
+        await info_cmd.finish("未找到当前会话")
 
-        personas = get_personas()
-        persona = personas.get(session.persona_name, personas.get("default"))
+    personas = get_personas()
+    persona = personas.get(session.persona_name, personas.get("default"))
 
-        status = "已启用" if session.is_active else "已禁用"
-        info_text = (
-            f"📊 会话信息\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"会话 ID: {session.session_id}\n"
-            f"状态: {status}\n"
-            f"人格: {persona.name if persona else session.persona_name}\n"
-            f"最大历史: {session.max_history} 条\n"
-            f"创建时间: {session.created_at[:19]}\n"
-            f"更新时间: {session.updated_at[:19]}"
-        )
-        await info_cmd.finish(info_text)
-    except Exception as e:
-        logger.error(f"[AI Chat] 获取会话信息失败: {e}")
-        await info_cmd.finish("❌ 获取会话信息失败")
+    status = "已启用" if session.is_active else "已禁用"
+    info_text = (
+        f"📊 会话信息\n"
+        f"━━━━━━━━━━━━━━━━\n"
+        f"会话 ID: {session.session_id}\n"
+        f"状态: {status}\n"
+        f"人格: {persona.name if persona else session.persona_name}\n"
+        f"最大历史: {session.max_history} 条\n"
+        f"创建时间: {session.created_at[:19]}\n"
+        f"更新时间: {session.updated_at[:19]}"
+    )
+    await info_cmd.finish(info_text)
 
 
 # 开启 AI
@@ -296,12 +235,8 @@ async def handle_enable(event: MessageEvent):
         await enable_cmd.finish("仅管理员可用")
 
     session_id = get_session_id(event)
-    try:
-        await chat_manager.set_session_active(session_id, True)
-        await enable_cmd.finish("✅ 已开启 AI")
-    except Exception as e:
-        logger.error(f"[AI Chat] 开启 AI 失败: {e}")
-        await enable_cmd.finish("❌ 开启 AI 失败")
+    await chat_manager.set_session_active(session_id, True)
+    await enable_cmd.finish("✅ 已开启 AI")
 
 
 # 关闭 AI
@@ -323,12 +258,8 @@ async def handle_disable(event: MessageEvent):
         await disable_cmd.finish("仅管理员可用")
 
     session_id = get_session_id(event)
-    try:
-        await chat_manager.set_session_active(session_id, False)
-        await disable_cmd.finish("✅ 已关闭 AI")
-    except Exception as e:
-        logger.error(f"[AI Chat] 关闭 AI 失败: {e}")
-        await disable_cmd.finish("❌ 关闭 AI 失败")
+    await chat_manager.set_session_active(session_id, False)
+    await disable_cmd.finish("✅ 已关闭 AI")
 
 
 # ==================== 人格系统命令 ====================
@@ -343,29 +274,23 @@ async def handle_persona(event: MessageEvent):
     """查看当前人格"""
 
     session_id = get_session_id(event)
-    try:
-        session = await chat_manager.get_session_info(session_id)
-        if not session:
-            await persona_cmd.finish("未找到当前会话")
+    session = await chat_manager.get_session_info(session_id)
+    if not session:
+        await persona_cmd.finish("未找到当前会话")
 
-        personas = get_personas()
-        persona = personas.get(session.persona_name, personas.get("default"))
+    personas = get_personas()
+    persona = personas.get(session.persona_name, personas.get("default"))
 
-        if not persona:
-            await persona_cmd.finish(f"人格不存在: {session.persona_name}")
+    if not persona:
+        await persona_cmd.finish(f"人格不存在: {session.persona_name}")
 
-        info_text = (
-            f"🎭 当前人格\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"名称: {persona.name}\n"
-            f"描述: {persona.description}\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"系统提示:\n{persona.system_prompt}"
-        )
-        await persona_cmd.finish(info_text)
-    except Exception as e:
-        logger.error(f"[AI Chat] 获取人格信息失败: {e}")
-        await persona_cmd.finish("❌ 获取人格信息失败")
+    info_text = (
+        f"🎭 当前人格\n"
+        f"━━━━━━━━━━━━━━━━\n"
+        f"名称: {persona.name}\n"
+        f"描述: {persona.description}\n"
+    )
+    await persona_cmd.finish(info_text)
 
 
 # 人格列表
@@ -376,20 +301,16 @@ persona_list_cmd = P.on_regex(r"^#人格列表$", name="ai_persona_list", displa
 async def handle_persona_list(event: MessageEvent):
     """查看所有可用人格"""
 
-    try:
-        personas = get_personas()
-        if not personas:
-            await persona_list_cmd.finish("暂无可用人格")
+    personas = get_personas()
+    if not personas:
+        await persona_list_cmd.finish("暂无可用人格")
 
-        persona_lines = []
-        for key, persona in personas.items():
-            persona_lines.append(f"- {key}: {persona.name} - {persona.description}")
+    persona_lines = []
+    for key, persona in personas.items():
+        persona_lines.append(f"- {key}: {persona.name} - {persona.description}")
 
-        info_text = f"🎭 可用人格列表\n━━━━━━━━━━━━━━━━\n" + "\n".join(persona_lines)
-        await persona_list_cmd.finish(info_text)
-    except Exception as e:
-        logger.error(f"[AI Chat] 获取人格列表失败: {e}")
-        await persona_list_cmd.finish("❌ 获取人格列表失败")
+    info_text = f"🎭 可用人格列表\n━━━━━━━━━━━━━━━━\n" + "\n".join(persona_lines)
+    await persona_list_cmd.finish(info_text)
 
 
 # 切换人格
@@ -418,12 +339,8 @@ async def handle_switch_persona(event: MessageEvent, matched: str = RegexMatched
         await switch_persona_cmd.finish(f"人格不存在\n可用人格: {available}")
 
     session_id = get_session_id(event)
-    try:
-        await chat_manager.set_persona(session_id, persona_name)
-        await switch_persona_cmd.finish(f"✅ 已切换到人格: {personas[persona_name].name}")
-    except Exception as e:
-        logger.error(f"[AI Chat] 切换人格失败: {e}")
-        await switch_persona_cmd.finish("❌ 切换人格失败")
+    await chat_manager.set_persona(session_id, persona_name)
+    await switch_persona_cmd.finish(f"✅ 已切换到人格: {personas[persona_name].name}")
 
 
 # ==================== 服务商切换命令 ====================
@@ -454,15 +371,8 @@ async def handle_switch_api(event: MessageEvent, matched: str = RegexMatched()):
         available = ", ".join(names) if names else "无"
         await switch_api_cmd.finish(f"服务商不存在\n可用: {available}")
 
-    try:
-        cfg.api_active = target
-        save_config(cfg)
-        # 重建客户端
-        chat_manager.reset_client()
-        await switch_api_cmd.finish(f"✅ 已切换到服务商: {target}")
-    except Exception as e:
-        logger.error(f"[AI Chat] 切换服务商失败: {e}")
-        await switch_api_cmd.finish("❌ 切换服务商失败")
+    chat_manager.reset_client()
+    await switch_api_cmd.finish(f"✅ 已切换到服务商: {target}")
 
 
 # ==================== 好感度命令 ====================
@@ -483,43 +393,39 @@ async def handle_favorability(event: MessageEvent):
     session_id = get_session_id(event)
     user_id = str(event.user_id)
 
-    try:
-        async with async_maker() as session:
-            stmt = select(UserFavorability).where(
-                and_(UserFavorability.user_id == user_id, UserFavorability.session_id == session_id)
-            )
-            result = await session.execute(stmt)
-            favo = result.scalar_one_or_none()
+    async with async_maker() as session:
+        stmt = select(UserFavorability).where(
+            and_(UserFavorability.user_id == user_id, UserFavorability.session_id == session_id)
+        )
+        result = await session.execute(stmt)
+        favo = result.scalar_one_or_none()
 
-            if not favo:
-                await favo_cmd.finish("暂无好感度记录")
+        if not favo:
+            await favo_cmd.finish("暂无好感度记录")
 
-            # 好感度等级
-            if favo.favorability >= 80:
-                level = "💕 深厚"
-            elif favo.favorability >= 60:
-                level = "💖 亲密"
-            elif favo.favorability >= 40:
-                level = "😊 友好"
-            elif favo.favorability >= 20:
-                level = "😐 普通"
-            else:
-                level = "😒 冷淡"
+        # 好感度等级
+        if favo.favorability >= 80:
+            level = "💕 深厚"
+        elif favo.favorability >= 60:
+            level = "💖 亲密"
+        elif favo.favorability >= 40:
+            level = "😊 友好"
+        elif favo.favorability >= 20:
+            level = "😐 普通"
+        else:
+            level = "😒 冷淡"
 
-            info_text = (
-                f"💝 好感度信息\n"
-                f"━━━━━━━━━━━━━━━━\n"
-                f"好感度: {favo.favorability}/100\n"
-                f"等级: {level}\n"
-                f"互动次数: {favo.interaction_count}\n"
-                f"正面情感: {favo.positive_count}\n"
-                f"负面情感: {favo.negative_count}\n"
-                f"最后互动: {favo.last_interaction[:19]}"
-            )
-            await favo_cmd.finish(info_text)
-    except Exception as e:
-        logger.error(f"[AI Chat] 获取好感度失败: {e}")
-        await favo_cmd.finish("❌ 获取好感度失败")
+        info_text = (
+            f"💝 好感度信息\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"好感度: {favo.favorability}/100\n"
+            f"等级: {level}\n"
+            f"互动次数: {favo.interaction_count}\n"
+            f"正面情感: {favo.positive_count}\n"
+            f"负面情感: {favo.negative_count}\n"
+            f"最后互动: {favo.last_interaction[:19]}"
+        )
+    await favo_cmd.finish(info_text)
 
 
 # ==================== 系统管理命令 ====================
@@ -543,12 +449,8 @@ async def handle_reload(event: MessageEvent):
     if not await check_superuser(event):
         await reload_cmd.finish("仅超级用户可用")
 
-    try:
-        reload_all()
-        chat_manager.reset_client()
-        await chat_manager.cache.clear()
-        await reload_cmd.finish("✅ 已重载所有配置并清空缓存")
-    except Exception as e:
-        logger.error(f"[AI Chat] 重载配置失败: {e}")
-        await reload_cmd.finish("❌ 重载配置失败")
+    reload_all()
+    chat_manager.reset_client()
+    await chat_manager.cache.clear()
+    await reload_cmd.finish("✅ 已重载所有配置并清空缓存")
 
