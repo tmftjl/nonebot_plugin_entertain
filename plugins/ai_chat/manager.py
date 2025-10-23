@@ -1,4 +1,4 @@
-"""AI 对话核心管理器
+"""AI 对话核心管理
 
 包含：
 - CacheManager: 轻量多层缓存管理
@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from nonebot.log import logger
@@ -81,13 +82,17 @@ class CacheManager:
 
 
 class ChatManager:
-    """AI 对话核心管理器"""
+    """AI 对话核心管理"""
 
     def __init__(self, cache: CacheManager):
         self.cache = cache
         self.client: Optional[AsyncOpenAI] = None
         # 会话锁（同一会话串行，不同会话并行）
         self._session_locks: Dict[str, asyncio.Lock] = {}
+        # 历史 JSON 持久化锁（避免异步写入竞态）
+        self._history_locks: Dict[str, asyncio.Lock] = {}
+        # 简易迁移检查标志
+        self._schema_checked: bool = False
         # 初始化客户端
         self.reset_client()
 
@@ -131,13 +136,20 @@ class ChatManager:
 
         cfg = get_config()
 
-        # 尝试从缓存获取
+        # 缓存
         cache_key = f"session:{session_id}"
         cached = await self.cache.get(cache_key)
         if cached:
             return cached
 
-        # 从数据库查询（使用 models 的便捷方法）
+        # 确保会话表包含 history_json 列（一次性检查）
+        if not self._schema_checked:
+            try:
+                await ChatSession.ensure_history_column()
+            finally:
+                self._schema_checked = True
+
+        # DB 查询
         chat_session = await ChatSession.get_by_session_id(session_id=session_id)
 
         # 自动创建会话
@@ -150,7 +162,7 @@ class ChatManager:
                 persona_name="default",
                 max_history=cfg.session.default_max_history,
             )
-            logger.info(f"[AI Chat] 创建新会话: {session_id}")
+            logger.info(f"[AI Chat] 创建新会话 {session_id}")
 
         # 缓存会话
         if chat_session:
@@ -158,21 +170,55 @@ class ChatManager:
 
         return chat_session
 
-    async def _get_history(self, session_id: str, max_history: int = 20) -> List[MessageHistory]:
-        """获取历史消息（带缓存）"""
+    async def _get_history(
+        self,
+        session_id: str,
+        session: Optional[ChatSession] = None,
+        max_history: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """获取历史消息（优先读会话 JSON，带缓存）。返回元素为 dict。"""
 
         cfg = get_config()
-
         cache_key = f"history:{session_id}"
         cached = await self.cache.get(cache_key)
         if cached:
             return cached
 
-        history = await MessageHistory.get_recent_history(session_id=session_id, limit=max_history)
+        # 优先从会话 JSON 读取
+        if session is None:
+            session = await self._get_session(session_id, session_type="group")
+        history_list: List[Dict[str, Any]] = []
+        try:
+            history_list = json.loads(session.history_json or "[]") if session and session.history_json else []
+            if not isinstance(history_list, list):
+                history_list = []
+        except Exception:
+            history_list = []
 
-        await self.cache.set(cache_key, history, ttl=cfg.cache.history_ttl)
+        # 兼容：若 JSON 为空，回退到明细表最近记录，并回填 JSON
+        if not history_list:
+            limit = max_history or (session.max_history if session else 20)
+            rows = await MessageHistory.get_recent_history(session_id=session_id, limit=limit)
+            history_list = [
+                {
+                    "role": r.role,
+                    "content": r.content,
+                    "user_name": r.user_name,
+                    "created_at": r.created_at,
+                }
+                for r in rows
+            ]
+            # 回填一次（忽略异常）
+            try:
+                await ChatSession.set_history_list(session_id=session_id, history=history_list)
+                if session:
+                    session.history_json = json.dumps(history_list, ensure_ascii=False)
+                    await self.cache.set(f"session:{session_id}", session, ttl=cfg.cache.session_ttl)
+            except Exception:
+                pass
 
-        return history
+        await self.cache.set(cache_key, history_list, ttl=cfg.cache.history_ttl)
+        return history_list
 
     async def _get_favorability(self, user_id: str, session_id: str) -> UserFavorability:
         """获取或创建用户好感度（带缓存）"""
@@ -216,10 +262,10 @@ class ChatManager:
         lock = self._get_session_lock(session_id)
         async with lock:
             try:
-                # 1. 并发加载会话/历史/好感度
-                session, history, favo = await asyncio.gather(
-                    self._get_session(session_id, session_type, group_id, user_id),
-                    self._get_history(session_id),
+                # 1. 先取会话对象，再并发读取历史与好感度
+                session = await self._get_session(session_id, session_type, group_id, user_id)
+                history, favo = await asyncio.gather(
+                    self._get_history(session_id, session=session),
                     self._get_favorability(user_id, session_id),
                 )
 
@@ -235,19 +281,19 @@ class ChatManager:
 
                 # 4. 异步持久化（不阻塞回复）
                 asyncio.create_task(
-                    self._save_conversation(session_id, user_id, user_name, message, response, favo)
+                    self._save_conversation(session_id, user_id, user_name, message, response, favo, session.max_history)
                 )
 
                 return response
 
             except Exception as e:
                 logger.exception(f"[AI Chat] 处理消息失败: {e}")
-                return "抱歉，我遇到了一点问题.."
+                return "抱歉，我遇到了一点问题。"
 
     def _build_messages(
         self,
         session: ChatSession,
-        history: List[MessageHistory],
+        history: List[Dict[str, Any]],
         favo: UserFavorability,
         message: str,
         user_name: str,
@@ -271,11 +317,13 @@ class ChatManager:
 
         # 2) 历史消息
         for msg in history:
-            content = msg.content
+            role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
+            content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", "")
+            uname = msg.get("user_name") if isinstance(msg, dict) else getattr(msg, "user_name", None)
             # 群聊时为用户消息添加“昵称: 内容”前缀，便于区分说话人
-            if session_type == "group" and msg.role == "user" and msg.user_name:
-                content = f"{msg.user_name}: {content}"
-            messages.append({"role": msg.role, "content": content})
+            if session_type == "group" and role == "user" and uname:
+                content = f"{uname}: {content}"
+            messages.append({"role": role, "content": content})
 
         # 3) 当前用户消息
         current_content = f"{user_name}: {message}" if session_type == "group" else message
@@ -301,68 +349,36 @@ class ChatManager:
             return "AI 未配置或暂不可用"
 
         cfg = get_config()
-        personas = get_personas()
-        persona = personas.get(session.persona_name, personas["default"])
+        persona: PersonaConfig = get_personas().get(session.persona_name, get_personas()["default"])
+        tools = get_enabled_tools()
 
-        # 获取模型与温度（模型来自当前激活的 API，温度使用全局默认）
-        active_api = get_active_api()
-        model = active_api.model
+        model = get_active_api().model or "gpt-4o-mini"
         temperature = cfg.session.default_temperature
 
-        # 获取启用的工具（使用全局配置）
-        tools = None
-        if cfg.tools.enabled and cfg.tools.builtin_tools:
-            tools = get_enabled_tools(cfg.tools.builtin_tools)
+        # 初次调用
+        current_response = await self.client.chat.completions.create(
+            model=model,
+            messages=messages,
+            temperature=temperature,
+            tools=tools,
+        )
 
-        try:
-            # 调用 OpenAI
-            response = await self.client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                tools=tools if tools else None,
-                max_tokens=cfg.response.max_length,
-            )
-
-            # 工具调用
-            if response.choices[0].message.tool_calls:
-                return await self._handle_tool_calls(session, messages, response, model, temperature, tools)
-
-            # 普通回复
-            reply = response.choices[0].message.content or ""
-            return (reply or "").strip()
-
-        except Exception as e:
-            logger.error(f"[AI Chat] OpenAI API 调用失败: {e}")
-            return "抱歉，AI 服务暂时不可用.."
-
-    async def _handle_tool_calls(
-        self,
-        session: ChatSession,
-        messages: List[Dict[str, Any]],
-        response: Any,
-        model: str,
-        temperature: float,
-        tools: Optional[List[Dict[str, Any]]],
-    ) -> str:
-        """处理工具调用的多轮对话"""
-
-        cfg = get_config()
-        max_iterations = cfg.tools.max_iterations
-
+        # 处理可能的工具调用（简单循环）
+        max_iterations = 2
         iteration = 0
-        current_response = response
-
         while iteration < max_iterations:
-            tool_calls = current_response.choices[0].message.tool_calls
+            choice = current_response.choices[0]
+            tool_calls = choice.message.tool_calls or []
+
+            # 无工具调用则直接返回
             if not tool_calls:
                 break
 
-            # 添加 AI 的工具调用消息
+            # 将 AI 的工具调用消息加入 messages
             messages.append(
                 {
                     "role": "assistant",
-                    "content": current_response.choices[0].message.content or "",
+                    "content": choice.message.content or "",
                     "tool_calls": [
                         {
                             "id": tc.id,
@@ -412,11 +428,12 @@ class ChatManager:
         message: str,
         response: str,
         favo: UserFavorability,
+        max_history: int,
     ):
         """异步保存对话历史和好感度"""
 
         try:
-            # 保存用户消息与 AI 回复（使用 models 的便捷方法）
+            # 保存用户消息和 AI 回复（明细表）
             await MessageHistory.add_message(
                 session_id=session_id,
                 user_id=user_id,
@@ -440,8 +457,24 @@ class ChatManager:
                     delta=cfg.favorability.per_message_delta,
                 )
 
-            # 清除缓存
-            await self.cache.delete(f"history:{session_id}")
+            # 维护会话 JSON 历史（串行避免竞态）
+            lock = self._history_locks.setdefault(session_id, asyncio.Lock())
+            async with lock:
+                now = datetime.now().isoformat()
+                items = [
+                    {"role": "user", "content": message, "user_name": user_name, "created_at": now},
+                    {"role": "assistant", "content": response, "created_at": now},
+                ]
+                history_list = await ChatSession.append_history_items(
+                    session_id=session_id, items=items, max_history=max_history
+                )
+                # 更新缓存：history + session
+                await self.cache.set(f"history:{session_id}", history_list, ttl=cfg.cache.history_ttl)
+                session_row = await ChatSession.get_by_session_id(session_id=session_id)
+                if session_row:
+                    await self.cache.set(f"session:{session_id}", session_row, ttl=cfg.cache.session_ttl)
+
+            # 清除好感度缓存（其余已覆盖）
             await self.cache.delete(f"favo:{user_id}:{session_id}")
 
         except Exception as e:
@@ -452,11 +485,13 @@ class ChatManager:
     async def clear_history(self, session_id: str):
         """清空会话历史"""
 
-        # 使用 models 的便捷方法
+        # 清空明细与会话 JSON
         await MessageHistory.clear_history(session_id=session_id)
+        await ChatSession.clear_history_json(session_id=session_id)
 
         # 清除缓存
         await self.cache.delete(f"history:{session_id}")
+        await self.cache.delete(f"session:{session_id}")
 
         logger.info(f"[AI Chat] 清空会话历史: {session_id}")
 
@@ -489,4 +524,3 @@ class ChatManager:
 # 全局缓存与对话管理器
 cache_manager = CacheManager()
 chat_manager = ChatManager(cache_manager)
-

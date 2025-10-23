@@ -1,8 +1,8 @@
 """AI 对话数据模型
 
 包含 3 个核心表：
-- ChatSession: 会话信息
-- MessageHistory: 对话历史
+- ChatSession: 会话信息（含会话内历史 JSON）
+- MessageHistory: 对话历史明细
 - UserFavorability: 用户好感度
 
 所有数据库操作均提供便捷的类方法。
@@ -33,6 +33,8 @@ class ChatSession(BaseIDModel, table=True):
     persona_name: str = Field(default="default", description="人格名称")
     max_history: int = Field(default=20, description="最大历史记录条数")
     config_json: str = Field(default="{}", description="其他配置（JSON）")
+    # 会话级历史：存最近对话条目，减少查询次数
+    history_json: str = Field(default="[]", description="会话历史 JSON")
 
     # 状态
     is_active: bool = Field(default=True, description="是否启用")
@@ -43,7 +45,7 @@ class ChatSession(BaseIDModel, table=True):
 
     @classmethod
     @with_session
-    async def get_by_session_id(cls, session: AsyncSession, session_id: str) -> Optional[ChatSession]:
+    async def get_by_session_id(cls, session: AsyncSession, session_id: str) -> Optional["ChatSession"]:
         """根据 session_id 获取会话"""
 
         stmt = select(cls).where(cls.session_id == session_id)
@@ -61,7 +63,7 @@ class ChatSession(BaseIDModel, table=True):
         user_id: Optional[str] = None,
         persona_name: str = "default",
         max_history: int = 20,
-    ) -> ChatSession:
+    ) -> "ChatSession":
         """创建新会话"""
 
         chat_session = cls(
@@ -72,6 +74,7 @@ class ChatSession(BaseIDModel, table=True):
             persona_name=persona_name,
             max_history=max_history,
             is_active=True,
+            history_json="[]",
         )
         session.add(chat_session)
         await session.flush()
@@ -112,9 +115,107 @@ class ChatSession(BaseIDModel, table=True):
             return True
         return False
 
+    # ==================== 会话历史 JSON 维护 ====================
+
+    @classmethod
+    @with_session
+    async def ensure_history_column(cls, session: AsyncSession) -> None:
+        """确保 ai_chat_sessions 表存在 history_json 列（简易迁移）。"""
+        from sqlalchemy import text
+        try:
+            rs = await session.execute(text("PRAGMA table_info(ai_chat_sessions)"))
+            cols = [row[1] for row in rs.fetchall()]
+            if "history_json" not in cols:
+                await session.execute(
+                    text('ALTER TABLE ai_chat_sessions ADD COLUMN history_json TEXT DEFAULT "[]"')
+                )
+                await session.flush()
+        except Exception:
+            # 忽略迁移异常
+            pass
+
+    @classmethod
+    @with_session
+    async def get_history_list(cls, session: AsyncSession, session_id: str) -> list[dict]:
+        """读取会话 history_json 列为列表。"""
+        row = await cls.get_by_session_id(session=session, session_id=session_id)
+        if not row:
+            return []
+        try:
+            import json
+            data = json.loads(row.history_json or "[]")
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
+
+    @classmethod
+    @with_session
+    async def set_history_list(
+        cls, session: AsyncSession, session_id: str, history: list[dict]
+    ) -> bool:
+        """覆盖会话 history_json。"""
+        row = await cls.get_by_session_id(session=session, session_id=session_id)
+        if not row:
+            return False
+        try:
+            import json
+            row.history_json = json.dumps(history, ensure_ascii=False)
+            row.updated_at = datetime.now().isoformat()
+            session.add(row)
+            await session.flush()
+            return True
+        except Exception:
+            return False
+
+    @classmethod
+    @with_session
+    async def append_history_items(
+        cls,
+        session: AsyncSession,
+        session_id: str,
+        items: list[dict],
+        max_history: int,
+    ) -> list[dict]:
+        """追加若干历史项，并按 max_history 裁剪，返回最新列表。"""
+        row = await cls.get_by_session_id(session=session, session_id=session_id)
+        if not row:
+            return []
+        try:
+            import json
+            try:
+                lst = json.loads(row.history_json or "[]")
+                if not isinstance(lst, list):
+                    lst = []
+            except Exception:
+                lst = []
+            lst.extend(items)
+            if max_history > 0 and len(lst) > max_history:
+                lst = lst[-max_history:]
+            row.history_json = json.dumps(lst, ensure_ascii=False)
+            row.updated_at = datetime.now().isoformat()
+            session.add(row)
+            await session.flush()
+            await session.refresh(row)
+            return lst
+        except Exception:
+            return []
+
+    @classmethod
+    @with_session
+    async def clear_history_json(cls, session: AsyncSession, session_id: str) -> bool:
+        """清空会话 JSON 历史。"""
+        row = await cls.get_by_session_id(session=session, session_id=session_id)
+        if not row:
+            return False
+        row.history_json = "[]"
+        row.updated_at = datetime.now().isoformat()
+        session.add(row)
+        await session.flush()
+        return True
+
 
 class MessageHistory(BaseIDModel, table=True):
-    """对话历史记录表"""
+    """对话历史记录表（明细归档，不参与会话读取性能路径）"""
 
     __tablename__ = "ai_message_history"
 
@@ -132,7 +233,7 @@ class MessageHistory(BaseIDModel, table=True):
     @with_session
     async def get_recent_history(
         cls, session: AsyncSession, session_id: str, limit: int = 20
-    ) -> list[MessageHistory]:
+    ) -> list["MessageHistory"]:
         """获取最近的历史消息（按时间升序返回）"""
 
         stmt = (
@@ -158,7 +259,7 @@ class MessageHistory(BaseIDModel, table=True):
         tool_calls: Optional[str] = None,
         tool_call_id: Optional[str] = None,
         tokens: Optional[int] = None,
-    ) -> MessageHistory:
+    ) -> "MessageHistory":
         """添加一条消息"""
 
         message = cls(
@@ -179,7 +280,7 @@ class MessageHistory(BaseIDModel, table=True):
     @classmethod
     @with_session
     async def clear_history(cls, session: AsyncSession, session_id: str) -> int:
-        """清空会话历史，返回删除的消息数量"""
+        """清空会话历史（明细表），返回删除的消息数量"""
 
         stmt = select(cls).where(cls.session_id == session_id)
         result = await session.execute(stmt)
@@ -220,7 +321,7 @@ class UserFavorability(BaseIDModel, table=True):
     @with_session
     async def get_favorability(
         cls, session: AsyncSession, user_id: str, session_id: str
-    ) -> Optional[UserFavorability]:
+    ) -> Optional["UserFavorability"]:
         """获取用户好感度"""
 
         stmt = select(cls).where(and_(cls.user_id == user_id, cls.session_id == session_id))
@@ -231,7 +332,7 @@ class UserFavorability(BaseIDModel, table=True):
     @with_session
     async def create_favorability(
         cls, session: AsyncSession, user_id: str, session_id: str, initial_favorability: int = 50
-    ) -> UserFavorability:
+    ) -> "UserFavorability":
         """创建用户好感度记录"""
 
         favo = cls(user_id=user_id, session_id=session_id, favorability=initial_favorability, interaction_count=0)
@@ -250,7 +351,7 @@ class UserFavorability(BaseIDModel, table=True):
         delta: int = 1,
         positive: bool = False,
         negative: bool = False,
-    ) -> Optional[UserFavorability]:
+    ) -> Optional["UserFavorability"]:
         """更新用户好感度"""
 
         stmt = select(cls).where(and_(cls.user_id == user_id, cls.session_id == session_id))
@@ -280,7 +381,7 @@ class UserFavorability(BaseIDModel, table=True):
     @with_session
     async def set_favorability(
         cls, session: AsyncSession, user_id: str, session_id: str, favorability: int
-    ) -> Optional[UserFavorability]:
+    ) -> Optional["UserFavorability"]:
         """直接设置用户好感度"""
 
         stmt = select(cls).where(and_(cls.user_id == user_id, cls.session_id == session_id))
