@@ -451,6 +451,5 @@ async def handle_reload(event: MessageEvent):
 
     reload_all()
     chat_manager.reset_client()
-    await chat_manager.cache.clear()
     await reload_cmd.finish("✅ 已重载所有配置并清空缓存")
 

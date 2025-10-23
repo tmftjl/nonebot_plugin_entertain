@@ -84,8 +84,7 @@ class CacheManager:
 class ChatManager:
     """AI 对话核心管理"""
 
-    def __init__(self, cache: CacheManager):
-        self.cache = cache
+    def __init__(self):
         self.client: Optional[AsyncOpenAI] = None
         # 会话锁（同一会话串行，不同会话并行）
         self._session_locks: Dict[str, asyncio.Lock] = {}
@@ -132,15 +131,9 @@ class ChatManager:
         group_id: Optional[str] = None,
         user_id: Optional[str] = None,
     ) -> ChatSession:
-        """获取或创建会话（带缓存）"""
+        """获取或创建会话（直接查库）"""
 
         cfg = get_config()
-
-        # 缓存
-        cache_key = f"session:{session_id}"
-        cached = await self.cache.get(cache_key)
-        if cached:
-            return cached
 
         # 确保会话表包含 history_json 列（一次性检查）
         if not self._schema_checked:
@@ -164,10 +157,6 @@ class ChatManager:
             )
             logger.info(f"[AI Chat] 创建新会话 {session_id}")
 
-        # 缓存会话
-        if chat_session:
-            await self.cache.set(cache_key, chat_session, ttl=cfg.cache.session_ttl)
-
         return chat_session
 
     async def _get_history(
@@ -178,11 +167,7 @@ class ChatManager:
     ) -> List[Dict[str, Any]]:
         """获取历史消息（优先读会话 JSON，带缓存）。返回元素为 dict。"""
 
-        cfg = get_config()
-        cache_key = f"history:{session_id}"
-        cached = await self.cache.get(cache_key)
-        if cached:
-            return cached
+        # 直接读取，不使用缓存
 
         # 优先从会话 JSON 读取
         if session is None:
@@ -213,22 +198,16 @@ class ChatManager:
                 await ChatSession.set_history_list(session_id=session_id, history=history_list)
                 if session:
                     session.history_json = json.dumps(history_list, ensure_ascii=False)
-                    await self.cache.set(f"session:{session_id}", session, ttl=cfg.cache.session_ttl)
+                    # 不再写入运行时缓存
             except Exception:
                 pass
 
-        await self.cache.set(cache_key, history_list, ttl=cfg.cache.history_ttl)
         return history_list
 
     async def _get_favorability(self, user_id: str, session_id: str) -> UserFavorability:
         """获取或创建用户好感度（带缓存）"""
 
-        cfg = get_config()
-
-        cache_key = f"favo:{user_id}:{session_id}"
-        cached = await self.cache.get(cache_key)
-        if cached:
-            return cached
+        # 直接读取，不使用缓存
 
         favo = await UserFavorability.get_favorability(user_id=user_id, session_id=session_id)
 
@@ -236,8 +215,6 @@ class ChatManager:
             favo = await UserFavorability.create_favorability(
                 user_id=user_id, session_id=session_id, initial_favorability=50
             )
-
-        await self.cache.set(cache_key, favo, ttl=cfg.cache.favorability_ttl)
 
         return favo
 
@@ -469,13 +446,13 @@ class ChatManager:
                     session_id=session_id, items=items, max_history=max_history
                 )
                 # 更新缓存：history + session
-                await self.cache.set(f"history:{session_id}", history_list, ttl=cfg.cache.history_ttl)
+                # 不再写入运行时缓存
                 session_row = await ChatSession.get_by_session_id(session_id=session_id)
                 if session_row:
-                    await self.cache.set(f"session:{session_id}", session_row, ttl=cfg.cache.session_ttl)
+                    # 不再写入运行时缓存
 
             # 清除好感度缓存（其余已覆盖）
-            await self.cache.delete(f"favo:{user_id}:{session_id}")
+            # 不再维护运行时缓存
 
         except Exception as e:
             logger.error(f"[AI Chat] 保存对话失败: {e}")
@@ -489,10 +466,6 @@ class ChatManager:
         await MessageHistory.clear_history(session_id=session_id)
         await ChatSession.clear_history_json(session_id=session_id)
 
-        # 清除缓存
-        await self.cache.delete(f"history:{session_id}")
-        await self.cache.delete(f"session:{session_id}")
-
         logger.info(f"[AI Chat] 清空会话历史: {session_id}")
 
     async def set_persona(self, session_id: str, persona_name: str):
@@ -500,8 +473,7 @@ class ChatManager:
 
         updated = await ChatSession.update_persona(session_id=session_id, persona_name=persona_name)
         if updated:
-            # 清除缓存
-            await self.cache.delete(f"session:{session_id}")
+            pass
             logger.info(f"[AI Chat] 切换人格: {session_id} -> {persona_name}")
 
     async def set_session_active(self, session_id: str, is_active: bool):
@@ -509,8 +481,7 @@ class ChatManager:
 
         updated = await ChatSession.update_active_status(session_id=session_id, is_active=is_active)
         if updated:
-            # 清除缓存
-            await self.cache.delete(f"session:{session_id}")
+            pass
 
     async def get_session_info(self, session_id: str) -> Optional[ChatSession]:
         """获取会话信息"""
@@ -523,4 +494,4 @@ class ChatManager:
 
 # 全局缓存与对话管理器
 cache_manager = CacheManager()
-chat_manager = ChatManager(cache_manager)
+chat_manager = ChatManager()
