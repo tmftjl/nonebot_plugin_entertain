@@ -449,6 +449,7 @@ class ChatManager:
                 # 不再写入运行时缓存
                 session_row = await ChatSession.get_by_session_id(session_id=session_id)
                 if session_row:
+                    pass
                     # 不再写入运行时缓存
 
             # 清除好感度缓存（其余已覆盖）
