@@ -8,7 +8,7 @@
 - 系统管理（#重载AI配置）
 """
 from __future__ import annotations
-
+import re
 from typing import Optional
 
 from nonebot import Bot
@@ -329,13 +329,16 @@ switch_persona_cmd = P.on_regex(
 
 
 @switch_persona_cmd.handle()
-async def handle_switch_persona(event: MessageEvent, matched: str = RegexMatched()):
+async def handle_switch_persona(event: MessageEvent):
     """切换会话人格"""
+    plain_text = event.get_plaintext().strip()
+    match = re.search(r"^#切换人格\s+(.+)$", plain_text)
+    if not match:
+        logger.error(f"[AI Chat] 切换人格 handle 触发，但 re.search 匹配失败: {plain_text}")
+        await switch_persona_cmd.finish("内部错误：无法解析人格名称")
+        return
 
-    if not await check_admin(event):
-        await switch_persona_cmd.finish("仅管理员可用")
-
-    persona_name = matched.strip()
+    persona_name = match.group(1).strip()
     personas = get_personas()
 
     if persona_name not in personas:
@@ -348,6 +351,36 @@ async def handle_switch_persona(event: MessageEvent, matched: str = RegexMatched
 
 
 # ==================== 服务商切换命令 ====================
+
+# 服务商列表
+api_list_cmd = P.on_regex(
+    r"^#服务商列表$",
+    name="ai_api_list",
+    display_name="服务商列表",
+    priority=5,
+    block=True,
+)
+
+
+@api_list_cmd.handle()
+async def handle_api_list(event: MessageEvent):
+    """查看当前配置的服务商列表"""
+
+    cfg = get_config()
+    providers = getattr(cfg, "api", []) or []
+
+    if not providers:
+        await api_list_cmd.finish("暂无服务商配置")
+
+    lines = []
+    for item in providers:
+        current = "（当前）" if item.name == cfg.api_active else ""
+        lines.append(
+            f"- {item.name}{current} | 模型: {item.model} | 地址: {item.base_url}"
+        )
+
+    info_text = "🧩 服务商列表\n━━━━━━━━━━━━━━━━\n" + "\n".join(lines)
+    await api_list_cmd.finish(info_text)
 
 
 # 切换服务商
@@ -365,10 +398,13 @@ switch_api_cmd = P.on_regex(
 async def handle_switch_api(event: MessageEvent, matched: str = RegexMatched()):
     """切换当前生效的 AI 服务商（按名称）"""
 
-    if not await check_admin(event):
-        await switch_api_cmd.finish("仅管理员可用")
-
-    target = matched.strip()
+    plain_text = event.get_plaintext().strip()
+    match = re.search(r"^#切换服务商\s+(.+)$", plain_text)
+    if not match:
+        logger.error(f"[AI Chat] 切换服务商 handle 触发，但 re.search 匹配失败: {plain_text}")
+        await switch_persona_cmd.finish("内部错误：无法解析人格名称")
+        return
+    target = match.group(1).strip()
     cfg = get_config()
     names = [it.name for it in cfg.api]
     if target not in names:
