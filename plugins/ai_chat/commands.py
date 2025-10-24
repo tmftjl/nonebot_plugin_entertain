@@ -131,7 +131,9 @@ async def handle_chat_auto(bot: Bot, event: MessageEvent):
     """
 
     # 群聊必须 @ 机器人
-    if isinstance(event, GroupMessageEvent) and not _is_at_bot_robust(bot, event):
+    if isinstance(event, GroupMessageEvent) and not (
+        _is_at_bot_robust(bot, event) or getattr(event, "to_me", False)
+    ):
         return
 
     # 获取纯文本消息
@@ -158,6 +160,8 @@ async def handle_chat_auto(bot: Bot, event: MessageEvent):
         )
 
         if response:
+            # 去除可能的首行换行，避免开头多一个回车
+            response = response.lstrip("\r\n")
             if session_type == "group":
                 cfg = get_config()
                 if cfg.response.enable_at_reply:

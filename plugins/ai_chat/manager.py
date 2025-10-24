@@ -327,7 +327,11 @@ class ChatManager:
 
         cfg = get_config()
         persona: PersonaConfig = get_personas().get(session.persona_name, get_personas()["default"])
-        tools = get_enabled_tools()
+        tools = (
+            get_enabled_tools(cfg.tools.builtin_tools)
+            if getattr(cfg, "tools", None) and cfg.tools.enabled
+            else None
+        )
 
         model = get_active_api().model or "gpt-4o-mini"
         temperature = cfg.session.default_temperature
@@ -341,7 +345,7 @@ class ChatManager:
         )
 
         # 处理可能的工具调用（简单循环）
-        max_iterations = 2
+        max_iterations = (cfg.tools.max_iterations if getattr(cfg, "tools", None) else 2)
         iteration = 0
         while iteration < max_iterations:
             choice = current_response.choices[0]
