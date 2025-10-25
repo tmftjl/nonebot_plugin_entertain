@@ -74,12 +74,33 @@ def _is_at_bot_robust(bot: Bot, event: MessageEvent) -> bool:
     if not isinstance(event, GroupMessageEvent):
         return False
     try:
+        # 真实 @ 检测
         for seg in event.message:
             if seg.type == "at" and seg.data.get("qq") == bot.self_id:
                 return True
         raw = str(event.message)
         if f"[CQ:at,qq={bot.self_id}]" in raw or f"[at:qq={bot.self_id}]" in raw:
             return True
+
+        # 主动回复：未@时按概率触发一次
+        from .config import CFG as _CFG
+        import random as _rnd
+
+        cfg_raw = _CFG.load() or {}
+        sess = (cfg_raw.get("session") or {})
+        ar = ((sess.get("chatroom_enhance") or {}).get("active_reply") or {})
+        if ar.get("enable", False):
+            try:
+                prob = float(ar.get("probability", 0.0) or 0.0)
+            except Exception:
+                prob = 0.0
+            if prob > 0.0 and _rnd.random() <= prob:
+                try:
+                    setattr(event, "_ai_active_reply", True)
+                    setattr(event, "_ai_active_reply_suffix", ar.get("prompt_suffix"))
+                except Exception:
+                    pass
+                return True
     except Exception:
         pass
     return False

@@ -138,8 +138,7 @@ DEFAULTS: Dict[str, Any] = {
         "default_max_history": 20,
         "default_temperature": 0.7,
         "auto_create": True,
-        "max_context_length": 8,
-        "dequeue_context_length": 2,
+        "max_rounds": 8,
         "chatroom_history_max_lines": 200,
         "chatroom_enhance": {
             "active_reply": {

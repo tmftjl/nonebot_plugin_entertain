@@ -22,7 +22,6 @@ from .manager import chat_manager  # noqa: F401
 
 # 导入命令（注册所有命令处理器）
 from . import commands  # noqa: F401
-from . import proactive  # noqa: F401
 
 # 插件元信息（仅用于展示）
 __plugin_name__ = "AI 对话"
