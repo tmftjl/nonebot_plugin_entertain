@@ -1,19 +1,14 @@
-"""AI 对话数据模型
+"""AI 对话数据模型（移除好感度）
 
-包含 3 个核心表：
-- ChatSession: 会话信息（含会话内历史 JSON）
-- MessageHistory: 对话历史明细
-- UserFavorability: 用户好感度
-
-所有数据库操作均提供便捷的类方法。
+仅包含 ChatSession 表与相关便捷方法。
 """
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Dict
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlmodel import Field, select, and_, desc
+from sqlmodel import Field, select
 
 from ...db.base_models import BaseIDModel, with_session
 
@@ -120,7 +115,7 @@ class ChatSession(BaseIDModel, table=True):
     @classmethod
     @with_session
     async def ensure_history_column(cls, session: AsyncSession) -> None:
-        """确保 ai_chat_sessions 表存在 history_json 列（简易迁移）。"""
+        """确保 ai_chat_sessions 表存在 history_json 列（简易迁移）"""
         from sqlalchemy import text
         try:
             rs = await session.execute(text("PRAGMA table_info(ai_chat_sessions)"))
@@ -136,8 +131,8 @@ class ChatSession(BaseIDModel, table=True):
 
     @classmethod
     @with_session
-    async def get_history_list(cls, session: AsyncSession, session_id: str) -> list[dict]:
-        """读取会话 history_json 列为列表。"""
+    async def get_history_list(cls, session: AsyncSession, session_id: str) -> List[Dict]:
+        """读取会话 history_json 列为列表"""
         row = await cls.get_by_session_id(session=session, session_id=session_id)
         if not row:
             return []
@@ -151,9 +146,9 @@ class ChatSession(BaseIDModel, table=True):
     @classmethod
     @with_session
     async def set_history_list(
-        cls, session: AsyncSession, session_id: str, history: list[dict]
+        cls, session: AsyncSession, session_id: str, history: List[Dict]
     ) -> bool:
-        """覆盖会话 history_json。"""
+        """覆盖会话 history_json"""
         row = await cls.get_by_session_id(session=session, session_id=session_id)
         if not row:
             return False
@@ -173,10 +168,10 @@ class ChatSession(BaseIDModel, table=True):
         cls,
         session: AsyncSession,
         session_id: str,
-        items: list[dict],
+        items: List[Dict],
         max_history: int,
-    ) -> list[dict]:
-        """追加若干历史项，并按 max_history 裁剪，返回最新列表。"""
+    ) -> List[Dict]:
+        """追加若干历史项，并按 max_history 裁剪，返回最新列表"""
         row = await cls.get_by_session_id(session=session, session_id=session_id)
         if not row:
             return []
@@ -203,7 +198,7 @@ class ChatSession(BaseIDModel, table=True):
     @classmethod
     @with_session
     async def clear_history_json(cls, session: AsyncSession, session_id: str) -> bool:
-        """清空会话 JSON 历史。"""
+        """清空会话 JSON 历史"""
         row = await cls.get_by_session_id(session=session, session_id=session_id)
         if not row:
             return False
@@ -212,107 +207,4 @@ class ChatSession(BaseIDModel, table=True):
         session.add(row)
         await session.flush()
         return True
-
-
-class UserFavorability(BaseIDModel, table=True):
-    """用户好感度表"""
-
-    __tablename__ = "ai_user_favorability"
-
-    user_id: str = Field(index=True, description="用户 QQ")
-    session_id: str = Field(index=True, description="会话 ID")
-
-    # 好感度数据
-    favorability: int = Field(default=50, description="好感度（0-100）")
-    interaction_count: int = Field(default=0, description="互动次数")
-
-    # 情感统计
-    positive_count: int = Field(default=0, description="正面情感次数")
-    negative_count: int = Field(default=0, description="负面情感次数")
-
-    # 时间
-    last_interaction: str = Field(default_factory=lambda: datetime.now().isoformat(), description="最后互动时间")
-    updated_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="更新时间")
-
-    # ==================== 数据库操作方法 ====================
-
-    @classmethod
-    @with_session
-    async def get_favorability(
-        cls, session: AsyncSession, user_id: str, session_id: str
-    ) -> Optional["UserFavorability"]:
-        """获取用户好感度"""
-
-        stmt = select(cls).where(and_(cls.user_id == user_id, cls.session_id == session_id))
-        result = await session.execute(stmt)
-        return result.scalar_one_or_none()
-
-    @classmethod
-    @with_session
-    async def create_favorability(
-        cls, session: AsyncSession, user_id: str, session_id: str, initial_favorability: int = 50
-    ) -> "UserFavorability":
-        """创建用户好感度记录"""
-
-        favo = cls(user_id=user_id, session_id=session_id, favorability=initial_favorability, interaction_count=0)
-        session.add(favo)
-        await session.flush()
-        await session.refresh(favo)
-        return favo
-
-    @classmethod
-    @with_session
-    async def update_favorability(
-        cls,
-        session: AsyncSession,
-        user_id: str,
-        session_id: str,
-        delta: int = 1,
-        positive: bool = False,
-        negative: bool = False,
-    ) -> Optional["UserFavorability"]:
-        """更新用户好感度"""
-
-        stmt = select(cls).where(and_(cls.user_id == user_id, cls.session_id == session_id))
-        result = await session.execute(stmt)
-        favo = result.scalar_one_or_none()
-
-        if favo:
-            favo.interaction_count += 1
-            favo.favorability = max(0, min(100, favo.favorability + delta))
-
-            if positive:
-                favo.positive_count += 1
-            if negative:
-                favo.negative_count += 1
-
-            now = datetime.now().isoformat()
-            favo.last_interaction = now
-            favo.updated_at = now
-
-            session.add(favo)
-            await session.flush()
-            await session.refresh(favo)
-
-        return favo
-
-    @classmethod
-    @with_session
-    async def set_favorability(
-        cls, session: AsyncSession, user_id: str, session_id: str, favorability: int
-    ) -> Optional["UserFavorability"]:
-        """直接设置用户好感度"""
-
-        stmt = select(cls).where(and_(cls.user_id == user_id, cls.session_id == session_id))
-        result = await session.execute(stmt)
-        favo = result.scalar_one_or_none()
-
-        if favo:
-            favo.favorability = max(0, min(100, favorability))
-            favo.updated_at = datetime.now().isoformat()
-            session.add(favo)
-            await session.flush()
-            await session.refresh(favo)
-
-        return favo
 

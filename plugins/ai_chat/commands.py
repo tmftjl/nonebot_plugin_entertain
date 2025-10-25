@@ -1,18 +1,19 @@
-"""AI 对话命令处理
+"""AI 对话命令处理（去除好感度 + 前后钩子已在 manager 中提供）
 
 包含所有命令的处理逻辑：
-- 对话触发（@ 机器人）
-- 会话管理（#清空会话、#会话信息、#开启AI、#关闭AI）
-- 人格系统（#人格、#人格列表、#切换人格）
-- 好感度（#好感度）
-- 系统管理（#重载AI配置）
+- 对话触发（@ 机器人或主动回复）
+- 会话管理（清空会话、会话信息、开启AI、关闭AI）
+- 人格系统（人格、人格列表、切换人格）
+- 服务商管理（列表、切换）
+- 系统维护（重载AI配置）
+- 工具管理（列表、开启、关闭）
 """
 from __future__ import annotations
+
 import re
 from typing import Optional
 
 from nonebot import Bot
-import random
 from nonebot.adapters.onebot.v11 import GroupMessageEvent, PrivateMessageEvent, MessageEvent, Message
 from nonebot.params import RegexMatched
 from nonebot.log import logger
@@ -32,8 +33,6 @@ P = Plugin(name="ai_chat", display_name="AI 对话", enabled=True, level="all", 
 
 
 def get_session_id(event: MessageEvent) -> str:
-    """获取会话 ID"""
-
     if isinstance(event, GroupMessageEvent):
         return f"group_{event.group_id}"
     elif isinstance(event, PrivateMessageEvent):
@@ -42,39 +41,19 @@ def get_session_id(event: MessageEvent) -> str:
 
 
 def get_user_name(event: MessageEvent) -> str:
-    """获取用户昵称"""
-
     try:
         sender = getattr(event, "sender", None)
         if sender:
-            # 优先使用群昵称，其次用户昵称
             return getattr(sender, "card", None) or getattr(sender, "nickname", None) or str(event.user_id)
     except Exception:
         pass
     return str(event.user_id)
 
 
-def is_at_bot(bot: Bot, event: MessageEvent) -> bool:
-    """检查消息是否 @ 了机器人（群聊）"""
-
-    if not isinstance(event, GroupMessageEvent):
-        return False
-
-    try:
-        for seg in event.message:
-            if seg.type == "at" and seg.data.get("qq") == bot.self_id:
-                return True
-    except Exception:
-        pass
-    return False
-
-
 def _is_at_bot_robust(bot: Bot, event: MessageEvent) -> bool:
-    """更稳健的 @ 检测：支持 at 段、[CQ:at,qq=xxx]、[at:qq=xxx]，任意位置。"""
     if not isinstance(event, GroupMessageEvent):
         return False
     try:
-        # 真实 @ 检测
         for seg in event.message:
             if seg.type == "at" and seg.data.get("qq") == bot.self_id:
                 return True
@@ -82,15 +61,13 @@ def _is_at_bot_robust(bot: Bot, event: MessageEvent) -> bool:
         if f"[CQ:at,qq={bot.self_id}]" in raw or f"[at:qq={bot.self_id}]" in raw:
             return True
 
-        # 主动回复：未@时按概率触发一次
-        from .config import CFG as _CFG
-        import random as _rnd
-
-        cfg_raw = _CFG.load() or {}
+        # 主动回复（实验项，读取原始配置）
+        cfg_raw = CFG.load() or {}
         sess = (cfg_raw.get("session") or {})
         ar = ((sess.get("chatroom_enhance") or {}).get("active_reply") or {})
         if ar.get("enable", False):
             try:
+                import random as _rnd
                 prob = float(ar.get("probability", 0.0) or 0.0)
             except Exception:
                 prob = 0.0
@@ -105,9 +82,8 @@ def _is_at_bot_robust(bot: Bot, event: MessageEvent) -> bool:
         pass
     return False
 
-def extract_plain_text(message: Message) -> str:
-    """提取纯文本消息"""
 
+def extract_plain_text(message: Message) -> str:
     text_parts = []
     for seg in message:
         if seg.type == "text":
@@ -116,8 +92,6 @@ def extract_plain_text(message: Message) -> str:
 
 
 async def check_admin(event: MessageEvent) -> bool:
-    """检查是否为管理员（群管/群主/超级用户）"""
-
     user_id = _uid(event)
     if _is_superuser(user_id):
         return True
@@ -127,8 +101,6 @@ async def check_admin(event: MessageEvent) -> bool:
 
 
 async def check_superuser(event: MessageEvent) -> bool:
-    """检查是否为超级用户"""
-
     user_id = _uid(event)
     return _is_superuser(user_id)
 
@@ -149,29 +121,26 @@ at_cmd = P.on_regex(
 @at_cmd.handle()
 async def handle_chat_auto(bot: Bot, event: MessageEvent):
     """统一处理：
-    - 群聊：只有@机器人才触发
+    - 群聊：只有@机器人或主动回复命中时触发
     - 私聊：任意文本直接触发
     """
 
-    # 群聊必须 @ 机器人
+    # 群聊必须 @ 机器人或主动回复
     if isinstance(event, GroupMessageEvent) and not (
         _is_at_bot_robust(bot, event) or getattr(event, "to_me", False)
     ):
         return
 
-    # 获取纯文本消息
     message = extract_plain_text(event.message)
     if not message:
         return
 
-    # 获取会话信息
     session_type = "group" if isinstance(event, GroupMessageEvent) else "private"
     session_id = get_session_id(event)
     user_id = str(event.user_id)
     user_name = get_user_name(event)
     group_id = str(getattr(event, "group_id", "")) if isinstance(event, GroupMessageEvent) else None
 
-    # 处理消息
     try:
         response = await chat_manager.process_message(
             session_id=session_id,
@@ -191,7 +160,6 @@ async def handle_chat_auto(bot: Bot, event: MessageEvent):
         )
 
         if response:
-            # 去除可能的首行换行，避免开头多一个回车
             response = response.lstrip("\r\n")
             if session_type == "group":
                 cfg = get_config()
@@ -204,21 +172,20 @@ async def handle_chat_auto(bot: Bot, event: MessageEvent):
     except Exception as e:
         logger.exception(f"[AI Chat] 对话处理失败: {e}")
 
+
 # 清空会话
 clear_cmd = P.on_regex(r"^#清空会话$", name="ai_clear_session", display_name="清空会话", priority=5, block=True)
 
 
 @clear_cmd.handle()
 async def handle_clear(event: MessageEvent):
-    """清空当前会话的历史记录"""
-
     session_id = get_session_id(event)
     try:
         await chat_manager.clear_history(session_id)
     except Exception as e:
         logger.error(f"[AI Chat] 清空会话失败: {e}")
-        await clear_cmd.finish("❌ 清空会话失败")
-    await clear_cmd.finish("✅ 已清空当前会话的历史记录")
+        await clear_cmd.finish("× 清空会话失败")
+    await clear_cmd.finish("✓ 已清空当前会话的历史记录")
 
 
 # 会话信息
@@ -227,8 +194,6 @@ info_cmd = P.on_regex(r"^#会话信息$", name="ai_session_info", display_name="
 
 @info_cmd.handle()
 async def handle_info(event: MessageEvent):
-    """查看当前会话信息"""
-
     session_id = get_session_id(event)
     session = await chat_manager.get_session_info(session_id)
     if not session:
@@ -251,7 +216,7 @@ async def handle_info(event: MessageEvent):
     await info_cmd.finish(info_text)
 
 
-# 开启 AI
+# 开启 AI（管理员）
 enable_cmd = P.on_regex(
     r"^#开启AI$",
     name="ai_enable",
@@ -264,17 +229,14 @@ enable_cmd = P.on_regex(
 
 @enable_cmd.handle()
 async def handle_enable(event: MessageEvent):
-    """开启当前会话的 AI"""
-
     if not await check_admin(event):
         await enable_cmd.finish("仅管理员可用")
-
     session_id = get_session_id(event)
     await chat_manager.set_session_active(session_id, True)
-    await enable_cmd.finish("✅ 已开启 AI")
+    await enable_cmd.finish("✓ 已开启 AI")
 
 
-# 关闭 AI
+# 关闭 AI（管理员）
 disable_cmd = P.on_regex(
     r"^#关闭AI$",
     name="ai_disable",
@@ -287,17 +249,14 @@ disable_cmd = P.on_regex(
 
 @disable_cmd.handle()
 async def handle_disable(event: MessageEvent):
-    """关闭当前会话的 AI"""
-
     if not await check_admin(event):
         await disable_cmd.finish("仅管理员可用")
-
     session_id = get_session_id(event)
     await chat_manager.set_session_active(session_id, False)
-    await disable_cmd.finish("✅ 已关闭 AI")
+    await disable_cmd.finish("✓ 已关闭 AI")
 
 
-# ==================== 人格系统命令 ====================
+# ==================== 人格系统 ====================
 
 
 # 查看当前人格
@@ -306,8 +265,6 @@ persona_cmd = P.on_regex(r"^#人格$", name="ai_persona", display_name="查看�
 
 @persona_cmd.handle()
 async def handle_persona(event: MessageEvent):
-    """查看当前人格"""
-
     session_id = get_session_id(event)
     session = await chat_manager.get_session_info(session_id)
     if not session:
@@ -334,8 +291,6 @@ persona_list_cmd = P.on_regex(r"^#人格列表$", name="ai_persona_list", displa
 
 @persona_list_cmd.handle()
 async def handle_persona_list(event: MessageEvent):
-    """查看所有可用人格"""
-
     personas = get_personas()
     if not personas:
         await persona_list_cmd.finish("暂无可用人格")
@@ -348,7 +303,7 @@ async def handle_persona_list(event: MessageEvent):
     await persona_list_cmd.finish(info_text)
 
 
-# 切换人格
+# 切换人格（管理员）
 switch_persona_cmd = P.on_regex(
     r"^#切换人格\s+(.+)$",
     name="ai_switch_persona",
@@ -361,7 +316,6 @@ switch_persona_cmd = P.on_regex(
 
 @switch_persona_cmd.handle()
 async def handle_switch_persona(event: MessageEvent):
-    """切换会话人格"""
     plain_text = event.get_plaintext().strip()
     match = re.search(r"^#切换人格\s+(.+)$", plain_text)
     if not match:
@@ -378,10 +332,10 @@ async def handle_switch_persona(event: MessageEvent):
 
     session_id = get_session_id(event)
     await chat_manager.set_persona(session_id, persona_name)
-    await switch_persona_cmd.finish(f"✅ 已切换到人格: {personas[persona_name].name}")
+    await switch_persona_cmd.finish(f"✓ 已切换到人格: {personas[persona_name].name}")
 
 
-# ==================== 服务商切换命令 ====================
+# ==================== 服务商切换 ====================
 
 # 服务商列表
 api_list_cmd = P.on_regex(
@@ -395,8 +349,6 @@ api_list_cmd = P.on_regex(
 
 @api_list_cmd.handle()
 async def handle_api_list(event: MessageEvent):
-    """查看当前配置的服务商列表"""
-
     cfg = get_config()
     providers = getattr(cfg, "api", []) or []
 
@@ -414,7 +366,7 @@ async def handle_api_list(event: MessageEvent):
     await api_list_cmd.finish(info_text)
 
 
-# 切换服务商
+# 切换服务商（管理员）
 switch_api_cmd = P.on_regex(
     r"^#切换服务商\s+(.+)$",
     name="ai_switch_api",
@@ -427,23 +379,16 @@ switch_api_cmd = P.on_regex(
 
 @switch_api_cmd.handle()
 async def handle_switch_api(event: MessageEvent):
-    """切换当前生效的 AI 服务商（按名称）"""
-
     plain_text = event.get_plaintext().strip()
     m = re.search(r"^#切换服务商\s+(.+)$", plain_text)
     if not m:
         await switch_api_cmd.finish("内部错误：无法解析服务商名称")
         return
-    match = m
-    if not match:
-        logger.error(f"[AI Chat] 切换服务商 handle 触发，但 re.search 匹配失败: {plain_text}")
-        await switch_api_cmd.finish("内部错误：无法解析服务商名称")
-        return
-    target = match.group(1).strip()
+    target = m.group(1).strip()
     cfg = get_config()
     names = [it.name for it in cfg.api]
     if target not in names:
-        available = ", ".join(names) if names else "无"
+        available = ", ".join(names) if names else ""
         await switch_api_cmd.finish(f"服务商不存在\n可用: {available}")
 
     # 更新当前启用的服务商并保存配置
@@ -451,66 +396,13 @@ async def handle_switch_api(event: MessageEvent):
     save_config(cfg)
     # 重建客户端以应用新的服务商配置
     chat_manager.reset_client()
-    await switch_api_cmd.finish(f"✅ 已切换到服务商: {target}")
-
-
-# ==================== 好感度命令 ====================
-
-
-# 查看好感度
-favo_cmd = P.on_regex(r"^#好感度$", name="ai_favorability", display_name="查看好感度", priority=5, block=True)
-
-
-@favo_cmd.handle()
-async def handle_favorability(event: MessageEvent):
-    """查看自己的好感度"""
-
-    from .models import UserFavorability
-    from ...db.base_models import async_maker
-    from sqlmodel import select, and_
-
-    session_id = get_session_id(event)
-    user_id = str(event.user_id)
-
-    async with async_maker() as session:
-        stmt = select(UserFavorability).where(
-            and_(UserFavorability.user_id == user_id, UserFavorability.session_id == session_id)
-        )
-        result = await session.execute(stmt)
-        favo = result.scalar_one_or_none()
-
-        if not favo:
-            await favo_cmd.finish("暂无好感度记录")
-
-        # 好感度等级
-        if favo.favorability >= 80:
-            level = "💕 深厚"
-        elif favo.favorability >= 60:
-            level = "💖 亲密"
-        elif favo.favorability >= 40:
-            level = "😊 友好"
-        elif favo.favorability >= 20:
-            level = "😐 普通"
-        else:
-            level = "😒 冷淡"
-
-        info_text = (
-            f"💝 好感度信息\n"
-            f"━━━━━━━━━━━━━━━━\n"
-            f"好感度: {favo.favorability}/100\n"
-            f"等级: {level}\n"
-            f"互动次数: {favo.interaction_count}\n"
-            f"正面情感: {favo.positive_count}\n"
-            f"负面情感: {favo.negative_count}\n"
-            f"最后互动: {favo.last_interaction[:19]}"
-        )
-    await favo_cmd.finish(info_text)
+    await switch_api_cmd.finish(f"✓ 已切换到服务商: {target}")
 
 
 # ==================== 系统管理命令 ====================
 
 
-# 重载配置
+# 重载配置（超级用户）
 reload_cmd = P.on_regex(
     r"^#重载AI配置$",
     name="ai_reload_config",
@@ -523,19 +415,16 @@ reload_cmd = P.on_regex(
 
 @reload_cmd.handle()
 async def handle_reload(event: MessageEvent):
-    """重载 AI 配置和人格"""
-
     if not await check_superuser(event):
         await reload_cmd.finish("仅超级用户可用")
 
-    # 重载配置与人格到内存
     reload_all()
-    # 重建客户端以应用最新配置
     chat_manager.reset_client()
-    await reload_cmd.finish("✅ 已重载所有配置并清空缓存")
+    await reload_cmd.finish("✓ 已重载所有配置并清空缓存")
 
 
 # ==================== 工具管理 ====================
+
 
 # 列出工具
 tool_list_cmd = P.on_regex(r"^#工具列表$", name="ai_tools_list", display_name="工具列表", priority=5, block=True)
@@ -551,14 +440,14 @@ async def handle_tool_list(event: MessageEvent):
         return
     lines = ["🔧 工具列表", "━━━━━━━━━━━━━━━━"]
     for name in sorted(all_tools):
-        mark = "✅ 启用" if name in enabled and cfg.tools.enabled else ("⛔ 已禁用" if name in enabled else "❌ 未启用")
+        mark = "✓ 启用" if name in enabled and cfg.tools.enabled else ("× 已禁用" if name in enabled else "× 未启用")
         lines.append(f"- {name}  {mark}")
     lines.append("")
     lines.append(f"全局工具开关：{'开启' if cfg.tools.enabled else '关闭'}")
     await tool_list_cmd.finish("\n".join(lines))
 
 
-# 开启工具（同时打开全局工具开关）
+# 开启工具（管理员，且开启总开关）
 tool_on_cmd = P.on_regex(r"^#开启工具\s+(\S+)$", name="ai_tool_on", display_name="开启工具", priority=5, block=True)
 
 
@@ -587,7 +476,7 @@ async def handle_tool_on(event: MessageEvent, matched: str = RegexMatched()):
     await tool_on_cmd.finish(f"已开启工具：{tool_name}")
 
 
-# 关闭工具（仅从启用列表移除，不改全局开关）
+# 关闭工具（管理员，仅从启用列表移除，不改全局开关）
 tool_off_cmd = P.on_regex(r"^#关闭工具\s+(\S+)$", name="ai_tool_off", display_name="关闭工具", priority=5, block=True)
 
 

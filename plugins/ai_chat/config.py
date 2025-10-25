@@ -1,11 +1,9 @@
-"""AI 对话配置管理
+"""AI 对话配置管理（移除好感度）
 
-本模块负责：
-- 通过框架统一配置管理注册 `config/ai_chat/config.json`
-- 提供 Pydantic 配置对象用于代码内便捷访问
-- 负责 `config/ai_chat/personas.json` 的人格配置读写
-
-注意：所有文件均使用 UTF-8 保存，避免中文乱码。
+职责：
+- 注册并管理 `config/ai_chat/config.json`
+- 提供 Pydantic 配置对象用于代码内访问
+- 维护 `config/ai_chat/personas.json` 的人格配置
 """
 from __future__ import annotations
 
@@ -38,34 +36,22 @@ class APIConfig(BaseModel):
 
 
 class CacheConfig(BaseModel):
-    """缓存配置"""
+    """缓存配置（预留）"""
 
     session_ttl: int = Field(default=300, description="会话缓存 TTL（秒）")
     history_ttl: int = Field(default=60, description="历史缓存 TTL（秒）")
-    favorability_ttl: int = Field(default=120, description="好感度缓存 TTL（秒）")
 
 
 class SessionConfig(BaseModel):
     """会话配置"""
 
-    default_max_history: int = Field(default=20, description="默认最大历史记录条数")
+    default_max_history: int = Field(default=20, description="（未使用）默认最大历史记录条数")
     default_temperature: float = Field(default=0.7, description="默认温度")
     auto_create: bool = Field(default=True, description="自动创建会话")
-    # 统一“轮数”限制（user+assistant 为一轮）：
-    # - 发给模型的上下文按该轮数裁剪
-    # - 持久化历史也按该轮数×2 条消息进行裁剪
+    # 统一“轮数”限制（user+assistant 为一轮）
     max_rounds: int = Field(default=8, description="最大上下文轮数（影响持久化与发送给模型的历史，一轮=用户+助手）")
     # 群聊“聊天室历史”（内存）最大行数
     chatroom_history_max_lines: int = Field(default=200, description="群聊聊天室历史（内存）最大行数")
-
-
-class FavorabilityConfig(BaseModel):
-    """好感度配置"""
-
-    enabled: bool = Field(default=True, description="是否启用好感度")
-    per_message_delta: int = Field(default=1, description="每条消息增加好感度")
-    positive_delta: int = Field(default=5, description="正面情感增加好感度")
-    negative_delta: int = Field(default=-3, description="负面情感减少好感度")
 
 
 class ToolsConfig(BaseModel):
@@ -88,31 +74,29 @@ class MCPConfig(BaseModel):
 class ResponseConfig(BaseModel):
     """回复配置"""
 
-    max_length: int = Field(default=500, description="最大回复长度（tokens 或字符约束）")
+    max_length: int = Field(default=500, description="（未使用）最大回复长度（tokens 或字符约束）")
     enable_at_reply: bool = Field(default=True, description="群聊中是否 @ 用户回复")
 
 
 class AIChatConfig(BaseModel):
     """AI 对话总配置"""
 
-    # api 改为数组，支持多服务商；增加 api_active 通过名称切换
     api: List[APIConfig] = Field(default_factory=list, description="AI 服务商配置列表")
     api_active: str = Field(default="default", description="当前启用的服务商名称")
 
     cache: CacheConfig = Field(default_factory=CacheConfig)
     session: SessionConfig = Field(default_factory=SessionConfig)
-    favorability: FavorabilityConfig = Field(default_factory=FavorabilityConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     mcp: MCPConfig = Field(default_factory=MCPConfig)
     response: ResponseConfig = Field(default_factory=ResponseConfig)
 
 
 class PersonaConfig(BaseModel):
-    """人格配置（仅保留人格信息）"""
+    """人格配置"""
 
     name: str = Field(description="人格名称")
     description: str = Field(description="人格描述")
-    system_prompt: str = Field(description="系统提示语")
+    system_prompt: str = Field(description="系统提示")
 
 
 # ==================== 统一配置注册 ====================
@@ -132,7 +116,6 @@ DEFAULTS: Dict[str, Any] = {
     "cache": {
         "session_ttl": 300,
         "history_ttl": 60,
-        "favorability_ttl": 120,
     },
     "session": {
         "default_max_history": 20,
@@ -144,15 +127,9 @@ DEFAULTS: Dict[str, Any] = {
             "active_reply": {
                 "enable": False,
                 "prompt_suffix": "Now, a new message is coming: `{message}`. Please react to it. Only output your response and do not output any other information.",
-                "probability": 0.1
+                "probability": 0.1,
             }
         },
-    },
-    "favorability": {
-        "enabled": True,
-        "per_message_delta": 1,
-        "positive_delta": 5,
-        "negative_delta": -3,
     },
     "tools": {
         "enabled": False,
@@ -173,7 +150,7 @@ DEFAULTS: Dict[str, Any] = {
 CFG = register_plugin_config("ai_chat", DEFAULTS)
 
 
-# 可选：注册前端 JSON Schema（用于可视化编辑）
+# 注册前端 JSON Schema（用于可视化编辑）
 AI_CHAT_SCHEMA: Dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
@@ -245,14 +222,6 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
                     "default": DEFAULTS["cache"]["history_ttl"],
                     "x-order": 2,
                 },
-                "favorability_ttl": {
-                    "type": "integer",
-                    "title": "好感度缓存 TTL（秒）",
-                    "minimum": 0,
-                    "maximum": 86400,
-                    "default": DEFAULTS["cache"]["favorability_ttl"],
-                    "x-order": 3,
-                },
             },
         },
         "session": {
@@ -263,7 +232,7 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
             "properties": {
                 "default_max_history": {
                     "type": "integer",
-                    "title": "默认最大历史条数",
+                    "title": "默认最大历史条数（未使用）",
                     "minimum": 1,
                     "maximum": 200,
                     "default": DEFAULTS["session"]["default_max_history"],
@@ -298,38 +267,6 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
                     "maximum": 5000,
                     "default": DEFAULTS["session"]["chatroom_history_max_lines"],
                     "x-order": 5,
-                },
-            },
-        },
-        "favorability": {
-            "type": "object",
-            "title": "好感度",
-            "x-order": 5,
-            "x-collapse": True,
-            "properties": {
-                "enabled": {
-                    "type": "boolean",
-                    "title": "启用好感度",
-                    "default": DEFAULTS["favorability"]["enabled"],
-                    "x-order": 1,
-                },
-                "per_message_delta": {
-                    "type": "integer",
-                    "title": "每条消息增量",
-                    "default": DEFAULTS["favorability"]["per_message_delta"],
-                    "x-order": 2,
-                },
-                "positive_delta": {
-                    "type": "integer",
-                    "title": "正面情感增量",
-                    "default": DEFAULTS["favorability"]["positive_delta"],
-                    "x-order": 3,
-                },
-                "negative_delta": {
-                    "type": "integer",
-                    "title": "负面情感增量",
-                    "default": DEFAULTS["favorability"]["negative_delta"],
-                    "x-order": 4,
                 },
             },
         },
@@ -370,7 +307,7 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
             "properties": {
                 "max_length": {
                     "type": "integer",
-                    "title": "最大回复长度",
+                    "title": "最大回复长度（未使用）",
                     "minimum": 1,
                     "maximum": 4000,
                     "default": DEFAULTS["response"]["max_length"],
@@ -398,29 +335,20 @@ _personas: Dict[str, PersonaConfig] = {}
 
 
 def get_config_dir() -> Path:
-    """获取配置目录（config/ai_chat/）"""
-
     cfg_dir = config_dir("ai_chat")
     cfg_dir.mkdir(parents=True, exist_ok=True)
     return cfg_dir
 
 
 def get_config_path() -> Path:
-    """获取配置文件路径（config/ai_chat/config.json）"""
-
-    # 实际文件由框架管理，这里仅用于日志提示
     return get_config_dir() / "config.json"
 
 
 def get_personas_path() -> Path:
-    """获取人格配置文件路径（config/ai_chat/personas.json）"""
-
     return get_config_dir() / "personas.json"
 
 
 def load_config() -> AIChatConfig:
-    """加载配置文件（统一配置管理）"""
-
     global _config
     try:
         data = CFG.load() or {}
@@ -438,7 +366,6 @@ def load_config() -> AIChatConfig:
                 unique.append(item)
             if len(unique) != len(_config.api):
                 _config.api = unique
-            # 修正 api_active
             if _config.api and _config.api_active not in names:
                 _config.api_active = _config.api[0].name
         except Exception:
@@ -452,8 +379,6 @@ def load_config() -> AIChatConfig:
 
 
 def save_config(config: AIChatConfig) -> None:
-    """保存配置文件（统一配置管理）"""
-
     try:
         CFG.save(config.model_dump())
         logger.info("[AI Chat] 配置保存成功")
@@ -462,8 +387,6 @@ def save_config(config: AIChatConfig) -> None:
 
 
 def get_config() -> AIChatConfig:
-    """获取全局配置（带缓存）"""
-
     global _config
     if _config is None:
         _config = load_config()
@@ -471,11 +394,8 @@ def get_config() -> AIChatConfig:
 
 
 def get_active_api() -> APIConfig:
-    """获取当前启用的 API 配置（按名称选择）。"""
-
     cfg = get_config()
     if not cfg.api:
-        # 回退到默认
         defaults = DEFAULTS["api"][0]
         return APIConfig(
             name="default",
@@ -491,12 +411,9 @@ def get_active_api() -> APIConfig:
 
 
 def load_personas() -> Dict[str, PersonaConfig]:
-    """加载人格配置（JSON 文件）"""
-
     global _personas
     path = get_personas_path()
 
-    # 文件不存在则写入默认人格
     if not path.exists():
         logger.info("[AI Chat] 人格配置文件不存在，创建默认人格")
         _personas = {
@@ -507,12 +424,12 @@ def load_personas() -> Dict[str, PersonaConfig]:
             ),
             "tsundere": PersonaConfig(
                 name="傲娇少女",
-                description="傲娇性格的少女。",
+                description="傲娇性格的少女",
                 system_prompt="你是一个傲娇少女，说话带有傲娇口癖，经常说‘才不是’、‘哼’之类的话。虽然嘴上不承认，但内心很关心对方。",
             ),
             "professional": PersonaConfig(
                 name="专业顾问",
-                description="专业的技术顾问。",
+                description="专业的技术顾问",
                 system_prompt="你是一个专业的技术顾问，擅长编程、系统架构等领域。回复准确、专业，提供实用建议。",
             ),
         }
@@ -537,8 +454,6 @@ def load_personas() -> Dict[str, PersonaConfig]:
 
 
 def save_personas(personas: Dict[str, PersonaConfig]) -> None:
-    """保存人格配置（JSON 文件）"""
-
     path = get_personas_path()
     try:
         data = {k: v.model_dump() for k, v in personas.items()}
@@ -550,8 +465,6 @@ def save_personas(personas: Dict[str, PersonaConfig]) -> None:
 
 
 def get_personas() -> Dict[str, PersonaConfig]:
-    """获取全局人格配置（带缓存）"""
-
     global _personas
     if not _personas:
         _personas = load_personas()
@@ -559,8 +472,6 @@ def get_personas() -> Dict[str, PersonaConfig]:
 
 
 def reload_all() -> None:
-    """重载配置与人格（供外部热重载调用）"""
-
     global _config, _personas
     _config = load_config()
     _personas = load_personas()
