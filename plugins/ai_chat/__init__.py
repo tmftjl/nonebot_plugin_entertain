@@ -5,7 +5,7 @@
 核心特性
 - 高性能：多层缓存 + 异步优化
 - 简洁架构：单一核心管理器
-- 权限集成：完全适配当前统一权限系统
+- 权限集成：完全适配统一权限系统
 - 易于扩展：装饰器注册工具，JSON 配置人格
 - 生产可用：完善错误处理、日志与监控
 """
@@ -15,7 +15,7 @@ from nonebot.log import logger
 # 确保框架与数据库已初始化
 require("nonebot_plugin_entertain")
 
-# 注册并加载配置/人格
+# 注册并加载配置与人格
 from . import config as _config  # noqa: F401
 from .config import load_config, load_personas, get_config_path, get_active_api
 from .manager import chat_manager  # noqa: F401
@@ -43,7 +43,7 @@ AI 对话插件
   #切换人格 <名称> - 切换会话人格（管理员）
 
 好感度:
-  #好感度        - 查看自己的好感度
+  #好感度         - 查看自己的好感度
 
 系统管理:
   #重载AI配置     - 热重载配置和人格（超级用户）
@@ -59,7 +59,7 @@ try:
 
     # 加载人格
     personas = load_personas()
-    logger.info(f"[AI Chat] 人格加载完成，共 {len(personas)} 个人格")
+    logger.info(f"[AI Chat] 人格加载完成，共 {len(personas)} 个")
 
     # 检查 API 密钥（按当前启用服务商）
     active_api = get_active_api()
@@ -69,10 +69,10 @@ try:
             f"配置文件位置: {get_config_path()}"
         )
     else:
-        logger.info("[AI Chat] ✓ OpenAI API 已配置")
+        logger.info("[AI Chat] OpenAI API 已配置")
 
     logger.success("[AI Chat] 🚀 AI 对话插件加载成功")
 
 except Exception as e:
-    logger.exception(f"[AI Chat] ✖ 插件初始化失败: {e}")
+    logger.exception(f"[AI Chat] 插件初始化失败: {e}")
 

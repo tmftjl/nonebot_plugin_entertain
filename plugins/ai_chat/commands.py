@@ -426,11 +426,15 @@ switch_api_cmd = P.on_regex(
 
 
 @switch_api_cmd.handle()
-async def handle_switch_api(event: MessageEvent, matched: str = RegexMatched()):
+async def handle_switch_api(event: MessageEvent):
     """切换当前生效的 AI 服务商（按名称）"""
 
     plain_text = event.get_plaintext().strip()
-    match = re.search(r"^#切换服务商\s+(.+)$", plain_text)
+    m = re.search(r"^#切换服务商\s+(.+)$", plain_text)
+    if not m:
+        await switch_api_cmd.finish("内部错误：无法解析服务商名称")
+        return
+    match = m
     if not match:
         logger.error(f"[AI Chat] 切换服务商 handle 触发，但 re.search 匹配失败: {plain_text}")
         await switch_persona_cmd.finish("内部错误：无法解析人格名称")
