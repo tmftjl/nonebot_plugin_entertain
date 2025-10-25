@@ -65,7 +65,7 @@ class FavorabilityConfig(BaseModel):
 class ToolsConfig(BaseModel):
     """工具配置"""
 
-    enabled: bool = Field(default=True, description="是否启用工具")
+    enabled: bool = Field(default=False, description="是否启用工具")
     max_iterations: int = Field(default=3, description="最大工具调用迭代次数")
     builtin_tools: list[str] = Field(
         default_factory=lambda: ["get_time", "get_weather"], description="内置工具"
@@ -140,7 +140,7 @@ DEFAULTS: Dict[str, Any] = {
         "negative_delta": -3,
     },
     "tools": {
-        "enabled": True,
+        "enabled": False,
         "max_iterations": 3,
         "builtin_tools": ["get_time", "get_weather"],
     },
@@ -538,4 +538,3 @@ def reload_all() -> None:
 
 # 注册框架级重载回调：当统一配置被重载时刷新模块缓存
 register_reload_callback("ai_chat", reload_all)
-

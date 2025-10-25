@@ -134,6 +134,14 @@ class ChatManager:
         """获取或创建会话（直接查库）"""
 
         cfg = get_config()
+        # L1 缓存优先
+        try:
+            cache_key = f"ai_chat:session:{session_id}"
+            cached = await cache_manager.get(cache_key)
+            if cached is not None:
+                return cached
+        except Exception:
+            pass
 
         # 确保会话表包含 history_json 列（一次性检查）
         if not self._schema_checked:
@@ -157,6 +165,11 @@ class ChatManager:
             )
             logger.info(f"[AI Chat] 创建新会话 {session_id}")
 
+        # 写入缓存
+        try:
+            await cache_manager.set(cache_key, chat_session, ttl=cfg.cache.session_ttl)
+        except Exception:
+            pass
         return chat_session
 
     async def _get_history(
@@ -172,6 +185,17 @@ class ChatManager:
         # 优先从会话 JSON 读取
         if session is None:
             session = await self._get_session(session_id, session_type="group")
+
+        # L1 缓存优先
+        try:
+            cfg = get_config()
+            hist_key = f"ai_chat:history:{session_id}"
+            cached = await cache_manager.get(hist_key)
+            if cached is not None:
+                return cached
+        except Exception:
+            pass
+
         history_list: List[Dict[str, Any]] = []
         try:
             history_list = json.loads(session.history_json or "[]") if session and session.history_json else []
@@ -202,12 +226,25 @@ class ChatManager:
             except Exception:
                 pass
 
+        # 写入缓存
+        try:
+            await cache_manager.set(hist_key, history_list, ttl=cfg.cache.history_ttl)
+        except Exception:
+            pass
         return history_list
 
     async def _get_favorability(self, user_id: str, session_id: str) -> UserFavorability:
         """获取或创建用户好感度（带缓存）"""
 
-        # 直接读取，不使用缓存
+        # L1 缓存优先
+        try:
+            cfg = get_config()
+            favo_key = f"ai_chat:favo:{user_id}:{session_id}"
+            cached = await cache_manager.get(favo_key)
+            if cached is not None:
+                return cached
+        except Exception:
+            pass
 
         favo = await UserFavorability.get_favorability(user_id=user_id, session_id=session_id)
 
@@ -216,7 +253,37 @@ class ChatManager:
                 user_id=user_id, session_id=session_id, initial_favorability=50
             )
 
+        # 写入缓存
+        try:
+            await cache_manager.set(favo_key, favo, ttl=cfg.cache.favorability_ttl)
+        except Exception:
+            pass
         return favo
+
+    def _trim_history_rounds(self, history: List[Dict[str, Any]], max_pairs: int) -> List[Dict[str, Any]]:
+        """按轮(user+assistant)裁剪历史，确保从第一个 user 开始。
+
+        Args:
+            history: 历史列表（按时间升序/任意）
+            max_pairs: 最多保留的轮数
+        """
+        try:
+            if not history:
+                return []
+            if max_pairs <= 0:
+                return []
+            keep = max_pairs * 2
+            trimmed = history[-keep:] if len(history) > keep else list(history)
+            # 定位第一个 user，保证对齐
+            idx = next((i for i, m in enumerate(trimmed) if (isinstance(m, dict) and m.get("role") == "user") or getattr(m, "role", None) == "user"), 0)
+            if idx > 0:
+                trimmed = trimmed[idx:]
+            # 再次截断到偶数长度
+            if len(trimmed) > keep:
+                trimmed = trimmed[-keep:]
+            return trimmed
+        except Exception:
+            return history
 
     # ==================== 核心处理 ====================
 
@@ -250,13 +317,19 @@ class ChatManager:
                 if not session or not session.is_active:
                     return ""
 
-                # 2. 构建 AI 消息
+                # 2. 发送前裁剪（按轮）
+                try:
+                    pairs_limit = max(1, min(8, (session.max_history or 20) // 2))
+                    history = self._trim_history_rounds(history, pairs_limit)
+                except Exception:
+                    pass
+                # 3. 构建 AI 消息
                 messages = self._build_messages(session, history, favo, message, user_name, session_type)
 
-                # 3. 调用 AI
+                # 4. 调用 AI
                 response = await self._call_ai(session, messages, favo)
 
-                # 4. 异步持久化（不阻塞回复）
+                # 5. 异步持久化（不阻塞回复）
                 asyncio.create_task(
                     self._save_conversation(session_id, user_id, user_name, message, response, favo, session.max_history)
                 )
@@ -432,11 +505,17 @@ class ChatManager:
             # 更新好感度
             cfg = get_config()
             if cfg.favorability.enabled:
-                await UserFavorability.update_favorability(
+                new_favo = await UserFavorability.update_favorability(
                     user_id=user_id,
                     session_id=session_id,
                     delta=cfg.favorability.per_message_delta,
                 )
+                # 更新好感度缓存
+                try:
+                    favo_key = f"ai_chat:favo:{user_id}:{session_id}"
+                    await cache_manager.set(favo_key, new_favo, ttl=cfg.cache.favorability_ttl)
+                except Exception:
+                    pass
 
             # 维护会话 JSON 历史（串行避免竞态）
             lock = self._history_locks.setdefault(session_id, asyncio.Lock())
@@ -450,11 +529,18 @@ class ChatManager:
                     session_id=session_id, items=items, max_history=max_history
                 )
                 # 更新缓存：history + session
-                # 不再写入运行时缓存
+                try:
+                    hist_key = f"ai_chat:history:{session_id}"
+                    await cache_manager.set(hist_key, history_list, ttl=cfg.cache.history_ttl)
+                except Exception:
+                    pass
                 session_row = await ChatSession.get_by_session_id(session_id=session_id)
                 if session_row:
-                    pass
-                    # 不再写入运行时缓存
+                    try:
+                        sess_key = f"ai_chat:session:{session_id}"
+                        await cache_manager.set(sess_key, session_row, ttl=cfg.cache.session_ttl)
+                    except Exception:
+                        pass
 
             # 清除好感度缓存（其余已覆盖）
             # 不再维护运行时缓存
@@ -471,6 +557,16 @@ class ChatManager:
         await MessageHistory.clear_history(session_id=session_id)
         await ChatSession.clear_history_json(session_id=session_id)
 
+        # 清理 L1 缓存
+        try:
+            cfg = get_config()
+            await cache_manager.set(f"ai_chat:history:{session_id}", [], ttl=cfg.cache.history_ttl)
+            session_row = await ChatSession.get_by_session_id(session_id=session_id)
+            if session_row:
+                await cache_manager.set(f"ai_chat:session:{session_id}", session_row, ttl=cfg.cache.session_ttl)
+        except Exception:
+            pass
+
         logger.info(f"[AI Chat] 清空会话历史: {session_id}")
 
     async def set_persona(self, session_id: str, persona_name: str):
@@ -478,7 +574,14 @@ class ChatManager:
 
         updated = await ChatSession.update_persona(session_id=session_id, persona_name=persona_name)
         if updated:
-            pass
+            # 更新会话缓存
+            try:
+                cfg = get_config()
+                session_row = await ChatSession.get_by_session_id(session_id=session_id)
+                if session_row:
+                    await cache_manager.set(f"ai_chat:session:{session_id}", session_row, ttl=cfg.cache.session_ttl)
+            except Exception:
+                pass
             logger.info(f"[AI Chat] 切换人格: {session_id} -> {persona_name}")
 
     async def set_session_active(self, session_id: str, is_active: bool):
@@ -486,7 +589,14 @@ class ChatManager:
 
         updated = await ChatSession.update_active_status(session_id=session_id, is_active=is_active)
         if updated:
-            pass
+            # 更新会话缓存
+            try:
+                cfg = get_config()
+                session_row = await ChatSession.get_by_session_id(session_id=session_id)
+                if session_row:
+                    await cache_manager.set(f"ai_chat:session:{session_id}", session_row, ttl=cfg.cache.session_ttl)
+            except Exception:
+                pass
 
     async def get_session_info(self, session_id: str) -> Optional[ChatSession]:
         """获取会话信息"""

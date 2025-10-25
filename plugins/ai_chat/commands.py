@@ -20,6 +20,7 @@ from ...core.framework.registry import Plugin
 from ...core.framework.perm import _is_superuser, _uid, _has_group_role
 from .manager import chat_manager
 from .config import get_config, get_personas, reload_all, save_config
+from .tools import list_tools as ai_list_tools
 
 
 # 创建插件实例（带统一权限）
@@ -492,4 +493,73 @@ async def handle_reload(event: MessageEvent):
     reload_all()
     chat_manager.reset_client()
     await reload_cmd.finish("✅ 已重载所有配置并清空缓存")
+
+
+# ==================== 工具管理 ====================
+
+# 列出工具
+tool_list_cmd = P.on_regex(r"^#工具列表$", name="ai_tools_list", display_name="工具列表", priority=5, block=True)
+
+
+@tool_list_cmd.handle()
+async def handle_tool_list(event: MessageEvent):
+    cfg = get_config()
+    all_tools = ai_list_tools()
+    enabled = set(cfg.tools.builtin_tools or []) if getattr(cfg, "tools", None) else set()
+    if not all_tools:
+        await tool_list_cmd.finish("当前没有可用工具")
+        return
+    lines = ["🔧 工具列表", "━━━━━━━━━━━━━━━━"]
+    for name in sorted(all_tools):
+        mark = "✅ 启用" if name in enabled and cfg.tools.enabled else ("⛔ 已禁用" if name in enabled else "❌ 未启用")
+        lines.append(f"- {name}  {mark}")
+    lines.append("")
+    lines.append(f"全局工具开关：{'开启' if cfg.tools.enabled else '关闭'}")
+    await tool_list_cmd.finish("\n".join(lines))
+
+
+# 开启工具（同时打开全局工具开关）
+tool_on_cmd = P.on_regex(r"^#开启工具\s+(\S+)$", name="ai_tool_on", display_name="开启工具", priority=5, block=True)
+
+
+@tool_on_cmd.handle()
+async def handle_tool_on(event: MessageEvent, match: RegexMatched):
+    if not await check_admin(event):
+        await tool_on_cmd.finish("仅管理员可用")
+    tool_name = match.group(1).strip()
+    all_tools = set(ai_list_tools())
+    if tool_name not in all_tools:
+        await tool_on_cmd.finish(f"工具不存在：{tool_name}")
+    cfg = get_config()
+    if not getattr(cfg, "tools", None):
+        await tool_on_cmd.finish("工具配置未初始化")
+    enabled_list = set(cfg.tools.builtin_tools or [])
+    if tool_name in enabled_list and cfg.tools.enabled:
+        await tool_on_cmd.finish(f"工具已启用：{tool_name}")
+    enabled_list.add(tool_name)
+    cfg.tools.builtin_tools = sorted(enabled_list)
+    cfg.tools.enabled = True
+    save_config(cfg)
+    await tool_on_cmd.finish(f"已开启工具：{tool_name}")
+
+
+# 关闭工具（仅从启用列表移除，不改全局开关）
+tool_off_cmd = P.on_regex(r"^#关闭工具\s+(\S+)$", name="ai_tool_off", display_name="关闭工具", priority=5, block=True)
+
+
+@tool_off_cmd.handle()
+async def handle_tool_off(event: MessageEvent, match: RegexMatched):
+    if not await check_admin(event):
+        await tool_off_cmd.finish("仅管理员可用")
+    tool_name = match.group(1).strip()
+    cfg = get_config()
+    if not getattr(cfg, "tools", None):
+        await tool_off_cmd.finish("工具配置未初始化")
+    enabled_list = set(cfg.tools.builtin_tools or [])
+    if tool_name not in enabled_list:
+        await tool_off_cmd.finish(f"工具未启用：{tool_name}")
+    enabled_list.discard(tool_name)
+    cfg.tools.builtin_tools = sorted(enabled_list)
+    save_config(cfg)
+    await tool_off_cmd.finish(f"已关闭工具：{tool_name}")
 
