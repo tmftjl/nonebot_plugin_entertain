@@ -523,10 +523,14 @@ tool_on_cmd = P.on_regex(r"^#开启工具\s+(\S+)$", name="ai_tool_on", display_
 
 
 @tool_on_cmd.handle()
-async def handle_tool_on(event: MessageEvent, match: RegexMatched):
+async def handle_tool_on(event: MessageEvent, matched: str = RegexMatched()):
     if not await check_admin(event):
         await tool_on_cmd.finish("仅管理员可用")
-    tool_name = match.group(1).strip()
+    plain_text = event.get_plaintext().strip()
+    m = re.search(r"^#开启工具\s+(\S+)$", plain_text)
+    if not m:
+        await tool_on_cmd.finish("格式错误：请使用 #开启工具 工具名")
+    tool_name = m.group(1).strip()
     all_tools = set(ai_list_tools())
     if tool_name not in all_tools:
         await tool_on_cmd.finish(f"工具不存在：{tool_name}")
@@ -548,10 +552,14 @@ tool_off_cmd = P.on_regex(r"^#关闭工具\s+(\S+)$", name="ai_tool_off", displa
 
 
 @tool_off_cmd.handle()
-async def handle_tool_off(event: MessageEvent, match: RegexMatched):
+async def handle_tool_off(event: MessageEvent, matched: str = RegexMatched()):
     if not await check_admin(event):
         await tool_off_cmd.finish("仅管理员可用")
-    tool_name = match.group(1).strip()
+    plain_text = event.get_plaintext().strip()
+    m = re.search(r"^#关闭工具\s+(\S+)$", plain_text)
+    if not m:
+        await tool_off_cmd.finish("格式错误：请使用 #关闭工具 工具名")
+    tool_name = m.group(1).strip()
     cfg = get_config()
     if not getattr(cfg, "tools", None):
         await tool_off_cmd.finish("工具配置未初始化")
