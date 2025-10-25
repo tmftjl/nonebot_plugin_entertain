@@ -142,7 +142,7 @@ DEFAULTS: Dict[str, Any] = {
         "chatroom_history_max_lines": 200,
         "chatroom_enhance": {
             "active_reply": {
-                "enable": false,
+                "enable": False,
                 "prompt_suffix": "Now, a new message is coming: `{message}`. Please react to it. Only output your response and do not output any other information.",
                 "probability": 0.1
             }

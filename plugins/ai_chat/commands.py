@@ -180,11 +180,14 @@ async def handle_chat_auto(bot: Bot, event: MessageEvent):
             message=message,
             session_type=session_type,
             group_id=group_id,
-            active_reply=(isinstance(event, GroupMessageEvent) and ((CFG.load() or {}).get("session", {}).get("chatroom_enhance", {}).get("active_reply", {}).get("enable", False))),
-            active_reply_suffix=((CFG.load() or {}).get("session", {}).get("chatroom_enhance", {}).get("active_reply", {}).get(
-                "prompt_suffix",
-                "Now, a new message is coming: `{message}`. Please react to it. Only output your response and do not output any other information.",
-            )),
+            active_reply=(isinstance(event, GroupMessageEvent) and bool(getattr(event, "_ai_active_reply", False))),
+            active_reply_suffix=(
+                getattr(
+                    event,
+                    "_ai_active_reply_suffix",
+                    "Now, a new message is coming: `{message}`. Please react to it. Only output your response and do not output any other information.",
+                )
+            ),
         )
 
         if response:
@@ -518,6 +521,8 @@ async def handle_reload(event: MessageEvent):
         await reload_cmd.finish("仅超级用户可用")
 
     reload_all()
+    cfg.api_active = target
+    save_config(cfg)
     chat_manager.reset_client()
     await reload_cmd.finish("✅ 已重载所有配置并清空缓存")
 
