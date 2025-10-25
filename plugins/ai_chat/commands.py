@@ -437,7 +437,7 @@ async def handle_switch_api(event: MessageEvent):
     match = m
     if not match:
         logger.error(f"[AI Chat] 切换服务商 handle 触发，但 re.search 匹配失败: {plain_text}")
-        await switch_persona_cmd.finish("内部错误：无法解析人格名称")
+        await switch_api_cmd.finish("内部错误：无法解析服务商名称")
         return
     target = match.group(1).strip()
     cfg = get_config()
@@ -446,6 +446,10 @@ async def handle_switch_api(event: MessageEvent):
         available = ", ".join(names) if names else "无"
         await switch_api_cmd.finish(f"服务商不存在\n可用: {available}")
 
+    # 更新当前启用的服务商并保存配置
+    cfg.api_active = target
+    save_config(cfg)
+    # 重建客户端以应用新的服务商配置
     chat_manager.reset_client()
     await switch_api_cmd.finish(f"✅ 已切换到服务商: {target}")
 
@@ -524,9 +528,9 @@ async def handle_reload(event: MessageEvent):
     if not await check_superuser(event):
         await reload_cmd.finish("仅超级用户可用")
 
+    # 重载配置与人格到内存
     reload_all()
-    cfg.api_active = target
-    save_config(cfg)
+    # 重建客户端以应用最新配置
     chat_manager.reset_client()
     await reload_cmd.finish("✅ 已重载所有配置并清空缓存")
 
