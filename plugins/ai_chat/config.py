@@ -51,6 +51,12 @@ class SessionConfig(BaseModel):
     default_max_history: int = Field(default=20, description="默认最大历史记录条数")
     default_temperature: float = Field(default=0.7, description="默认温度")
     auto_create: bool = Field(default=True, description="自动创建会话")
+    # 统一“轮数”限制（user+assistant 为一轮）：
+    # - 发给模型的上下文按该轮数裁剪
+    # - 持久化历史也按该轮数×2 条消息进行裁剪
+    max_rounds: int = Field(default=8, description="最大上下文轮数（影响持久化与发送给模型的历史，一轮=用户+助手）")
+    # 群聊“聊天室历史”（内存）最大行数
+    chatroom_history_max_lines: int = Field(default=200, description="群聊聊天室历史（内存）最大行数")
 
 
 class FavorabilityConfig(BaseModel):
@@ -132,6 +138,16 @@ DEFAULTS: Dict[str, Any] = {
         "default_max_history": 20,
         "default_temperature": 0.7,
         "auto_create": True,
+        "max_context_length": 8,
+        "dequeue_context_length": 2,
+        "chatroom_history_max_lines": 200,
+        "chatroom_enhance": {
+            "active_reply": {
+                "enable": false,
+                "prompt_suffix": "Now, a new message is coming: `{message}`. Please react to it. Only output your response and do not output any other information.",
+                "probability": 0.1
+            }
+        },
     },
     "favorability": {
         "enabled": True,
@@ -267,6 +283,22 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
                     "title": "自动创建会话",
                     "default": DEFAULTS["session"]["auto_create"],
                     "x-order": 3,
+                },
+                "max_rounds": {
+                    "type": "integer",
+                    "title": "最大上下文轮数",
+                    "minimum": 1,
+                    "maximum": 50,
+                    "default": DEFAULTS["session"]["max_rounds"],
+                    "x-order": 4,
+                },
+                "chatroom_history_max_lines": {
+                    "type": "integer",
+                    "title": "聊天室历史最大行数",
+                    "minimum": 1,
+                    "maximum": 5000,
+                    "default": DEFAULTS["session"]["chatroom_history_max_lines"],
+                    "x-order": 5,
                 },
             },
         },

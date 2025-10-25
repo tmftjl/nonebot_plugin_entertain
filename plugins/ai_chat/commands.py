@@ -12,6 +12,7 @@ import re
 from typing import Optional
 
 from nonebot import Bot
+import random
 from nonebot.adapters.onebot.v11 import GroupMessageEvent, PrivateMessageEvent, MessageEvent, Message
 from nonebot.params import RegexMatched
 from nonebot.log import logger
@@ -19,7 +20,7 @@ from nonebot.log import logger
 from ...core.framework.registry import Plugin
 from ...core.framework.perm import _is_superuser, _uid, _has_group_role
 from .manager import chat_manager
-from .config import get_config, get_personas, reload_all, save_config
+from .config import get_config, get_personas, reload_all, save_config, CFG
 from .tools import list_tools as ai_list_tools
 
 
@@ -158,6 +159,11 @@ async def handle_chat_auto(bot: Bot, event: MessageEvent):
             message=message,
             session_type=session_type,
             group_id=group_id,
+            active_reply=(isinstance(event, GroupMessageEvent) and ((CFG.load() or {}).get("session", {}).get("chatroom_enhance", {}).get("active_reply", {}).get("enable", False))),
+            active_reply_suffix=((CFG.load() or {}).get("session", {}).get("chatroom_enhance", {}).get("active_reply", {}).get(
+                "prompt_suffix",
+                "Now, a new message is coming: `{message}`. Please react to it. Only output your response and do not output any other information.",
+            )),
         )
 
         if response:

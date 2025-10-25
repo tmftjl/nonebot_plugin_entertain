@@ -78,12 +78,15 @@ class ChatManager:
         # 初始化客户端
         self.reset_client()
         # 聊天室历史（仿 AstrBot LTM）
-        self.ltm = ChatroomMemory(max_cnt=200)
+        try:
+            self.ltm = ChatroomMemory(max_cnt=max(1, int(get_config().session.chatroom_history_max_lines)))
+        except Exception:
+            self.ltm = ChatroomMemory(max_cnt=200)
 
     def reset_client(self) -> None:
         """根据当前配置重建 OpenAI 客户端"""
 
-        _ = get_config()  # 预热配置
+        cfg = get_config()  # 预热配置
         try:
             active_api = get_active_api()
             if not active_api.api_key:
@@ -96,6 +99,12 @@ class ChatManager:
                 timeout=active_api.timeout,
             )
             logger.debug("[AI Chat] OpenAI 客户端已初始化")
+            # 热更新聊天室历史容量
+            try:
+                if hasattr(self, "ltm") and self.ltm:
+                    self.ltm.max_cnt = max(1, int(cfg.session.chatroom_history_max_lines))
+            except Exception:
+                pass
         except Exception as e:
             self.client = None
             logger.error(f"[AI Chat] OpenAI 客户端初始化失败: {e}")
@@ -138,7 +147,7 @@ class ChatManager:
                 group_id=group_id,
                 user_id=user_id,
                 persona_name="default",
-                max_history=cfg.session.default_max_history,
+                max_history=max(2, 2 * int(cfg.session.max_rounds)),
             )
             logger.info(f"[AI Chat] 创建新会话 {session_id}")
 
@@ -213,6 +222,9 @@ class ChatManager:
         message: str,
         session_type: str = "group",
         group_id: Optional[str] = None,
+        *,
+        active_reply: bool = False,
+        active_reply_suffix: Optional[str] = None,
     ) -> str:
         """处理用户消息（串行同会话，支持工具调用）"""
 
@@ -237,7 +249,8 @@ class ChatManager:
 
                 # 2. 发送前裁剪（按轮）
                 try:
-                    pairs_limit = max(1, min(8, (session.max_history or 20) // 2))
+                    # 发给模型的上下文轮数与持久化保持一致，统一由配置控制
+                    pairs_limit = max(1, int(get_config().session.max_rounds))
                     history = self._trim_history_rounds(history, pairs_limit)
                 except Exception:
                     pass
@@ -246,6 +259,11 @@ class ChatManager:
                 if session_type == "group":
                     self.ltm.record_user(session_id, user_name, message)
                     chatroom_history = self.ltm.get_history_str(session_id)
+
+                self._active_reply_flag = bool(active_reply)
+                self._active_reply_suffix = (active_reply_suffix or "")
+                if active_reply:
+                    history = []
 
                 # 3. 构建 AI 消息（把聊天室历史拼进 system 提示）
                 messages = self._build_messages(
@@ -262,8 +280,10 @@ class ChatManager:
                 response = await self._call_ai(session, messages, favo)
 
                 # 5. 异步持久化（不阻塞回复）
+                # 持久化历史按“轮数×2 条消息”裁剪，确保与发送给模型一致
+                max_msgs = max(0, 2 * int(get_config().session.max_rounds))
                 asyncio.create_task(
-                    self._save_conversation(session_id, user_id, user_name, message, response, favo, session.max_history)
+                    self._save_conversation(session_id, user_id, user_name, message, response, favo, max_msgs)
                 )
 
                 # 6. 记录机器人回复到“聊天室历史”
@@ -311,6 +331,8 @@ class ChatManager:
             )
 
         messages.append({"role": "system", "content": system_prompt})
+        _active_reply = bool(getattr(self, "_active_reply_flag", False))
+        _ar_suffix = getattr(self, "_active_reply_suffix", "") or ""
 
         # 2) 历史消息
         for msg in history:
@@ -325,6 +347,12 @@ class ChatManager:
         # 3) 当前用户消息
         current_content = f"{user_name}: {message}" if session_type == "group" else message
         messages.append({"role": "user", "content": current_content})
+        if _active_reply and _ar_suffix:
+            try:
+                suffix_use = _ar_suffix.replace("{message}", message).replace("{prompt}", message)
+            except Exception:
+                suffix_use = _ar_suffix
+            messages.append({"role": "user", "content": suffix_use})
 
         return messages
 
