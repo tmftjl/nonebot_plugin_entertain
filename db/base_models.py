@@ -62,6 +62,11 @@ async def init_database() -> None:
                     cur.execute("PRAGMA journal_mode=WAL")
                     cur.execute("PRAGMA synchronous=NORMAL")
                     cur.execute("PRAGMA busy_timeout=5000")
+                    # Align with AstrBot-like tuning for better read/write concurrency
+                    cur.execute("PRAGMA cache_size=20000")
+                    cur.execute("PRAGMA temp_store=MEMORY")
+                    cur.execute("PRAGMA mmap_size=134217728")
+                    cur.execute("PRAGMA optimize")
                     cur.close()
                 except Exception:
                     # Best effort; keep running even if PRAGMA fails
