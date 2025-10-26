@@ -231,8 +231,6 @@ class ChatManager:
                     self.ltm.record_user(session_id, user_name, message)
                     chatroom_history = self.ltm.get_history_str(session_id)
 
-                self._active_reply_flag = bool(active_reply)
-                self._active_reply_suffix = (active_reply_suffix or "")
                 if active_reply:
                     history = []
 
@@ -244,6 +242,8 @@ class ChatManager:
                     user_name,
                     session_type,
                     chatroom_history=chatroom_history,
+                    active_reply=active_reply,
+                    active_reply_suffix=active_reply_suffix,
                 )
 
                 # 3.1 默认参数（可被 pre 钩子覆盖）
@@ -301,7 +301,7 @@ class ChatManager:
                 # 5. 异步持久化（不阻塞回复）
                 max_msgs = max(0, 2 * int(get_config().session.max_rounds))
                 asyncio.create_task(
-                    self._save_conversation(session_id, user_id, user_name, message, response, max_msgs)
+                    self._save_conversation(session_id, user_name, message, response, max_msgs)
                 )
 
                 # 6. 记录机器人回复到“聊天室历史”
@@ -326,6 +326,8 @@ class ChatManager:
         session_type: str,
         *,
         chatroom_history: str = "",
+        active_reply: bool = False,
+        active_reply_suffix: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """构建发送给 AI 的消息列表"""
 
@@ -337,14 +339,15 @@ class ChatManager:
         system_prompt = persona.system_prompt
 
         # 聊天室历史（注入到 system）
-        if chatroom_history:
-            system_prompt += (
-                "\nYou are now in a chatroom. The chat history is as follows:\n" + chatroom_history
-            )
+        if active_reply:
+            if chatroom_history:
+                system_prompt += (
+                    "\nYou are now in a chatroom. The chat history is as follows:\n" + chatroom_history
+                )
 
         messages.append({"role": "system", "content": system_prompt})
-        _active_reply = bool(getattr(self, "_active_reply_flag", False))
-        _ar_suffix = getattr(self, "_active_reply_suffix", "") or ""
+        _active_reply = bool(active_reply)
+        _ar_suffix = (active_reply_suffix or "")
 
         # 2) 历史消息
         for msg in history:
@@ -461,7 +464,6 @@ class ChatManager:
     async def _save_conversation(
         self,
         session_id: str,
-        user_id: str,
         user_name: str,
         message: str,
         response: str,
@@ -510,8 +512,7 @@ class ChatManager:
         """设置会话启用状态"""
 
         updated = await ChatSession.update_active_status(session_id=session_id, is_active=is_active)
-        if updated:
-            pass
+        # 无需额外处理
 
     async def get_session_info(self, session_id: str) -> Optional[ChatSession]:
         """获取会话信息"""
@@ -522,4 +523,3 @@ class ChatManager:
 # ==================== 全局实例 ====================
 
 chat_manager = ChatManager()
-

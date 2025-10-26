@@ -1,1 +1,0 @@
-    auto_create: bool = Field(default=True, description="自动创建会话")

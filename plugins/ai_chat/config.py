@@ -1,9 +1,9 @@
-"""AI 对话配置管理（移除好感度）
+"""AI 对话配置管理（去掉无用和多余嵌套，简化结构）
 
 职责：
 - 注册并管理 `config/ai_chat/config.json`
-- 提供 Pydantic 配置对象用于代码内访问
-- 维护 `config/ai_chat/personas.json` 的人格配置
+- 提供 Pydantic 配置对象供代码内部访问
+- 管理 `config/ai_chat/personas.json` 的人格配置
 """
 from __future__ import annotations
 
@@ -45,50 +45,52 @@ class CacheConfig(BaseModel):
 class SessionConfig(BaseModel):
     """会话配置"""
 
-    default_max_history: int = Field(default=20, description="（未使用）默认最大历史记录条数")
     default_temperature: float = Field(default=0.7, description="默认温度")
     auto_create: bool = Field(default=True, description="自动创建会话")
     # 统一“轮数”限制（user+assistant 为一轮）
-    max_rounds: int = Field(default=8, description="最大上下文轮数（影响持久化与发送给模型的历史，一轮=用户+助手）")
-    # 群聊“聊天室历史”（内存）最大行数
-    chatroom_history_max_lines: int = Field(default=200, description="群聊聊天室历史（内存）最大行数")
+    max_rounds: int = Field(default=8, description="最大上下文轮数（一轮=用户+助手）")
+    # 群聊“聊天室记忆”（内存）最大行数
+    chatroom_history_max_lines: int = Field(default=200, description="群聊聊天室记忆（内存）最大行数")
+    # 主动回复（去掉 chatroom_enhance 的多余嵌套，直接扁平化配置）
+    active_reply_enable: bool = Field(default=False, description="群聊内是否开启‘主动回复’实验功能")
+    active_reply_probability: float = Field(default=0.1, description="主动回复触发概率（0~1）")
+    active_reply_prompt_suffix: str = Field(
+        default=(
+            "Now, a new message is coming: `{message}`. Please react to it. "
+            "Only output your response and do not output any other information."
+        ),
+        description="主动回复时附加在提示后的后缀提示（可用 {message}/{prompt} 占位）",
+    )
 
 
 class ToolsConfig(BaseModel):
     """工具配置"""
 
     enabled: bool = Field(default=False, description="是否启用工具")
-    max_iterations: int = Field(default=3, description="最大工具调用迭代次数")
+    max_iterations: int = Field(default=3, description="最多工具调用迭代次数")
     builtin_tools: list[str] = Field(
         default_factory=lambda: ["get_time", "get_weather"], description="内置工具"
     )
 
 
-class MCPConfig(BaseModel):
-    """MCP 配置（预留）"""
-
-    enabled: bool = Field(default=False, description="是否启用 MCP")
-    servers: list[Dict[str, Any]] = Field(default_factory=list, description="MCP 服务器列表")
-
-
-class ResponseConfig(BaseModel):
-    """回复配置"""
-
-    max_length: int = Field(default=500, description="（未使用）最大回复长度（tokens 或字符约束）")
-    enable_at_reply: bool = Field(default=True, description="群聊中是否 @ 用户回复")
+"""
+删除无用配置：
+- 删除 MCP（预留）
+- 删除 response（未使用的‘回复’相关配置）
+- 删除 session.default_max_history（未使用）
+"""
 
 
 class AIChatConfig(BaseModel):
     """AI 对话总配置"""
 
-    api: List[APIConfig] = Field(default_factory=list, description="AI 服务商配置列表")
+    # api 从数组改为字典样式：{ 名称: APIConfig }
+    api: Dict[str, APIConfig] = Field(default_factory=dict, description="AI 服务商配置（字典：名称->配置）")
     api_active: str = Field(default="default", description="当前启用的服务商名称")
 
     cache: CacheConfig = Field(default_factory=CacheConfig)
     session: SessionConfig = Field(default_factory=SessionConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
-    mcp: MCPConfig = Field(default_factory=MCPConfig)
-    response: ResponseConfig = Field(default_factory=ResponseConfig)
 
 
 class PersonaConfig(BaseModel):
@@ -103,46 +105,37 @@ class PersonaConfig(BaseModel):
 
 
 DEFAULTS: Dict[str, Any] = {
-    "api": [
-        {
+    "api": {
+        "default": {
             "name": "default",
             "base_url": "https://api.openai.com/v1",
             "api_key": "",
             "model": "gpt-4o-mini",
             "timeout": 60,
         }
-    ],
+    },
     "api_active": "default",
     "cache": {
         "session_ttl": 300,
         "history_ttl": 60,
     },
     "session": {
-        "default_max_history": 20,
         "default_temperature": 0.7,
         "auto_create": True,
         "max_rounds": 8,
         "chatroom_history_max_lines": 200,
-        "chatroom_enhance": {
-            "active_reply": {
-                "enable": False,
-                "prompt_suffix": "Now, a new message is coming: `{message}`. Please react to it. Only output your response and do not output any other information.",
-                "probability": 0.1,
-            }
-        },
+        # 扁平化主动回复配置（替代原来的 chatroom_enhance.active_reply.*）
+        "active_reply_enable": False,
+        "active_reply_prompt_suffix": (
+            "Now, a new message is coming: `{message}`. Please react to it. "
+            "Only output your response and do not output any other information."
+        ),
+        "active_reply_probability": 0.1,
     },
     "tools": {
         "enabled": False,
         "max_iterations": 3,
         "builtin_tools": ["get_time", "get_weather"],
-    },
-    "mcp": {
-        "enabled": False,
-        "servers": [],
-    },
-    "response": {
-        "max_length": 500,
-        "enable_at_reply": True,
     },
 }
 
@@ -157,29 +150,29 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
     "title": "AI 对话",
     "properties": {
         "api": {
-            "type": "array",
-            "title": "AI 服务商配置列表",
+            "type": "object",
+            "title": "AI 服务商（字典：名称->配置）",
             "x-order": 1,
-            "items": {
+            "additionalProperties": {
                 "type": "object",
                 "properties": {
-                    "name": {"type": "string", "title": "名称", "x-order": 1},
+                    "name": {"type": "string", "title": "名称（可省略）", "x-order": 1},
                     "base_url": {
                         "type": "string",
-                        "title": "API 基址",
-                        "default": DEFAULTS["api"][0]["base_url"],
+                        "title": "API 地址",
+                        "default": DEFAULTS["api"]["default"]["base_url"],
                         "x-order": 2,
                     },
                     "api_key": {
                         "type": "string",
                         "title": "API 密钥",
-                        "default": DEFAULTS["api"][0]["api_key"],
+                        "default": DEFAULTS["api"]["default"]["api_key"],
                         "x-order": 3,
                     },
                     "model": {
                         "type": "string",
                         "title": "默认模型",
-                        "default": DEFAULTS["api"][0]["model"],
+                        "default": DEFAULTS["api"]["default"]["model"],
                         "x-order": 4,
                     },
                     "timeout": {
@@ -187,11 +180,10 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
                         "title": "超时（秒）",
                         "minimum": 1,
                         "maximum": 300,
-                        "default": DEFAULTS["api"][0]["timeout"],
+                        "default": DEFAULTS["api"]["default"]["timeout"],
                         "x-order": 5,
                     },
                 },
-                "required": ["name"],
             },
         },
         "api_active": {
@@ -230,27 +222,19 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
             "x-order": 4,
             "x-collapse": True,
             "properties": {
-                "default_max_history": {
-                    "type": "integer",
-                    "title": "默认最大历史条数（未使用）",
-                    "minimum": 1,
-                    "maximum": 200,
-                    "default": DEFAULTS["session"]["default_max_history"],
-                    "x-order": 1,
-                },
                 "default_temperature": {
                     "type": "number",
                     "title": "默认温度",
                     "minimum": 0,
                     "maximum": 2,
                     "default": DEFAULTS["session"]["default_temperature"],
-                    "x-order": 2,
+                    "x-order": 1,
                 },
                 "auto_create": {
                     "type": "boolean",
                     "title": "自动创建会话",
                     "default": DEFAULTS["session"]["auto_create"],
-                    "x-order": 3,
+                    "x-order": 2,
                 },
                 "max_rounds": {
                     "type": "integer",
@@ -258,15 +242,35 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
                     "minimum": 1,
                     "maximum": 50,
                     "default": DEFAULTS["session"]["max_rounds"],
-                    "x-order": 4,
+                    "x-order": 3,
                 },
                 "chatroom_history_max_lines": {
                     "type": "integer",
-                    "title": "聊天室历史最大行数",
+                    "title": "聊天室记忆最大行数",
                     "minimum": 1,
                     "maximum": 5000,
                     "default": DEFAULTS["session"]["chatroom_history_max_lines"],
+                    "x-order": 4,
+                },
+                "active_reply_enable": {
+                    "type": "boolean",
+                    "title": "群聊启用主动回复（实验）",
+                    "default": DEFAULTS["session"]["active_reply_enable"],
                     "x-order": 5,
+                },
+                "active_reply_probability": {
+                    "type": "number",
+                    "title": "主动回复触发概率（0~1）",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "default": DEFAULTS["session"]["active_reply_probability"],
+                    "x-order": 6,
+                },
+                "active_reply_prompt_suffix": {
+                    "type": "string",
+                    "title": "主动回复提示后缀",
+                    "default": DEFAULTS["session"]["active_reply_prompt_suffix"],
+                    "x-order": 7,
                 },
             },
         },
@@ -284,7 +288,7 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
                 },
                 "max_iterations": {
                     "type": "integer",
-                    "title": "最大工具迭代次数",
+                    "title": "最多工具迭代次数",
                     "minimum": 1,
                     "maximum": 10,
                     "default": DEFAULTS["tools"]["max_iterations"],
@@ -296,28 +300,6 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
                     "items": {"type": "string"},
                     "default": DEFAULTS["tools"]["builtin_tools"],
                     "x-order": 3,
-                },
-            },
-        },
-        "response": {
-            "type": "object",
-            "title": "回复",
-            "x-order": 7,
-            "x-collapse": True,
-            "properties": {
-                "max_length": {
-                    "type": "integer",
-                    "title": "最大回复长度（未使用）",
-                    "minimum": 1,
-                    "maximum": 4000,
-                    "default": DEFAULTS["response"]["max_length"],
-                    "x-order": 1,
-                },
-                "enable_at_reply": {
-                    "type": "boolean",
-                    "title": "群聊 @ 用户回复",
-                    "default": DEFAULTS["response"]["enable_at_reply"],
-                    "x-order": 2,
                 },
             },
         },
@@ -352,22 +334,57 @@ def load_config() -> AIChatConfig:
     global _config
     try:
         data = CFG.load() or {}
+
+        # 兼容旧版：将 api 数组转换为字典样式
+        api_raw = data.get("api")
+        if isinstance(api_raw, list):
+            api_dict: Dict[str, Dict[str, Any]] = {}
+            for it in api_raw:
+                if not isinstance(it, dict):
+                    continue
+                name = it.get("name") or it.get("id") or "default"
+                api_dict[name] = {
+                    "name": name,
+                    "base_url": it.get("base_url") or DEFAULTS["api"]["default"]["base_url"],
+                    "api_key": it.get("api_key") or DEFAULTS["api"]["default"]["api_key"],
+                    "model": it.get("model") or DEFAULTS["api"]["default"]["model"],
+                    "timeout": it.get("timeout") or DEFAULTS["api"]["default"]["timeout"],
+                }
+            data["api"] = api_dict
+
+        # 兼容旧版：扁平化 chatroom_enhance.active_reply.*
+        sess = data.get("session") or {}
+        if isinstance(sess.get("chatroom_enhance"), dict):
+            ar = (sess.get("chatroom_enhance") or {}).get("active_reply") or {}
+            if isinstance(ar, dict):
+                if "active_reply_enable" not in sess:
+                    sess["active_reply_enable"] = bool(ar.get("enable", False))
+                if "active_reply_prompt_suffix" not in sess and ar.get("prompt_suffix") is not None:
+                    sess["active_reply_prompt_suffix"] = ar.get("prompt_suffix")
+                if "active_reply_probability" not in sess and ar.get("probability") is not None:
+                    try:
+                        sess["active_reply_probability"] = float(ar.get("probability"))
+                    except Exception:
+                        pass
+            # 删除旧结构
+            try:
+                del sess["chatroom_enhance"]
+            except Exception:
+                pass
+            data["session"] = sess
+
         _config = AIChatConfig(**data)
 
-        # 基础校验：api 名称唯一 + api_active 合法
+        # 基础校验：api_active 合法，并补齐每个 API 的 name
         try:
             names: List[str] = []
-            unique: List[APIConfig] = []
-            for item in _config.api:
-                if item.name in names:
-                    logger.warning(f"[AI Chat] api 名称重复已忽略: {item.name}")
-                    continue
-                names.append(item.name)
-                unique.append(item)
-            if len(unique) != len(_config.api):
-                _config.api = unique
+            for n, v in list(_config.api.items()):
+                if isinstance(v, APIConfig):
+                    if not v.name:
+                        v.name = n
+                names.append(n)
             if _config.api and _config.api_active not in names:
-                _config.api_active = _config.api[0].name
+                _config.api_active = names[0]
         except Exception:
             pass
 
@@ -396,7 +413,7 @@ def get_config() -> AIChatConfig:
 def get_active_api() -> APIConfig:
     cfg = get_config()
     if not cfg.api:
-        defaults = DEFAULTS["api"][0]
+        defaults = DEFAULTS["api"]["default"]
         return APIConfig(
             name="default",
             base_url=defaults["base_url"],
@@ -404,10 +421,18 @@ def get_active_api() -> APIConfig:
             model=defaults["model"],
             timeout=defaults["timeout"],
         )
-    for item in cfg.api:
-        if item.name == cfg.api_active:
-            return item
-    return cfg.api[0]
+    # 命中当前启用
+    if cfg.api_active in cfg.api:
+        api = cfg.api[cfg.api_active]
+        if isinstance(api, APIConfig):
+            return api
+        return APIConfig(**{**api, "name": cfg.api_active})
+    # 取第一个
+    first_name = next(iter(cfg.api.keys()))
+    api = cfg.api[first_name]
+    if isinstance(api, APIConfig):
+        return api
+    return APIConfig(**{**api, "name": first_name})
 
 
 def load_personas() -> Dict[str, PersonaConfig]:
@@ -420,17 +445,17 @@ def load_personas() -> Dict[str, PersonaConfig]:
             "default": PersonaConfig(
                 name="默认助手",
                 description="一个友好的 AI 助手",
-                system_prompt="你是一个友好、乐于助人的 AI 助手。你的回复简洁明了，富有同理心。",
+                system_prompt="你是一个友好、耐心且乐于助人的 AI 助手。回答简洁清晰，有同理心。",
             ),
             "tsundere": PersonaConfig(
                 name="傲娇少女",
-                description="傲娇性格的少女",
-                system_prompt="你是一个傲娇少女，说话带有傲娇口癖，经常说‘才不是’、‘哼’之类的话。虽然嘴上不承认，但内心很关心对方。",
+                description="傲娇属性的人格",
+                system_prompt="你是一个有些傲娇的人格，说话常带有‘才不是’‘哼’之类的口癖，外冷内热。",
             ),
             "professional": PersonaConfig(
-                name="专业顾问",
-                description="专业的技术顾问",
-                system_prompt="你是一个专业的技术顾问，擅长编程、系统架构等领域。回复准确、专业，提供实用建议。",
+                name="专业问答",
+                description="专业的技术问答",
+                system_prompt="你是一个专业的技术问答助手，擅长编程、系统架构等。回答准确、专业，提供实用建议。",
             ),
         }
         save_personas(_personas)
@@ -440,14 +465,14 @@ def load_personas() -> Dict[str, PersonaConfig]:
         with open(path, "r", encoding="utf-8") as f:
             raw = json.load(f)
         _personas = {k: PersonaConfig(**v) for k, v in (raw or {}).items()}
-        logger.info(f"[AI Chat] 人格配置加载成功，共 {len(_personas)} 个人格")
+        logger.info(f"[AI Chat] 人格配置加载成功，共 {_personas and len(_personas) or 0} 个")
     except Exception as e:
         logger.error(f"[AI Chat] 人格配置加载失败: {e}，使用默认人格")
         _personas = {
             "default": PersonaConfig(
                 name="默认助手",
                 description="一个友好的 AI 助手",
-                system_prompt="你是一个友好、乐于助人的 AI 助手。你的回复简洁明了，富有同理心。",
+                system_prompt="你是一个友好、耐心且乐于助人的 AI 助手。回答简洁清晰，有同理心。",
             )
         }
     return _personas
@@ -475,8 +500,9 @@ def reload_all() -> None:
     global _config, _personas
     _config = load_config()
     _personas = load_personas()
-    logger.info("[AI Chat] 所有配置已重载")
+    logger.info("[AI Chat] 所有配置已重新加载")
 
 
-# 注册框架级重载回调：当统一配置被重载时刷新模块缓存
+# 注册框架层重载回调：当统一配置被重载时刷新模块缓存
 register_reload_callback("ai_chat", reload_all)
+
