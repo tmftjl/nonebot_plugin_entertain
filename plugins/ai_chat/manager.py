@@ -135,7 +135,7 @@ class ChatManager:
 
         # 自动创建会话
         cfg = get_config()
-        if not chat_session and cfg.session.auto_create:
+        if not chat_session :
             chat_session = await ChatSession.create_session(
                 session_id=session_id,
                 session_type=session_type,

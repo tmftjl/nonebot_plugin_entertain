@@ -34,19 +34,12 @@ class APIConfig(BaseModel):
     model: str = Field(default="gpt-4o-mini", description="默认模型")
     timeout: int = Field(default=60, description="超时时间（秒）")
 
-
-class CacheConfig(BaseModel):
-    """缓存配置（预留）"""
-
-    session_ttl: int = Field(default=300, description="会话缓存 TTL（秒）")
-    history_ttl: int = Field(default=60, description="历史缓存 TTL（秒）")
-
-
 class SessionConfig(BaseModel):
     """会话配置"""
 
+    # 当前启用的服务商名称（从根迁移至 session 下）
+    api_active: str = Field(default="default", description="当前启用服务商名")
     default_temperature: float = Field(default=0.7, description="默认温度")
-    auto_create: bool = Field(default=True, description="自动创建会话")
     # 统一“轮数”限制（user+assistant 为一轮）
     max_rounds: int = Field(default=8, description="最大上下文轮数（一轮=用户+助手）")
     # 群聊“聊天室记忆”（内存）最大行数
@@ -86,9 +79,6 @@ class AIChatConfig(BaseModel):
 
     # api 从数组改为字典样式：{ 名称: APIConfig }
     api: Dict[str, APIConfig] = Field(default_factory=dict, description="AI 服务商配置（字典：名称->配置）")
-    api_active: str = Field(default="default", description="当前启用的服务商名称")
-
-    cache: CacheConfig = Field(default_factory=CacheConfig)
     session: SessionConfig = Field(default_factory=SessionConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
 
@@ -114,14 +104,9 @@ DEFAULTS: Dict[str, Any] = {
             "timeout": 60,
         }
     },
-    "api_active": "default",
-    "cache": {
-        "session_ttl": 300,
-        "history_ttl": 60,
-    },
     "session": {
+        "api_active": "default",
         "default_temperature": 0.7,
-        "auto_create": True,
         "max_rounds": 8,
         "chatroom_history_max_lines": 200,
         # 扁平化主动回复配置（替代原来的 chatroom_enhance.active_reply.*）
@@ -186,42 +171,18 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
                 },
             },
         },
-        "api_active": {
-            "type": "string",
-            "title": "当前启用服务商名",
-            "default": DEFAULTS["api_active"],
-            "x-order": 2,
-        },
-        "cache": {
-            "type": "object",
-            "title": "缓存",
-            "x-order": 3,
-            "x-collapse": True,
-            "properties": {
-                "session_ttl": {
-                    "type": "integer",
-                    "title": "会话缓存 TTL（秒）",
-                    "minimum": 0,
-                    "maximum": 86400,
-                    "default": DEFAULTS["cache"]["session_ttl"],
-                    "x-order": 1,
-                },
-                "history_ttl": {
-                    "type": "integer",
-                    "title": "历史缓存 TTL（秒）",
-                    "minimum": 0,
-                    "maximum": 86400,
-                    "default": DEFAULTS["cache"]["history_ttl"],
-                    "x-order": 2,
-                },
-            },
-        },
         "session": {
             "type": "object",
             "title": "会话",
             "x-order": 4,
             "x-collapse": True,
             "properties": {
+                "api_active": {
+                    "type": "string",
+                    "title": "当前启用服务商名",
+                    "default": DEFAULTS["session"]["api_active"],
+                    "x-order": 2,
+                },
                 "default_temperature": {
                     "type": "number",
                     "title": "默认温度",
@@ -229,12 +190,6 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
                     "maximum": 2,
                     "default": DEFAULTS["session"]["default_temperature"],
                     "x-order": 1,
-                },
-                "auto_create": {
-                    "type": "boolean",
-                    "title": "自动创建会话",
-                    "default": DEFAULTS["session"]["auto_create"],
-                    "x-order": 2,
                 },
                 "max_rounds": {
                     "type": "integer",
@@ -352,6 +307,17 @@ def load_config() -> AIChatConfig:
                 }
             data["api"] = api_dict
 
+        # 兼容旧版：将根级 api_active 迁移到 session.api_active
+        if "api_active" in data:
+            sess0 = data.get("session") or {}
+            if "api_active" not in sess0:
+                sess0["api_active"] = data.get("api_active")
+            data["session"] = sess0
+            try:
+                del data["api_active"]
+            except Exception:
+                pass
+
         # 兼容旧版：扁平化 chatroom_enhance.active_reply.*
         sess = data.get("session") or {}
         if isinstance(sess.get("chatroom_enhance"), dict):
@@ -383,8 +349,9 @@ def load_config() -> AIChatConfig:
                     if not v.name:
                         v.name = n
                 names.append(n)
-            if _config.api and _config.api_active not in names:
-                _config.api_active = names[0]
+            # 修正到 session.api_active
+            if _config.api and _config.session.api_active not in names:
+                _config.session.api_active = names[0]
         except Exception:
             pass
 
@@ -422,11 +389,12 @@ def get_active_api() -> APIConfig:
             timeout=defaults["timeout"],
         )
     # 命中当前启用
-    if cfg.api_active in cfg.api:
-        api = cfg.api[cfg.api_active]
+    active_name = getattr(cfg.session, "api_active", None) or "default"
+    if active_name in cfg.api:
+        api = cfg.api[active_name]
         if isinstance(api, APIConfig):
             return api
-        return APIConfig(**{**api, "name": cfg.api_active})
+        return APIConfig(**{**api, "name": active_name})
     # 取第一个
     first_name = next(iter(cfg.api.keys()))
     api = cfg.api[first_name]
@@ -505,4 +473,3 @@ def reload_all() -> None:
 
 # 注册框架层重载回调：当统一配置被重载时刷新模块缓存
 register_reload_callback("ai_chat", reload_all)
-

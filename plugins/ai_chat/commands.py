@@ -344,6 +344,7 @@ api_list_cmd = P.on_regex(
 async def handle_api_list(event: MessageEvent):
     cfg = get_config()
     providers = getattr(cfg, "api", {}) or {}
+    session = getattr(cfg, "session", {}) or {}
 
     if not providers:
         await api_list_cmd.finish("暂无服务商配置")
@@ -352,7 +353,7 @@ async def handle_api_list(event: MessageEvent):
     for name, item in providers.items():
         model = getattr(item, "model", None) or (item.get("model") if isinstance(item, dict) else "")
         base_url = getattr(item, "base_url", None) or (item.get("base_url") if isinstance(item, dict) else "")
-        current = "（当前）" if name == cfg.api_active else ""
+        current = "（当前）" if name == getattr(session, "api_active", None) else ""
         lines.append(f"- {name}{current} | 模型: {model} | 地址: {base_url}")
 
     info_text = "🧩 服务商列表\n━━━━━━━━━━━━━━━━\n" + "\n".join(lines)
@@ -385,7 +386,7 @@ async def handle_switch_api(event: MessageEvent):
         await switch_api_cmd.finish(f"服务商不存在\n可用: {available}")
 
     # 更新当前启用的服务商并保存配置
-    cfg.api_active = target
+    cfg.session.api_active = target
     save_config(cfg)
     # 重建客户端以应用新的服务商配置
     chat_manager.reset_client()
@@ -492,4 +493,3 @@ async def handle_tool_off(event: MessageEvent):
     cfg.tools.builtin_tools = sorted(enabled_list)
     save_config(cfg)
     await tool_off_cmd.finish(f"已关闭工具：{tool_name}")
-
