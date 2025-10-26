@@ -344,7 +344,8 @@ api_list_cmd = P.on_regex(
 async def handle_api_list(event: MessageEvent):
     cfg = get_config()
     providers = getattr(cfg, "api", {}) or {}
-    session = getattr(cfg, "session", {}) or {}
+    # 当前激活服务商
+    active_name = cfg.session.api_active
 
     if not providers:
         await api_list_cmd.finish("暂无服务商配置")
@@ -353,7 +354,7 @@ async def handle_api_list(event: MessageEvent):
     for name, item in providers.items():
         model = getattr(item, "model", None) or (item.get("model") if isinstance(item, dict) else "")
         base_url = getattr(item, "base_url", None) or (item.get("base_url") if isinstance(item, dict) else "")
-        current = "（当前）" if name == getattr(session, "api_active", None) else ""
+        current = "（当前）" if (active_name and name == active_name) else ""
         lines.append(f"- {name}{current} | 模型: {model} | 地址: {base_url}")
 
     info_text = "🧩 服务商列表\n━━━━━━━━━━━━━━━━\n" + "\n".join(lines)

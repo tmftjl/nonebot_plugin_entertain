@@ -289,72 +289,7 @@ def load_config() -> AIChatConfig:
     global _config
     try:
         data = CFG.load() or {}
-
-        # 兼容旧版：将 api 数组转换为字典样式
-        api_raw = data.get("api")
-        if isinstance(api_raw, list):
-            api_dict: Dict[str, Dict[str, Any]] = {}
-            for it in api_raw:
-                if not isinstance(it, dict):
-                    continue
-                name = it.get("name") or it.get("id") or "default"
-                api_dict[name] = {
-                    "name": name,
-                    "base_url": it.get("base_url") or DEFAULTS["api"]["default"]["base_url"],
-                    "api_key": it.get("api_key") or DEFAULTS["api"]["default"]["api_key"],
-                    "model": it.get("model") or DEFAULTS["api"]["default"]["model"],
-                    "timeout": it.get("timeout") or DEFAULTS["api"]["default"]["timeout"],
-                }
-            data["api"] = api_dict
-
-        # 兼容旧版：将根级 api_active 迁移到 session.api_active
-        if "api_active" in data:
-            sess0 = data.get("session") or {}
-            if "api_active" not in sess0:
-                sess0["api_active"] = data.get("api_active")
-            data["session"] = sess0
-            try:
-                del data["api_active"]
-            except Exception:
-                pass
-
-        # 兼容旧版：扁平化 chatroom_enhance.active_reply.*
-        sess = data.get("session") or {}
-        if isinstance(sess.get("chatroom_enhance"), dict):
-            ar = (sess.get("chatroom_enhance") or {}).get("active_reply") or {}
-            if isinstance(ar, dict):
-                if "active_reply_enable" not in sess:
-                    sess["active_reply_enable"] = bool(ar.get("enable", False))
-                if "active_reply_prompt_suffix" not in sess and ar.get("prompt_suffix") is not None:
-                    sess["active_reply_prompt_suffix"] = ar.get("prompt_suffix")
-                if "active_reply_probability" not in sess and ar.get("probability") is not None:
-                    try:
-                        sess["active_reply_probability"] = float(ar.get("probability"))
-                    except Exception:
-                        pass
-            # 删除旧结构
-            try:
-                del sess["chatroom_enhance"]
-            except Exception:
-                pass
-            data["session"] = sess
-
         _config = AIChatConfig(**data)
-
-        # 基础校验：api_active 合法，并补齐每个 API 的 name
-        try:
-            names: List[str] = []
-            for n, v in list(_config.api.items()):
-                if isinstance(v, APIConfig):
-                    if not v.name:
-                        v.name = n
-                names.append(n)
-            # 修正到 session.api_active
-            if _config.api and _config.session.api_active not in names:
-                _config.session.api_active = names[0]
-        except Exception:
-            pass
-
         logger.info("[AI Chat] 配置加载成功")
     except Exception as e:
         logger.error(f"[AI Chat] 配置加载失败: {e}，使用默认配置")
@@ -395,6 +330,15 @@ def get_active_api() -> APIConfig:
         if isinstance(api, APIConfig):
             return api
         return APIConfig(**{**api, "name": active_name})
+    else:
+        defaults = DEFAULTS["api"]["default"]
+        return APIConfig(
+            name="default",
+            base_url=defaults["base_url"],
+            api_key=defaults["api_key"],
+            model=defaults["model"],
+            timeout=defaults["timeout"],
+        )
     # 取第一个
     first_name = next(iter(cfg.api.keys()))
     api = cfg.api[first_name]
