@@ -1,9 +1,8 @@
-"""AI 对话配置管理（去掉无用和多余嵌套，简化结构）
+"""AI 对话配置（api 使用数组形式）
 
-职责：
 - 注册并管理 `config/ai_chat/config.json`
 - 提供 Pydantic 配置对象供代码内部访问
-- 管理 `config/ai_chat/personas.json` 的人格配置
+- 管理 `config/ai_chat/personas.json`
 """
 from __future__ import annotations
 
@@ -26,33 +25,30 @@ from ...core.framework.utils import config_dir
 
 
 class APIConfig(BaseModel):
-    """AI 服务商配置（以 name 作为唯一标识，可切换）"""
+    """AI 服务商配置（通过唯一 name 标识）"""
 
-    name: str = Field(description="唯一名称，用于切换标识")
-    base_url: str = Field(default="https://api.openai.com/v1", description="API 基础 URL")
+    name: str = Field(description="唯一名称，用于切换服务商")
+    base_url: str = Field(default="https://api.openai.com/v1", description="API 基础地址")
     api_key: str = Field(default="", description="API 密钥")
     model: str = Field(default="gpt-4o-mini", description="默认模型")
     timeout: int = Field(default=60, description="超时时间（秒）")
 
+
 class SessionConfig(BaseModel):
     """会话配置"""
 
-    # 当前启用的服务商名称（从根迁移至 session 下）
-    api_active: str = Field(default="default", description="当前启用服务商名")
+    api_active: str = Field(default="default", description="当前启用的服务商名称（匹配 api[].name）")
     default_temperature: float = Field(default=0.7, description="默认温度")
-    # 统一“轮数”限制（user+assistant 为一轮）
-    max_rounds: int = Field(default=8, description="最大上下文轮数（一轮=用户+助手）")
-    # 群聊“聊天室记忆”（内存）最大行数
-    chatroom_history_max_lines: int = Field(default=200, description="群聊聊天室记忆（内存）最大行数")
-    # 主动回复（去掉 chatroom_enhance 的多余嵌套，直接扁平化配置）
-    active_reply_enable: bool = Field(default=False, description="群聊内是否开启‘主动回复’实验功能")
+    max_rounds: int = Field(default=8, description="最大上下文轮数（user+assistant 记为一轮）")
+    chatroom_history_max_lines: int = Field(default=200, description="群聊聊天室记忆最大行数（内存）")
+    active_reply_enable: bool = Field(default=False, description="是否启用群聊主动回复（实验）")
     active_reply_probability: float = Field(default=0.1, description="主动回复触发概率（0~1）")
     active_reply_prompt_suffix: str = Field(
         default=(
-            "Now, a new message is coming: `{message}`. Please react to it. "
-            "Only output your response and do not output any other information."
+            "现在有一条新消息到达：`{message}`。请做出自然、简洁的回复。"
+            "只输出回复正文，不要包含额外说明。"
         ),
-        description="主动回复时附加在提示后的后缀提示（可用 {message}/{prompt} 占位）",
+        description="主动回复场景下附加的提示（支持占位符 {message}/{prompt}）",
     )
 
 
@@ -66,19 +62,11 @@ class ToolsConfig(BaseModel):
     )
 
 
-"""
-删除无用配置：
-- 删除 MCP（预留）
-- 删除 response（未使用的‘回复’相关配置）
-- 删除 session.default_max_history（未使用）
-"""
-
-
 class AIChatConfig(BaseModel):
     """AI 对话总配置"""
 
-    # api 从数组改为字典样式：{ 名称: APIConfig }
-    api: Dict[str, APIConfig] = Field(default_factory=dict, description="AI 服务商配置（字典：名称->配置）")
+    # api 使用数组形式：[APIConfig, ...]
+    api: List[APIConfig] = Field(default_factory=list, description="AI 服务商配置（数组）")
     session: SessionConfig = Field(default_factory=SessionConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
 
@@ -88,32 +76,31 @@ class PersonaConfig(BaseModel):
 
     name: str = Field(description="人格名称")
     description: str = Field(description="人格描述")
-    system_prompt: str = Field(description="系统提示")
+    system_prompt: str = Field(description="系统提示词")
 
 
-# ==================== 统一配置注册 ====================
+# ==================== 默认值与前端 Schema ====================
 
 
 DEFAULTS: Dict[str, Any] = {
-    "api": {
-        "default": {
+    "api": [
+        {
             "name": "default",
             "base_url": "https://api.openai.com/v1",
             "api_key": "",
             "model": "gpt-4o-mini",
             "timeout": 60,
         }
-    },
+    ],
     "session": {
         "api_active": "default",
         "default_temperature": 0.7,
         "max_rounds": 8,
         "chatroom_history_max_lines": 200,
-        # 扁平化主动回复配置（替代原来的 chatroom_enhance.active_reply.*）
         "active_reply_enable": False,
         "active_reply_prompt_suffix": (
-            "Now, a new message is coming: `{message}`. Please react to it. "
-            "Only output your response and do not output any other information."
+            "现在有一条新消息到达：`{message}`。请做出自然、简洁的回复。"
+            "只输出回复正文，不要包含额外说明。"
         ),
         "active_reply_probability": 0.1,
     },
@@ -124,51 +111,52 @@ DEFAULTS: Dict[str, Any] = {
     },
 }
 
-# 注册配置文件（config/ai_chat/config.json）
+
+# 注册统一配置文件（config/ai_chat/config.json）
 CFG = register_plugin_config("ai_chat", DEFAULTS)
 
 
-# 注册前端 JSON Schema（用于可视化编辑）
 AI_CHAT_SCHEMA: Dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
     "title": "AI 对话",
     "properties": {
         "api": {
-            "type": "object",
-            "title": "AI 服务商（字典：名称->配置）",
+            "type": "array",
+            "title": "AI 服务商（数组）",
             "x-order": 1,
-            "additionalProperties": {
+            "items": {
                 "type": "object",
                 "properties": {
-                    "name": {"type": "string", "title": "名称（可省略）", "x-order": 1},
+                    "name": {"type": "string", "title": "名称", "x-order": 1},
                     "base_url": {
                         "type": "string",
                         "title": "API 地址",
-                        "default": DEFAULTS["api"]["default"]["base_url"],
+                        "default": DEFAULTS["api"][0]["base_url"],
                         "x-order": 2,
                     },
                     "api_key": {
                         "type": "string",
                         "title": "API 密钥",
-                        "default": DEFAULTS["api"]["default"]["api_key"],
+                        "default": DEFAULTS["api"][0]["api_key"],
                         "x-order": 3,
                     },
                     "model": {
                         "type": "string",
                         "title": "默认模型",
-                        "default": DEFAULTS["api"]["default"]["model"],
+                        "default": DEFAULTS["api"][0]["model"],
                         "x-order": 4,
                     },
                     "timeout": {
                         "type": "integer",
-                        "title": "超时（秒）",
+                    "title": "超时（秒）",
                         "minimum": 1,
                         "maximum": 300,
-                        "default": DEFAULTS["api"]["default"]["timeout"],
+                        "default": DEFAULTS["api"][0]["timeout"],
                         "x-order": 5,
                     },
                 },
+                "required": ["name"],
             },
         },
         "session": {
@@ -215,7 +203,7 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
                 },
                 "active_reply_probability": {
                     "type": "number",
-                    "title": "主动回复触发概率（0~1）",
+                    "title": "主动回复触发概率 0~1",
                     "minimum": 0,
                     "maximum": 1,
                     "default": DEFAULTS["session"]["active_reply_probability"],
@@ -314,37 +302,24 @@ def get_config() -> AIChatConfig:
 
 def get_active_api() -> APIConfig:
     cfg = get_config()
-    if not cfg.api:
-        defaults = DEFAULTS["api"]["default"]
+    apis: List[APIConfig] = list(getattr(cfg, "api", []) or [])
+    if not apis:
+        defaults = DEFAULTS["api"][0]
         return APIConfig(
-            name="default",
+            name=defaults["name"],
             base_url=defaults["base_url"],
             api_key=defaults["api_key"],
             model=defaults["model"],
             timeout=defaults["timeout"],
         )
-    # 命中当前启用
+
     active_name = getattr(cfg.session, "api_active", None) or "default"
-    if active_name in cfg.api:
-        api = cfg.api[active_name]
-        if isinstance(api, APIConfig):
-            return api
-        return APIConfig(**{**api, "name": active_name})
-    else:
-        defaults = DEFAULTS["api"]["default"]
-        return APIConfig(
-            name="default",
-            base_url=defaults["base_url"],
-            api_key=defaults["api_key"],
-            model=defaults["model"],
-            timeout=defaults["timeout"],
-        )
-    # 取第一个
-    first_name = next(iter(cfg.api.keys()))
-    api = cfg.api[first_name]
-    if isinstance(api, APIConfig):
-        return api
-    return APIConfig(**{**api, "name": first_name})
+    for item in apis:
+        if item.name == active_name:
+            return item
+
+    # fallback to first
+    return apis[0]
 
 
 def load_personas() -> Dict[str, PersonaConfig]:
@@ -415,5 +390,5 @@ def reload_all() -> None:
     logger.info("[AI Chat] 所有配置已重新加载")
 
 
-# 注册框架层重载回调：当统一配置被重载时刷新模块缓存
+# Register framework-level reload callback
 register_reload_callback("ai_chat", reload_all)

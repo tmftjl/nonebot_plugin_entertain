@@ -1,6 +1,6 @@
 """AI 对话插件
 
-基于 NoneBot2 的高性能 AI 对话插件，支持多会话管理、人格系统与工具调用。
+基于 NoneBot2 的高性能 AI 对话插件，支持多会话管理、人设与工具调用。
 """
 from nonebot import require
 from nonebot.log import logger
@@ -17,25 +17,18 @@ from .manager import chat_manager  # noqa: F401
 from . import commands  # noqa: F401
 
 __plugin_name__ = "AI 对话"
-__plugin_usage__ = """
-AI 对话插件
-
-基础对话:
-  @机器人 <消息>  - 群聊需要 @ 机器人对话
-会话管理:
-  #清空会话       - 清空当前会话历史
-  #会话信息       - 查看当前会话配置
-  #开启AI         - 启用当前会话（管理员）
-  #关闭AI         - 停用当前会话（管理员）
-人格系统:
-  #人格           - 查看当前人格
-  #人格列表       - 列出所有可用人格
-  #切换人格 <名>  - 切换会话人格（管理员）
-系统管理:
-  #重载AI配置     - 热重载配置与人格（超管）
-  #服务商列表     - 查看当前可用服务商
-  #切换服务商 <名> - 切换服务商
-"""
+__plugin_usage__ = (
+    "AI 对话插件\n"
+    "\n"
+    "基础对话:\n"
+    "  @机器人 <消息>  - 群聊需 @ 机器人触发；私聊直接发送\n"
+    "会话管理:\n"
+    "  #清空会话 / #会话信息 / #开启AI / #关闭AI\n"
+    "人格系统:\n"
+    "  #人格 / #人格列表 / #切换人格 <名>\n"
+    "系统管理:\n"
+    "  #重载AI配置 / #服务商列表 / #切换服务商 <名>\n"
+)
 
 try:
     # 加载配置
@@ -50,7 +43,7 @@ try:
     active_api = get_active_api()
     if not active_api.api_key:
         logger.warning(
-            "[AI Chat] ⚠️ 未配置 OpenAI API 密钥，请在配置文件中设置 api.<名称>.api_key（如 api.default.api_key）并选择 api_active\n"
+            "[AI Chat] ⚠️ 未配置 OpenAI API 密钥，请在配置文件中为 api 数组中的目标项设置 api_key，并选择 session.api_active\n"
             f"配置文件位置: {get_config_path()}"
         )
     else:
