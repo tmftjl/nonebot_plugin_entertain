@@ -1049,7 +1049,39 @@ function renderConfigForm(data, parentKey = '') {
     entries.forEach(([key, value]) => {
       const fullKey = parentKey ? `${parentKey}.${key}` : key;
 
-      if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      // 数组类型：区分 原子类型数组 与 对象数组
+      if (Array.isArray(value)) {
+        const hasObjectItems = value.some(v => typeof v === 'object' && v !== null && !Array.isArray(v));
+        if (hasObjectItems) {
+          // 渲染为嵌套的数组项编辑卡片（与顶层数组渲染保持一致风格）
+          html += `<div class="config-section">
+            <div class="config-section-header">
+              <span class="config-section-icon">📋</span>
+              <span class="config-section-title">${escapeHtml(__schemaGetTitle(fullKey, key))}</span>
+            </div>`;
+          value.forEach((item, index) => {
+            if (typeof item === 'object' && item !== null) {
+              html += `<div class="config-array-item">
+                <div class="config-array-header">
+                  <span class="config-array-label">${escapeHtml(__schemaGetTitle(`${fullKey}[${index}]`, `项目 ${index + 1}`))}</span>
+                </div>
+                <div class="config-array-body">
+                  ${renderConfigForm(item, `${fullKey}[${index}]`)}
+                </div>
+              </div>`;
+            } else {
+              html += renderConfigField(`${fullKey}[${index}]`, item, `项目 ${index + 1}`);
+            }
+          });
+          html += `</div>`;
+        } else {
+          // 原子类型数组：使用简单的逗号分隔输入框
+          html += renderConfigField(fullKey, value, key);
+        }
+        return;
+      }
+
+      if (typeof value === 'object' && value !== null) {
         // 嵌套对象，创建折叠区域
         html += `<div class="config-nested-section">
           <div class="config-nested-header">
@@ -1270,15 +1302,43 @@ function setNestedValue(obj, path, value) {
   const keys = path.split('.');
   let current = obj;
 
-  for(let i = 0; i < keys.length - 1; i++) {
+  for (let i = 0; i < keys.length - 1; i++) {
     const key = keys[i];
-    if(!(key in current)) {
+    const nextKey = keys[i + 1];
+    const nextIsIndex = /^\d+$/.test(nextKey || '');
+
+    // 若不存在则按下一个键的类型推断容器类型（数组/对象）
+    if (!(key in current)) {
+      current[key] = nextIsIndex ? [] : {};
+    }
+
+    // 若类型不符则纠正
+    if (nextIsIndex && !Array.isArray(current[key])) {
+      current[key] = [];
+    } else if (!nextIsIndex && (typeof current[key] !== 'object' || current[key] === null || Array.isArray(current[key]))) {
       current[key] = {};
     }
+
     current = current[key];
+
+    // 若当前层是数组且下一段是索引，则确保该索引存在容器
+    if (Array.isArray(current) && nextIsIndex) {
+      const idx = parseInt(nextKey, 10);
+      if (Number.isFinite(idx)) {
+        if (typeof current[idx] === 'undefined') {
+          // 预先占位为对象，后续层级再填充
+          current[idx] = {};
+        }
+      }
+    }
   }
 
-  current[keys[keys.length - 1]] = value;
+  const lastKey = keys[keys.length - 1];
+  if (/^\d+$/.test(lastKey) && Array.isArray(current)) {
+    current[parseInt(lastKey, 10)] = value;
+  } else {
+    current[lastKey] = value;
+  }
 }
 
 function escapeHtml(text) {

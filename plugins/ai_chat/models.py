@@ -57,9 +57,8 @@ class ChatSession(BaseIDModel, table=True):
         group_id: Optional[str] = None,
         user_id: Optional[str] = None,
         persona_name: str = "default",
-        max_history: int = 20,
     ) -> "ChatSession":
-        """创建新会话"""
+        """创建新会话（不再持久化最大轮数，按配置动态控制）"""
 
         chat_session = cls(
             session_id=session_id,
@@ -67,7 +66,6 @@ class ChatSession(BaseIDModel, table=True):
             group_id=group_id,
             user_id=user_id,
             persona_name=persona_name,
-            max_history=max_history,
             is_active=True,
             history_json="[]",
         )
@@ -207,4 +205,3 @@ class ChatSession(BaseIDModel, table=True):
         session.add(row)
         await session.flush()
         return True
-

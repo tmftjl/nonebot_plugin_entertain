@@ -195,13 +195,15 @@ async def handle_info(event: MessageEvent):
     persona = personas.get(session.persona_name, personas.get("default"))
 
     status = "已启用" if session.is_active else "已停用"
+    cfg_now = get_config()
+    rounds = int(getattr(cfg_now.session, "max_rounds", 8) or 8)
     info_text = (
         f"🧾 会话信息\n"
         f"━━━━━━━━━━━━━━━━\n"
         f"会话 ID: {session.session_id}\n"
         f"状态: {status}\n"
         f"人格: {persona.name if persona else session.persona_name}\n"
-        f"最大轮数: {session.max_history} 条\n"
+        f"最大轮数: {rounds} 轮（历史上限约 {rounds} 条）\n"
         f"创建时间: {session.created_at[:19]}\n"
         f"更新时间: {session.updated_at[:19]}"
     )

@@ -142,7 +142,6 @@ class ChatManager:
                 group_id=group_id,
                 user_id=user_id,
                 persona_name="default",
-                max_history=max(2, 2 * int(cfg.session.max_rounds)),
             )
             logger.info(f"[AI Chat] 创建新会话 {session_id}")
 
