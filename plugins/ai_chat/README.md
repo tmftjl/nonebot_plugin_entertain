@@ -15,7 +15,7 @@
 - 数据库存储使用 SQLite（自动建表，路径参见框架 `data/` 目录）。
 
 **配置文件**
-- 位置：`config/ai_chat/config.json` 与 `config/ai_chat/personas.json`（由 `NPE_CONFIG_DIR` 可整体重定向，参考 `core/framework/utils.py`）。
+- 位置：`config/ai_chat/config.json` 与 `config/ai_chat/personas/`（由 `NPE_CONFIG_DIR` 可整体重定向，参考 `core/framework/utils.py`）。
 - 注册默认配置与 schema：`plugins/ai_chat/config.py`。
 
 配置项（`config.json`）
@@ -33,8 +33,18 @@
   - `max_iterations`：工具调用最多迭代轮次。
   - `builtin_tools`：启用的工具名列表（如 `get_time`、`get_weather`）。
 
-人格文件（`personas.json`）
-- key 为人格代号，value 包含 `name`、`description`、`system_prompt`。首次不存在会写入内置默认人格。
+人格文件（`personas/` 目录）
+- 支持 `.txt`、`.md`、`.docx` 三种文本格式；文件名（不含扩展名）作为人格代号。
+- `.txt/.md` 可在顶部使用极简 Front Matter（可选）：
+  ```
+  ---
+  name: 显示名
+  description: 描述
+  ---
+
+  这里是系统提示(system prompt)正文...
+  ```
+- 若未提供 Front Matter，则 `name` 默认为文件名，`description` 取正文首行摘要。
 
 **使用方式**
 - 对话触发：
@@ -56,7 +66,7 @@
   - `#启用工具 <name>` 将工具加入启用列表并打开全局开关（管理员）。
   - `#关闭工具 <name>` 从启用列表移除工具（管理员）。
 - 配置重载：
-  - `#重载AI配置` 重新加载 `config.json` 和 `personas.json` 并重建客户端（超管）。
+- `#重载AI配置` 重新加载 `config.json` 和 `personas/` 并重建客户端（超管）。
 
 命令注册位置
 - 见 `plugins/ai_chat/commands.py:111` 起始的“通用触发”与后续各管理命令。
@@ -112,4 +122,3 @@
 - 核心管理：`plugins/ai_chat/manager.py`（OpenAI 调用、历史维护、会话并发控制）。
 - 配置与人格：`plugins/ai_chat/config.py:276`、`plugins/ai_chat/config.py:325`、`plugins/ai_chat/config.py:386`。
 - 工具与钩子：`plugins/ai_chat/tools.py`、`plugins/ai_chat/hooks.py`。
-

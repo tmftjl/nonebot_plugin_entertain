@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional, List, Tuple
+import zipfile
+import xml.etree.ElementTree as ET
 
 from nonebot.log import logger
 from pydantic import BaseModel, Field
@@ -269,8 +271,129 @@ def get_config_path() -> Path:
     return get_config_dir() / "config.json"
 
 
-def get_personas_path() -> Path:
-    return get_config_dir() / "personas.json"
+def get_personas_dir() -> Path:
+    p = get_config_dir() / "personas"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+# ==================== 人格文件读取工具 ====================
+
+
+SUPPORTED_PERSONA_EXTS = {".txt", ".md", ".docx"}
+
+
+def _read_text_file(path: Path) -> str:
+    return path.read_text(encoding="utf-8", errors="ignore")
+
+
+def _read_docx_text(path: Path) -> str:
+    """轻量解析 .docx 文本（不依赖第三方库）。
+
+    - 仅提取段落中的文本，保持基本换行
+    - 不保留样式与图片
+    """
+    try:
+        with zipfile.ZipFile(path) as z:
+            xml_bytes = z.read("word/document.xml")
+        ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+        root = ET.fromstring(xml_bytes)
+        lines: List[str] = []
+        for p in root.findall(".//w:p", ns):
+            texts: List[str] = []
+            for t in p.findall(".//w:t", ns):
+                if t.text:
+                    texts.append(t.text)
+            if texts:
+                lines.append("".join(texts))
+        return "\n".join(lines).strip()
+    except Exception:
+        try:
+            return path.read_bytes().decode("utf-8", errors="ignore")
+        except Exception:
+            return ""
+
+
+def _parse_front_matter(text: str) -> Tuple[Dict[str, str], str]:
+    """解析 Markdown/TXT 顶部的极简 Front Matter。
+
+    语法：
+    ---\n
+    name: 名称\n
+    description: 描述\n
+    ---\n
+    正文...
+
+    仅解析 name/description 两个键，其他忽略。
+    返回 (meta, body)
+    """
+    meta: Dict[str, str] = {}
+    lines = text.splitlines()
+    if not lines:
+        return meta, text
+    if lines[0].strip() != "---":
+        return meta, text
+    end_idx = None
+    for i in range(1, min(len(lines), 100)):
+        if lines[i].strip() == "---":
+            end_idx = i
+            break
+    if end_idx is None:
+        return meta, text
+    for ln in lines[1:end_idx]:
+        ln = ln.strip()
+        if not ln or ln.startswith("#"):
+            continue
+        if ":" in ln:
+            k, v = ln.split(":", 1)
+            k = k.strip().lower()
+            v = v.strip().strip('"').strip("'")
+            if k in {"name", "description"}:
+                meta[k] = v
+    body = "\n".join(lines[end_idx + 1 :]).lstrip("\n")
+    return meta, body
+
+
+def _summarize_description(body: str, width: int = 40) -> str:
+    for ln in body.splitlines():
+        s = ln.strip().lstrip("#:-* ")
+        if s:
+            return s[:width]
+    return ""
+
+
+def _ensure_default_personas(dir_path: Path) -> None:
+    """当 personas 目录为空时，写入示例人格文件。"""
+    try:
+        samples = {
+            "default.md": (
+                "---\n"
+                "name: 默认助手\n"
+                "description: 一个友好的 AI 助手\n"
+                "---\n\n"
+                "你是一个友好、耐心且乐于助人的 AI 助手。回答简洁清晰，有同理心。"
+            ),
+            "tsundere.md": (
+                "---\n"
+                "name: 傲娇少女\n"
+                "description: 傲娇属性的人格\n"
+                "---\n\n"
+                "你是一个有些傲娇的人格，说话常带有‘才不是’‘哼’之类的口癖，外冷内热。"
+            ),
+            "professional.md": (
+                "---\n"
+                "name: 专业问答\n"
+                "description: 专业的技术问答\n"
+                "---\n\n"
+                "你是一个专业的技术问答助手，擅长编程、系统架构等。回答准确、专业，提供实用建议。"
+            ),
+        }
+        for fname, content in samples.items():
+            p = dir_path / fname
+            if not p.exists():
+                p.write_text(content, encoding="utf-8")
+    except Exception:
+        pass
 
 
 def load_config() -> AIChatConfig:
@@ -374,6 +497,97 @@ def save_personas(personas: Dict[str, PersonaConfig]) -> None:
         logger.info("[AI Chat] 人格配置保存成功")
     except Exception as e:
         logger.error(f"[AI Chat] 人格配置保存失败: {e}")
+
+
+# --- Override personas I/O: switch to directory-based storage ---
+
+def load_personas() -> Dict[str, PersonaConfig]:
+    """从本地目录加载人格：config/ai_chat/personas。
+
+    - 支持 .txt / .md / .docx
+    - .txt/.md 支持顶部极简 Front Matter（name/description）
+    - 未提供元信息时，name 使用文件名（不含扩展名），description 取正文首行摘要
+    - 完全替代旧 personas.json（不做兼容）
+    """
+    global _personas
+    dir_path = get_personas_dir()
+
+    # 若目录为空，写入示例
+    try:
+        has_supported = any(
+            f.suffix.lower() in SUPPORTED_PERSONA_EXTS for f in dir_path.iterdir() if f.is_file()
+        )
+    except Exception:
+        has_supported = False
+    if not has_supported:
+        logger.info("[AI Chat] 人格目录为空，写入示例人格")
+        _ensure_default_personas(dir_path)
+
+    personas: Dict[str, PersonaConfig] = {}
+    for fp in sorted(dir_path.glob("*")):
+        if not fp.is_file() or fp.suffix.lower() not in SUPPORTED_PERSONA_EXTS:
+            continue
+        key = fp.stem
+        try:
+            if fp.suffix.lower() == ".docx":
+                raw = _read_docx_text(fp)
+            else:
+                raw = _read_text_file(fp)
+        except Exception as e:
+            logger.error(f"[AI Chat] 读取人格文件失败 {fp.name}: {e}")
+            continue
+
+        meta, body = _parse_front_matter(raw)
+        name = meta.get("name") or key
+        desc = meta.get("description") or _summarize_description(body)
+        system_prompt = body.strip()
+        if not system_prompt:
+            logger.warning(f"[AI Chat] 人格文件空内容，已跳过: {fp.name}")
+            continue
+
+        personas[key] = PersonaConfig(name=name, description=desc, system_prompt=system_prompt)
+
+    if not personas:
+        personas = {
+            "default": PersonaConfig(
+                name="默认助手",
+                description="一个友好的 AI 助手",
+                system_prompt=(
+                    "你是一个友好、耐心且乐于助人的 AI 助手。回答简洁清晰，有同理心。"
+                ),
+            )
+        }
+    # 确保存在 default 键，便于下游安全回退
+    if "default" not in personas:
+        try:
+            any_one = next(iter(personas.values()))
+            personas["default"] = any_one
+        except Exception:
+            pass
+
+    _personas = personas
+    logger.info(f"[AI Chat] 人格加载完成，共 {len(_personas)} 个")
+    return _personas
+
+
+def save_personas(personas: Dict[str, PersonaConfig]) -> None:
+    """将传入的人格写入 personas 目录（.md）。
+
+    - 文件名使用键名 + .md
+    - 写入带 front matter 的 Markdown
+    """
+    dir_path = get_personas_dir()
+    try:
+        for key, p in personas.items():
+            fname = f"{key}.md"
+            fp = dir_path / fname
+            content = (
+                f"---\nname: {p.name}\ndescription: {p.description}\n---\n\n{p.system_prompt}\n"
+            )
+            fp.write_text(content, encoding="utf-8")
+        logger.info("[AI Chat] 人格已写入 personas 目录")
+    except Exception as e:
+        logger.error(f"[AI Chat] 写入人格目录失败: {e}")
 
 
 def get_personas() -> Dict[str, PersonaConfig]:
