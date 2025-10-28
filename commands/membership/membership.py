@@ -485,6 +485,14 @@ async def _check_and_process() -> Tuple[int, int]:
     return reminders, left
 
 
+async def _membership_job():
+    """Membership periodic check task used by scheduler and reload."""
+    try:
+        r, l = await _check_and_process()
+        logger.info(f"[membership] 定时检查完成，提醒={r}，退出={l}")
+    except Exception as e:
+        logger.exception(f"[membership] 定时检查失败: {e}")
+
 # ===== 配置重载回调 =====
 def _reload_membership_scheduler():
     """配置重载时重新调度定时任务"""
