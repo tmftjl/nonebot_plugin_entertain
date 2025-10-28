@@ -331,9 +331,15 @@ def setup_web_console() -> None:
             """更新配置 - 支持单个插件或批量更新，自动重载到内存缓存"""
             try:
                 from ..core.framework.config import save_all_plugin_configs, reload_all_configs
+                # 判断是否为“批量插件配置”形态：形如 { plugin: { ... }, ... }
+                is_batch = isinstance(payload, dict) and all(isinstance(v, dict) for v in payload.values())
+                success: bool = True
+                errors: Dict[str, str] = {}
+                if not is_batch:
+                    raise HTTPException(400, "配置格式无效：必须为 {plugin: {...}} 结构（已弃用旧格式）")
 
-                # 检查payload是否包含多个插件配置
-                if "system" in payload or len(payload) > 1:
+                # 批量更新：payload 为 { plugin: { ... }, ... }
+                if is_batch:
                     # 批量更新模式：保护控制台令牌不被覆盖/丢失
                     try:
                         if "system" in payload and isinstance(payload.get("system"), dict):
@@ -350,7 +356,7 @@ def setup_web_console() -> None:
                     success, errors = save_all_plugin_configs(payload)
                 if not success:
                     raise HTTPException(500, f"部分配置更新失败: {errors}")
-                else:
+                elif not is_batch and False:
                     # 向后兼容：单个system配置更新（合并以保留令牌）
                     try:
                         existing = load_cfg()
