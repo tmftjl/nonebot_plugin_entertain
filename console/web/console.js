@@ -156,9 +156,7 @@ function renderPersonasTable(){
     const name = (p && p.name) || '';
     const desc = (p && p.description) || '';
     return `<tr>
-      <td>${escapeHtml(key)}</td>
       <td>${escapeHtml(name)}</td>
-      <td>${escapeHtml(desc)}</td>
       <td>
         <button class="btn btn-secondary btn-sm persona-edit" data-key="${escapeHtml(key)}">编辑</button>
         <button class="btn btn-danger btn-sm persona-delete" data-key="${escapeHtml(key)}">删除</button>
@@ -180,6 +178,8 @@ function openPersonaModal(mode='create', key=''){
   const nameInput = $('#persona-name');
   const descInput = $('#persona-description');
   const spInput = $('#persona-system-prompt');
+  if(keyInput){ const g = keyInput.closest('.form-group-modern'); if(g) g.style.display='none'; }
+  if(spInput){ const g2 = spInput.closest('.form-group-modern'); if(g2) g2.style.display='none'; }
   if(mode==='edit' && key && state.personas[key]){
     const p = state.personas[key];
     keyInput.value = key;
@@ -238,6 +238,9 @@ document.addEventListener('click', async (e)=>{
   }else if(t.matches('#persona-close') || t.matches('#persona-cancel')){
     closePersonaModal();
   }else if(t.matches('#persona-save')){
+    const name = ($('#persona-name')?.value||'').trim();
+    const ki = document.querySelector('#persona-key'); if(ki){ ki.value = name; }
+    const spi = document.querySelector('#persona-system-prompt'); if(spi && !spi.value){ spi.value = '.'; }
     await savePersonaFromModal();
   }else if(t.matches('.persona-edit')){
     const key = t.getAttribute('data-key')||'';

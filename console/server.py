@@ -455,12 +455,14 @@ def setup_web_console() -> None:
         def _sanitize_persona_key(key: str) -> str:
             s = (key or "").strip()
             if not s:
-                raise HTTPException(400, "人格代号不能为空")
-            # 仅允许字母数字、下划线、连字符
-            import re as _re
-
-            if not _re.fullmatch(r"[A-Za-z0-9_\-]+", s):
-                raise HTTPException(400, "人格代号仅可包含字母数字、下划线或连字符")
+                raise HTTPException(400, "名称不能为空")
+            if s in {".", ".."}:
+                raise HTTPException(400, "名称非法")
+            invalid = set('<>":/\\|?*')
+            if any(ch in invalid for ch in s):
+                raise HTTPException(400, "名称包含非法字符")
+            if s.endswith(" ") or s.endswith("."):
+                raise HTTPException(400, "名称不允许以空格或点结尾")
             return s
 
         def _write_persona_file(dir_path: Path, key: str, name: str, description: str, system_prompt: str) -> None:
@@ -487,18 +489,21 @@ def setup_web_console() -> None:
         async def api_ai_persona_create(payload: Dict[str, Any], _: dict = Depends(_auth)):
             if not ai_get_personas_dir or not ai_reload_ai_configs:
                 raise HTTPException(500, "未找到 AI 对话模块，无法创建人格")
-            key = _sanitize_persona_key(str(payload.get("key") or ""))
-            name = str(payload.get("name") or "").strip() or key
+            name_raw = str(payload.get("name") or "").strip()
             description = str(payload.get("description") or "").strip()
-            system_prompt = str(payload.get("system_prompt") or "").strip()
-            if not system_prompt:
-                raise HTTPException(400, "system_prompt 不能为空")
+            if not name_raw:
+                raise HTTPException(400, "名称不能为空")
+            if not description:
+                raise HTTPException(400, "描述不能为空")
+            key = _sanitize_persona_key(name_raw)
+            name = name_raw
+            system_prompt = ""
 
             dir_path = ai_get_personas_dir()
             # 不允许覆盖已有同名（任意后缀）
             for ext in (".md", ".txt", ".docx"):
                 if (dir_path / f"{key}{ext}").exists():
-                    raise HTTPException(400, "该人格代号已存在")
+                    raise HTTPException(400, "该名称已存在")
 
             try:
                 _write_persona_file(dir_path, key, name, description, system_prompt)
@@ -513,13 +518,14 @@ def setup_web_console() -> None:
             if not ai_get_personas_dir or not ai_reload_ai_configs:
                 raise HTTPException(500, "未找到 AI 对话模块，无法更新人格")
             old_key = _sanitize_persona_key(key)
-            new_key_raw = payload.get("new_key")
-            new_key = _sanitize_persona_key(str(new_key_raw)) if new_key_raw not in (None, "") else old_key
-            name = str(payload.get("name") or "").strip() or new_key
+            name_raw = str(payload.get("name") or "").strip()
             description = str(payload.get("description") or "").strip()
-            system_prompt = str(payload.get("system_prompt") or "").strip()
-            if not system_prompt:
-                raise HTTPException(400, "system_prompt 不能为空")
+            if not name_raw:
+                raise HTTPException(400, "名称不能为空")
+            if not description:
+                raise HTTPException(400, "描述不能为空")
+            new_key = _sanitize_persona_key(name_raw)
+            name = name_raw
 
             dir_path = ai_get_personas_dir()
 
