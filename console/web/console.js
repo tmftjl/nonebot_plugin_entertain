@@ -13,6 +13,7 @@ const state = {
   sortBy: 'days', sortDir: 'asc', filter: 'all', keyword: '',
   statsSort: 'total_desc', // total_desc | total_asc | bot_asc | bot_desc | group_desc | private_desc
   statsKeyword: '',
+  personas: {}, // {key: {name, description, system_prompt}}
   // 分页状态
   pagination: {
     currentPage: 1,
@@ -109,7 +110,154 @@ function switchTab(tab){
   else if(tab==='stats') loadStatsData();
   else if(tab==='permissions') loadPermissions();
   else if(tab==='config') loadConfig();
+  else if(tab==='personas') loadPersonas();
 }
+
+// ========== AI 人格管理 ==========
+async function apiPersonasList(){
+  return apiCall('/ai_chat/personas');
+}
+
+async function apiPersonaCreate(payload){
+  return apiCall('/ai_chat/persona', { method: 'POST', body: JSON.stringify(payload) });
+}
+
+async function apiPersonaUpdate(key, payload){
+  return apiCall(`/ai_chat/persona/${encodeURIComponent(key)}`, { method: 'PUT', body: JSON.stringify(payload) });
+}
+
+async function apiPersonaDelete(key){
+  return apiCall(`/ai_chat/persona/${encodeURIComponent(key)}`, { method: 'DELETE' });
+}
+
+async function loadPersonas(){
+  try{
+    showLoading(true);
+    const data = await apiPersonasList();
+    state.personas = (data && data.personas) || {};
+    renderPersonasTable();
+  }catch(e){
+    showToast(`加载人格失败: ${e.message||e}`, 'error');
+    const body=$('#personas-table-body'); if(body){ body.innerHTML = `<tr><td colspan="4" class="text-center">加载失败</td></tr>`; }
+  }finally{
+    showLoading(false);
+  }
+}
+
+function renderPersonasTable(){
+  const tbody = $('#personas-table-body');
+  if(!tbody) return;
+  const entries = Object.entries(state.personas||{});
+  if(entries.length===0){
+    tbody.innerHTML = `<tr><td colspan="4" class="text-center">暂无人格</td></tr>`;
+    return;
+  }
+  const html = entries.map(([key, p])=>{
+    const name = (p && p.name) || '';
+    const desc = (p && p.description) || '';
+    return `<tr>
+      <td>${escapeHtml(key)}</td>
+      <td>${escapeHtml(name)}</td>
+      <td>${escapeHtml(desc)}</td>
+      <td>
+        <button class="btn btn-secondary btn-sm persona-edit" data-key="${escapeHtml(key)}">编辑</button>
+        <button class="btn btn-danger btn-sm persona-delete" data-key="${escapeHtml(key)}">删除</button>
+      </td>
+    </tr>`;
+  }).join('');
+  tbody.innerHTML = html;
+}
+
+let personaModalMode = 'create'; // 'create' | 'edit'
+let personaEditingKey = '';
+
+function openPersonaModal(mode='create', key=''){
+  personaModalMode = mode;
+  personaEditingKey = key || '';
+  const modal = $('#persona-modal'); if(!modal) return;
+  $('#persona-modal-title').textContent = mode==='edit' ? '编辑人格' : '新增人格';
+  const keyInput = $('#persona-key');
+  const nameInput = $('#persona-name');
+  const descInput = $('#persona-description');
+  const spInput = $('#persona-system-prompt');
+  if(mode==='edit' && key && state.personas[key]){
+    const p = state.personas[key];
+    keyInput.value = key;
+    nameInput.value = p.name || '';
+    descInput.value = p.description || '';
+    spInput.value = p.system_prompt || '';
+  }else{
+    keyInput.value = '';
+    nameInput.value = '';
+    descInput.value = '';
+    spInput.value = '';
+  }
+  modal.classList.remove('hidden');
+}
+
+function closePersonaModal(){
+  const modal = $('#persona-modal'); if(!modal) return;
+  modal.classList.add('hidden');
+}
+
+async function savePersonaFromModal(){
+  const key = ($('#persona-key')?.value||'').trim();
+  const name = ($('#persona-name')?.value||'').trim();
+  const description = ($('#persona-description')?.value||'').trim();
+  const system_prompt = ($('#persona-system-prompt')?.value||'').trim();
+  if(!key){ showToast('人格代号不能为空', 'warning'); return; }
+  if(!system_prompt){ showToast('系统提示词不能为空', 'warning'); return; }
+  try{
+    showLoading(true);
+    if(personaModalMode==='edit'){
+      const payload = { name, description, system_prompt };
+      if(key !== personaEditingKey){ payload.new_key = key; }
+      await apiPersonaUpdate(personaEditingKey, payload);
+      showToast('人格已更新', 'success');
+    }else{
+      await apiPersonaCreate({ key, name, description, system_prompt });
+      showToast('人格已创建', 'success');
+    }
+    closePersonaModal();
+    await loadPersonas();
+  }catch(e){
+    showToast(`保存失败: ${e.message||e}`, 'error');
+  }finally{
+    showLoading(false);
+  }
+}
+
+// 事件绑定（人格）
+document.addEventListener('click', async (e)=>{
+  const t = e.target;
+  if(!(t instanceof Element)) return;
+  if(t.matches('#persona-create-open')){
+    openPersonaModal('create');
+  }else if(t.matches('#persona-refresh-btn')){
+    loadPersonas();
+  }else if(t.matches('#persona-close') || t.matches('#persona-cancel')){
+    closePersonaModal();
+  }else if(t.matches('#persona-save')){
+    await savePersonaFromModal();
+  }else if(t.matches('.persona-edit')){
+    const key = t.getAttribute('data-key')||'';
+    openPersonaModal('edit', key);
+  }else if(t.matches('.persona-delete')){
+    const key = t.getAttribute('data-key')||'';
+    if(!key) return;
+    if(!confirm(`确认删除人格 "${key}" ?`)) return;
+    try{
+      showLoading(true);
+      await apiPersonaDelete(key);
+      showToast('已删除', 'success');
+      await loadPersonas();
+    }catch(err){
+      showToast(`删除失败: ${err.message||err}`, 'error');
+    }finally{
+      showLoading(false);
+    }
+  }
+});
 
 // 仪表盘
 async function loadDashboard(){

@@ -49,6 +49,10 @@
             <span class="nav-icon">🔐</span>
             <span class="nav-text">权限管理</span>
           </a>
+          <a href="#personas" class="nav-item" data-tab="personas">
+            <span class="nav-icon">🧠</span>
+            <span class="nav-text">人格管理</span>
+          </a>
           <a href="#config" class="nav-item" data-tab="config">
             <span class="nav-icon">⚙️</span>
             <span class="nav-text">配置管理</span>
@@ -243,6 +247,35 @@
           </div>
         </section>
 
+        <section id="tab-personas" class="tab-content">
+          <h2 class="page-title">AI 对话 · 人格管理</h2>
+
+          <div class="panel">
+            <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
+              <h3 class="panel-title">人格列表</h3>
+              <div class="toolbar-right">
+                <button id="persona-refresh-btn" class="btn btn-secondary">刷新</button>
+                <button id="persona-create-open" class="btn btn-primary">新增人格</button>
+              </div>
+            </div>
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>代号</th>
+                    <th>名称</th>
+                    <th>描述</th>
+                    <th style="width: 160px;">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="personas-table-body">
+                  <tr><td colspan="4" class="text-center">加载中...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
         <section id="tab-permissions" class="tab-content">
           <h2 class="page-title">权限管理中心</h2>
           <div class="panel">
@@ -403,6 +436,46 @@
       <div class="modal-footer">
         <button id="extend-cancel" class="btn btn-secondary">取消</button>
         <button id="extend-confirm" class="btn btn-primary">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="persona-modal" class="modal hidden">
+    <div class="modal-dialog modal-modern">
+      <div class="modal-header">
+        <div class="modal-header-content">
+          <div class="modal-icon">🧠</div>
+          <h3 class="modal-title" id="persona-modal-title">新增人格</h3>
+        </div>
+        <button id="persona-close" class="modal-close">✖</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group-modern">
+          <label class="form-label">
+            <span>人格代号</span>
+            <span class="label-hint" style="color: red;">*</span>
+          </label>
+          <input id="persona-key" class="form-input" placeholder="仅字母数字、下划线、连字符" />
+        </div>
+
+        <div class="form-group-modern">
+          <label class="form-label"><span>显示名称</span></label>
+          <input id="persona-name" class="form-input" placeholder="例如：默认助手" />
+        </div>
+
+        <div class="form-group-modern">
+          <label class="form-label"><span>描述</span></label>
+          <input id="persona-description" class="form-input" placeholder="一句话描述此人格" />
+        </div>
+
+        <div class="form-group-modern">
+          <label class="form-label"><span>系统提示词（System Prompt）</span></label>
+          <textarea id="persona-system-prompt" class="form-textarea" rows="10" placeholder="输入此人格的系统提示词..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="persona-cancel" class="btn btn-secondary">取消</button>
+        <button id="persona-save" class="btn btn-primary">保存</button>
       </div>
     </div>
   </div>

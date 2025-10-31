@@ -26,6 +26,19 @@ from .membership_service import (
     UNITS,
 )
 
+# === AI Chat personas (file-based) ===
+try:
+    # 延迟导入，避免在未安装/未启用 ai_chat 插件时报错
+    from ..plugins.ai_chat.config import (
+        get_personas as ai_get_personas,
+        get_personas_dir as ai_get_personas_dir,
+        reload_all as ai_reload_ai_configs,
+    )
+except Exception:
+    ai_get_personas = None  # type: ignore
+    ai_get_personas_dir = None  # type: ignore
+    ai_reload_ai_configs = None  # type: ignore
+
 
 def _extract_token(request: Request) -> str:
     """从请求中提取访问令牌：query/header/cookie."""
@@ -416,6 +429,133 @@ def setup_web_console() -> None:
                 return get_all_plugin_schemas()
             except Exception as e:
                 raise HTTPException(500, f"获取配置Schema失败: {e}")
+
+        # ==================== AI 对话：人格管理 ====================
+        @router.get("/ai_chat/personas")
+        async def api_ai_personas(_: dict = Depends(_auth)):
+            if not ai_get_personas:
+                raise HTTPException(500, "未找到 AI 对话模块，无法读取人格")
+            try:
+                personas = ai_get_personas() or {}
+                # 序列化
+                data: Dict[str, Dict[str, str]] = {}
+                for k, p in personas.items():
+                    try:
+                        data[k] = {
+                            "name": getattr(p, "name", "") or "",
+                            "description": getattr(p, "description", "") or "",
+                            "system_prompt": getattr(p, "system_prompt", "") or "",
+                        }
+                    except Exception:
+                        continue
+                return {"personas": data}
+            except Exception as e:
+                raise HTTPException(500, f"读取人格失败: {e}")
+
+        def _sanitize_persona_key(key: str) -> str:
+            s = (key or "").strip()
+            if not s:
+                raise HTTPException(400, "人格代号不能为空")
+            # 仅允许字母数字、下划线、连字符
+            import re as _re
+
+            if not _re.fullmatch(r"[A-Za-z0-9_\-]+", s):
+                raise HTTPException(400, "人格代号仅可包含字母数字、下划线或连字符")
+            return s
+
+        def _write_persona_file(dir_path: Path, key: str, name: str, description: str, system_prompt: str) -> None:
+            # 写入 Markdown（带 front matter）
+            content = (
+                f"---\nname: {name}\ndescription: {description}\n---\n\n{system_prompt}\n"
+            )
+            fp = dir_path / f"{key}.md"
+            fp.write_text(content, encoding="utf-8")
+
+        def _remove_persona_files(dir_path: Path, key: str) -> int:
+            removed = 0
+            for ext in (".md", ".txt", ".docx"):
+                p = dir_path / f"{key}{ext}"
+                try:
+                    if p.exists():
+                        p.unlink()
+                        removed += 1
+                except Exception:
+                    continue
+            return removed
+
+        @router.post("/ai_chat/persona")
+        async def api_ai_persona_create(payload: Dict[str, Any], _: dict = Depends(_auth)):
+            if not ai_get_personas_dir or not ai_reload_ai_configs:
+                raise HTTPException(500, "未找到 AI 对话模块，无法创建人格")
+            key = _sanitize_persona_key(str(payload.get("key") or ""))
+            name = str(payload.get("name") or "").strip() or key
+            description = str(payload.get("description") or "").strip()
+            system_prompt = str(payload.get("system_prompt") or "").strip()
+            if not system_prompt:
+                raise HTTPException(400, "system_prompt 不能为空")
+
+            dir_path = ai_get_personas_dir()
+            # 不允许覆盖已有同名（任意后缀）
+            for ext in (".md", ".txt", ".docx"):
+                if (dir_path / f"{key}{ext}").exists():
+                    raise HTTPException(400, "该人格代号已存在")
+
+            try:
+                _write_persona_file(dir_path, key, name, description, system_prompt)
+                # 重载到内存
+                ai_reload_ai_configs()
+                return {"success": True}
+            except Exception as e:
+                raise HTTPException(500, f"创建失败: {e}")
+
+        @router.put("/ai_chat/persona/{key}")
+        async def api_ai_persona_update(key: str, payload: Dict[str, Any], _: dict = Depends(_auth)):
+            if not ai_get_personas_dir or not ai_reload_ai_configs:
+                raise HTTPException(500, "未找到 AI 对话模块，无法更新人格")
+            old_key = _sanitize_persona_key(key)
+            new_key_raw = payload.get("new_key")
+            new_key = _sanitize_persona_key(str(new_key_raw)) if new_key_raw not in (None, "") else old_key
+            name = str(payload.get("name") or "").strip() or new_key
+            description = str(payload.get("description") or "").strip()
+            system_prompt = str(payload.get("system_prompt") or "").strip()
+            if not system_prompt:
+                raise HTTPException(400, "system_prompt 不能为空")
+
+            dir_path = ai_get_personas_dir()
+
+            # 若重命名，确保目标不存在
+            if new_key != old_key:
+                for ext in (".md", ".txt", ".docx"):
+                    if (dir_path / f"{new_key}{ext}").exists():
+                        raise HTTPException(400, "目标人格代号已存在")
+
+            # 先删除旧的任意后缀文件，避免同 stem 重复
+            _remove_persona_files(dir_path, old_key)
+            # 写入新文件
+            try:
+                _write_persona_file(dir_path, new_key, name, description, system_prompt)
+                ai_reload_ai_configs()
+                return {"success": True, "key": new_key}
+            except Exception as e:
+                raise HTTPException(500, f"更新失败: {e}")
+
+        @router.delete("/ai_chat/persona/{key}")
+        async def api_ai_persona_delete(key: str, _: dict = Depends(_auth)):
+            if not ai_get_personas_dir or not ai_reload_ai_configs:
+                raise HTTPException(500, "未找到 AI 对话模块，无法删除人格")
+            k = _sanitize_persona_key(key)
+            dir_path = ai_get_personas_dir()
+
+            try:
+                removed = _remove_persona_files(dir_path, k)
+                if removed <= 0:
+                    raise HTTPException(404, "未找到对应人格文件")
+                ai_reload_ai_configs()
+                return {"success": True}
+            except HTTPException:
+                raise
+            except Exception as e:
+                raise HTTPException(500, f"删除失败: {e}")
 
         # 数据
         @router.get("/data")
