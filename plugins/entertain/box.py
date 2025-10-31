@@ -59,12 +59,10 @@ async def _handle_box(
     event: MessageEvent,
     groups: Tuple[Optional[str]] = RegexGroup(),
 ) -> None:
-    logger.info("3333333333")
     # Determine target
     self_id = str(getattr(bot, "self_id", ""))
     target_id: Optional[str] = None
     group_id: Optional[str] = None
-    logger.info(event)
 
     # from @ mention (prefer)
     try:
@@ -90,7 +88,6 @@ async def _handle_box(
     # get group id when applicable
     if isinstance(event, GroupMessageEvent):
         group_id = str(event.group_id)
-    logger.info(target_id)
 
     # only-admin restriction
     if _cfg_get("only_admin") and isinstance(event, GroupMessageEvent):
@@ -156,7 +153,7 @@ async def _do_box(bot: Bot, *, target_id: str, group_id: Optional[str]) -> Messa
 
 async def _get_avatar_bytes(user_id: str) -> Optional[bytes]:
     cfg = cfg_box()
-    url_template = str(cfg.get("avatar_api_url") or "https://q4.qlogo.cn/headimg_dl?dst_uin={user_id}&spec=640")
+    url_template = str(cfg.get("avatar_api_url"))
     url = url_template.format(user_id=user_id)
     timeout_seconds = int(cfg.get("avatar_fetch_timeout") or 10)
 

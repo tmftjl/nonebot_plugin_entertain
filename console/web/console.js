@@ -13,7 +13,7 @@ const state = {
   sortBy: 'days', sortDir: 'asc', filter: 'all', keyword: '',
   statsSort: 'total_desc', // total_desc | total_asc | bot_asc | bot_desc | group_desc | private_desc
   statsKeyword: '',
-  personas: {}, // {key: {name, description, system_prompt}}
+  personas: {}, // {key: {name, details}}
   // 分页状态
   pagination: {
     currentPage: 1,
@@ -154,7 +154,7 @@ function renderPersonasTable(){
   }
   const html = entries.map(([key, p])=>{
     const name = (p && p.name) || '';
-    const desc = (p && p.description) || '';
+    const desc = (p && p.details) || '';
     return `<tr>
       <td>${escapeHtml(name)}</td>
       <td>
@@ -176,7 +176,7 @@ function openPersonaModal(mode='create', key=''){
   $('#persona-modal-title').textContent = mode==='edit' ? '编辑人格' : '新增人格';
   const keyInput = $('#persona-key');
   const nameInput = $('#persona-name');
-  const descInput = $('#persona-description');
+  const descInput = $('#persona-description'); // 作为详情使用
   const spInput = $('#persona-system-prompt');
   if(keyInput){ const g = keyInput.closest('.form-group-modern'); if(g) g.style.display='none'; }
   if(spInput){ const g2 = spInput.closest('.form-group-modern'); if(g2) g2.style.display='none'; }
@@ -184,13 +184,13 @@ function openPersonaModal(mode='create', key=''){
     const p = state.personas[key];
     keyInput.value = key;
     nameInput.value = p.name || '';
-    descInput.value = p.description || '';
-    spInput.value = p.system_prompt || '';
+    descInput.value = p.details || '';
+    if(spInput) spInput.value = '';
   }else{
     keyInput.value = '';
     nameInput.value = '';
     descInput.value = '';
-    spInput.value = '';
+    if(spInput) spInput.value = '';
   }
   modal.classList.remove('hidden');
 }
@@ -201,21 +201,18 @@ function closePersonaModal(){
 }
 
 async function savePersonaFromModal(){
-  const key = ($('#persona-key')?.value||'').trim();
   const name = ($('#persona-name')?.value||'').trim();
-  const description = ($('#persona-description')?.value||'').trim();
-  const system_prompt = ($('#persona-system-prompt')?.value||'').trim();
-  if(!key){ showToast('人格代号不能为空', 'warning'); return; }
-  if(!system_prompt){ showToast('系统提示词不能为空', 'warning'); return; }
+  const details = ($('#persona-description')?.value||'').trim();
+  if(!name){ showToast('名字不能为空', 'warning'); return; }
+  if(!details){ showToast('详情不能为空', 'warning'); return; }
   try{
     showLoading(true);
     if(personaModalMode==='edit'){
-      const payload = { name, description, system_prompt };
-      if(key !== personaEditingKey){ payload.new_key = key; }
+      const payload = { name, details };
       await apiPersonaUpdate(personaEditingKey, payload);
       showToast('人格已更新', 'success');
     }else{
-      await apiPersonaCreate({ key, name, description, system_prompt });
+      await apiPersonaCreate({ name, details });
       showToast('人格已创建', 'success');
     }
     closePersonaModal();
@@ -238,9 +235,6 @@ document.addEventListener('click', async (e)=>{
   }else if(t.matches('#persona-close') || t.matches('#persona-cancel')){
     closePersonaModal();
   }else if(t.matches('#persona-save')){
-    const name = ($('#persona-name')?.value||'').trim();
-    const ki = document.querySelector('#persona-key'); if(ki){ ki.value = name; }
-    const spi = document.querySelector('#persona-system-prompt'); if(spi && !spi.value){ spi.value = '.'; }
     await savePersonaFromModal();
   }else if(t.matches('.persona-edit')){
     const key = t.getAttribute('data-key')||'';

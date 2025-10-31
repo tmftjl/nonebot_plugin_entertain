@@ -291,7 +291,7 @@ async def handle_persona_list(event: MessageEvent):
 
     persona_lines = []
     for key, persona in personas.items():
-        persona_lines.append(f"- {key}: {persona.name} - {persona.description}")
+        persona_lines.append(f"- {persona.name}")
 
     info_text = f"🧠 可用人格列表\n━━━━━━━━━━━━━━━━\n" + "\n".join(persona_lines)
     await persona_list_cmd.finish(info_text)
@@ -319,10 +319,33 @@ async def handle_switch_persona(event: MessageEvent):
 
     persona_name = match.group(1).strip()
     personas = get_personas()
+    # 严格使用名字，不再兼容旧的代号/显示名混用
+    if persona_name not in personas:
+        available = ', '.join(sorted([p.name for p in personas.values()]))
+        await switch_persona_cmd.finish(f"人格不存在\n可用人格: {available}")
 
     if persona_name not in personas:
-        available = ", ".join(personas.keys())
-        await switch_persona_cmd.finish(f"人格不存在\n可用人格: {available}")
+
+        _k = None
+
+        for k, p in personas.items():
+
+            if p.name == persona_name:
+
+                _k = k
+
+                break
+
+        if _k:
+
+            persona_name = _k
+
+        else:
+
+            available = ', '.join(sorted([p.name for p in personas.values()]))
+
+            await switch_persona_cmd.finish(f'人格不存在\n可用人格: {available}')
+
 
     session_id = get_session_id(event)
     await chat_manager.set_persona(session_id, persona_name)
