@@ -3,29 +3,29 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>浠婃睈绠＄悊鎺у埗鍙?/title>
+  <title>今汐管理控制台</title>
   <link rel="stylesheet" href="static/console.css">
 </head>
 <body>
   <div id="toast-container"></div>
   <div id="loading-overlay" class="hidden">
     <div class="spinner"></div>
-    <div class="loading-text">鍔犺浇涓?..</div>
+    <div class="loading-text">加载中...</div>
   </div>
 
   <div id="app">
     <header class="top-bar">
       <div class="top-bar-left">
         <h1 class="logo">
-          <span class="logo-text">浠婃睈鎺у埗鍙?/span>
+          <span class="logo-text">今汐控制台</span>
         </h1>
       </div>
       <div class="top-bar-right">
         <button id="theme-toggle" class="icon-btn">
-          <span class="icon">馃寵</span>
+          <span class="icon">🌙</span>
         </button>
         <button id="refresh-btn" class="icon-btn">
-          <span class="icon">馃攧</span>
+          <span class="icon">🔄</span>
         </button>
       </div>
     </header>
@@ -34,61 +34,61 @@
       <aside class="sidebar">
         <nav class="nav-menu">
           <a href="#dashboard" class="nav-item active" data-tab="dashboard">
-            <span class="nav-icon">馃搳</span>
-            <span class="nav-text">浠〃鐩?/span>
+            <span class="nav-icon">📊</span>
+            <span class="nav-text">仪表盘</span>
           </a>
           <a href="#renewal" class="nav-item" data-tab="renewal">
-            <span class="nav-icon">馃挵</span>
-            <span class="nav-text">浼氬憳缁垂</span>
+            <span class="nav-icon">💰</span>
+            <span class="nav-text">会员续费</span>
           </a>
           <a href="#stats" class="nav-item" data-tab="stats">
-            <span class="nav-icon">馃搱</span>
-            <span class="nav-text">娑堟伅缁熻</span>
+            <span class="nav-icon">📈</span>
+            <span class="nav-text">消息统计</span>
           </a>
           <a href="#permissions" class="nav-item" data-tab="permissions">
-            <span class="nav-icon">馃攼</span>
-            <span class="nav-text">鏉冮檺绠＄悊</span>
+            <span class="nav-icon">🔐</span>
+            <span class="nav-text">权限管理</span>
           </a>
           <a href="#personas" class="nav-item" data-tab="personas">
-            <span class="nav-icon">馃</span>
-            <span class="nav-text">浜烘牸绠＄悊</span>
+            <span class="nav-icon">🧠</span>
+            <span class="nav-text">人格管理</span>
           </a>
           <a href="#config" class="nav-item" data-tab="config">
-            <span class="nav-icon">鈿欙笍</span>
-            <span class="nav-text">閰嶇疆绠＄悊</span>
+            <span class="nav-icon">⚙️</span>
+            <span class="nav-text">配置管理</span>
           </a>
         </nav>
       </aside>
 
       <main class="content-area">
         <section id="tab-dashboard" class="tab-content active">
-          <h2 class="page-title">浠〃鐩樻€昏</h2>
+          <h2 class="page-title">仪表盘总览</h2>
           <div class="stats-cards-compact">
             <div class="stat-card-compact">
-              <div class="stat-icon-compact">馃懃</div>
+              <div class="stat-icon-compact">👥</div>
               <div class="stat-info-compact">
-                <div class="stat-label-compact">娲昏穬缇ょ粍</div>
+                <div class="stat-label-compact">活跃群组</div>
                 <div id="stat-active-groups" class="stat-value-compact">-</div>
               </div>
             </div>
             <div class="stat-card-compact success">
-              <div class="stat-icon-compact">馃拵</div>
+              <div class="stat-icon-compact">💎</div>
               <div class="stat-info-compact">
-                <div class="stat-label-compact">鏈夋晥浼氬憳</div>
+                <div class="stat-label-compact">有效会员</div>
                 <div id="stat-valid-members" class="stat-value-compact">-</div>
               </div>
             </div>
             <div class="stat-card-compact warning">
-              <div class="stat-icon-compact">鈿狅笍</div>
+              <div class="stat-icon-compact">⚠️</div>
               <div class="stat-info-compact">
-                <div class="stat-label-compact">鍗冲皢鍒版湡</div>
+                <div class="stat-label-compact">即将到期</div>
                 <div id="stat-expiring-soon" class="stat-value-compact">-</div>
               </div>
             </div>
             <div class="stat-card-compact danger">
-              <div class="stat-icon-compact">鈴?/div>
+              <div class="stat-icon-compact">⏰</div>
               <div class="stat-info-compact">
-                <div class="stat-label-compact">宸插埌鏈?/div>
+                <div class="stat-label-compact">已到期</div>
                 <div id="stat-expired" class="stat-value-compact">-</div>
               </div>
             </div>
@@ -96,23 +96,23 @@
         </section>
 
         <section id="tab-renewal" class="tab-content">
-          <h2 class="page-title">浼氬憳缁垂绠＄悊</h2>
+          <h2 class="page-title">会员续费管理</h2>
 
           <div class="panel">
             <div class="panel-header">
               <div class="toolbar" style="display: flex; justify-content: space-between; align-items: center;">
                 <div style="display: flex; gap: 10px;">
-                  <button id="notify-open-btn" class="btn btn-secondary btn-sm">閫氱煡</button>
-                  <button id="manual-open-btn" class="btn btn-primary btn-sm">鏂板/缂栬緫</button>
+                  <button id="notify-open-btn" class="btn btn-secondary btn-sm">通知</button>
+                  <button id="manual-open-btn" class="btn btn-primary btn-sm">新增/编辑</button>
                 </div>
                 <div style="display: flex; gap: 10px;">
-                  <input id="group-search" class="input" placeholder="鎼滅储缇ゅ彿...">
+                  <input id="group-search" class="input" placeholder="搜索群号...">
                   <select id="status-filter" class="input">
-                    <option value="all">鍏ㄩ儴鐘舵€?/option>
-                    <option value="active">鏈夋晥</option>
-                    <option value="soon">鍗冲皢鍒版湡</option>
-                    <option value="today">浠婃棩鍒版湡</option>
-                    <option value="expired">宸插埌鏈?/option>
+                    <option value="all">全部状态</option>
+                    <option value="active">有效</option>
+                    <option value="soon">即将到期</option>
+                    <option value="today">今日到期</option>
+                    <option value="expired">已到期</option>
                   </select>
                 </div>
               </div>
@@ -122,38 +122,38 @@
                 <thead>
                   <tr>
                     <th><input type="checkbox" id="select-all"></th>
-                    <th data-sort="group">缇ゅ彿</th>
-                    <th data-sort="status">鐘舵€?/th>
-                    <th data-sort="expiry">鍒版湡鏃堕棿</th>
-                    <th data-sort="days">鍓╀綑澶╂暟</th>
-                    <th>鎿嶄綔</th>
+                    <th data-sort="group">群号</th>
+                    <th data-sort="status">状态</th>
+                    <th data-sort="expiry">到期时间</th>
+                    <th data-sort="days">剩余天数</th>
+                    <th>操作</th>
                   </tr>
                 </thead>
                 <tbody id="groups-table-body">
-                  <tr><td colspan="6" class="text-center">鍔犺浇涓?..</td></tr>
+                  <tr><td colspan="6" class="text-center">加载中...</td></tr>
                 </tbody>
               </table>
               <div id="groups-pagination" class="pagination-container">
                 <div class="pagination-info">
-                  <span id="pagination-info-text">鍏?0 鏉¤褰?/span>
+                  <span id="pagination-info-text">共 0 条记录</span>
                 </div>
                 <div class="pagination-controls">
-                  <button id="pagination-first" class="pagination-btn">鈴?/button>
-                  <button id="pagination-prev" class="pagination-btn">鈼€</button>
+                  <button id="pagination-first" class="pagination-btn">⏮</button>
+                  <button id="pagination-prev" class="pagination-btn">◀</button>
                   <span id="pagination-pages" class="pagination-pages"></span>
-                  <button id="pagination-next" class="pagination-btn">鈻?/button>
-                  <button id="pagination-last" class="pagination-btn">鈴?/button>
+                  <button id="pagination-next" class="pagination-btn">▶</button>
+                  <button id="pagination-last" class="pagination-btn">⏭</button>
                 </div>
                 <div class="pagination-size">
                   <label>
-                    <span>姣忛〉</span>
+                    <span>每页</span>
                     <select id="pagination-size-select" class="pagination-size-select">
                       <option value="10">10</option>
                       <option value="20" selected>20</option>
                       <option value="50">50</option>
                       <option value="100">100</option>
                     </select>
-                    <span>鏉?/span>
+                    <span>条</span>
                   </label>
                 </div>
               </div>
@@ -162,34 +162,34 @@
           
           <div class="panel">
             <div class="panel-header">
-              <h3 class="panel-title">缁垂鐮佺鐞?/h3>
+              <h3 class="panel-title">续费码管理</h3>
             </div>
             <div class="panel-body">
               <div class="renewal-generate-section">
-                <h4 class="section-subtitle">鐢熸垚鏂扮画璐圭爜</h4>
+                <h4 class="section-subtitle">生成新续费码</h4>
                 <div class="toolbar">
                   <label>
-                    <span>鏃堕暱</span>
+                    <span>时长</span>
                     <input id="renewal-length" type="number" min="1" value="30" class="form-input-sm">
                   </label>
                   <label>
-                    <span>鍗曚綅</span>
+                    <span>单位</span>
                     <select id="renewal-unit" class="form-select-sm">
-                      <option value="澶?>澶?/option>
-                      <option value="鏈?>鏈?/option>
-                      <option value="骞?>骞?/option>
+                      <option value="天">天</option>
+                      <option value="月">月</option>
+                      <option value="年">年</option>
                     </select>
                   </label>
-                  <button id="generate-code-btn" class="btn btn-primary btn-sm">鐢熸垚</button>
+                  <button id="generate-code-btn" class="btn btn-primary btn-sm">生成</button>
                 </div>
               </div>
 
               <div class="divider"></div>
 
               <div class="renewal-codes-section">
-                <h4 class="section-subtitle">寰呬娇鐢ㄧ殑缁垂鐮?/h4>
+                <h4 class="section-subtitle">待使用的续费码</h4>
                 <div id="codes-list" class="codes-grid">
-                  <div class="empty-state">鏆傛棤寰呬娇鐢ㄧ殑缁垂鐮?/div>
+                  <div class="empty-state">暂无待使用的续费码</div>
                 </div>
               </div>
             </div>
@@ -197,41 +197,41 @@
         </section>
 
         <section id="tab-stats" class="tab-content">
-          <h2 class="page-title">娑堟伅缁熻鍒嗘瀽</h2>
+          <h2 class="page-title">消息统计分析</h2>
 
           <div class="stats-overview-compact">
             <div class="stat-box-compact">
-              <div class="stat-box-icon">馃摠</div>
+              <div class="stat-box-icon">📨</div>
               <div class="stat-box-info">
-                <div class="stat-box-label">浠婃棩鎬绘秷鎭?/div>
+                <div class="stat-box-label">今日总消息</div>
                 <div id="stats-today-total" class="stat-box-value">-</div>
               </div>
             </div>
             <div class="stat-box-compact">
-              <div class="stat-box-icon">馃懃</div>
+              <div class="stat-box-icon">👥</div>
               <div class="stat-box-info">
-                <div class="stat-box-label">缇よ亰娑堟伅</div>
+                <div class="stat-box-label">群聊消息</div>
                 <div id="stats-group-total" class="stat-box-value">-</div>
               </div>
             </div>
             <div class="stat-box-compact">
-              <div class="stat-box-icon">馃挰</div>
+              <div class="stat-box-icon">💬</div>
               <div class="stat-box-info">
-                <div class="stat-box-label">绉佽亰娑堟伅</div>
+                <div class="stat-box-label">私聊消息</div>
                 <div id="stats-private-total" class="stat-box-value">-</div>
               </div>
             </div>
             <div class="stat-box-compact">
-              <div class="stat-box-icon">馃懃</div>
+              <div class="stat-box-icon">👥</div>
               <div class="stat-box-info">
-                <div class="stat-box-label">缇よ亰鏁?/div>
+                <div class="stat-box-label">群聊数</div>
                 <div id="stats-group-count" class="stat-box-value">-</div>
               </div>
             </div>
             <div class="stat-box-compact">
-              <div class="stat-box-icon">馃挰</div>
+              <div class="stat-box-icon">💬</div>
               <div class="stat-box-info">
-                <div class="stat-box-label">绉佽亰浜烘暟</div>
+                <div class="stat-box-label">私聊人数</div>
                 <div id="stats-private-count" class="stat-box-value">-</div>
               </div>
             </div>
@@ -239,35 +239,35 @@
 
           <div class="panel">
             <div class="panel-header">
-              <h3 class="panel-title">Bot鏄庣粏鏁版嵁</h3>
+              <h3 class="panel-title">Bot明细数据</h3>
             </div>
             <div id="stats-bots-accordion" class="stats-accordion">
-              <div class="empty-state">鏆傛棤鏁版嵁</div>
+              <div class="empty-state">暂无数据</div>
             </div>
           </div>
         </section>
 
         <section id="tab-personas" class="tab-content">
-          <h2 class="page-title">AI 瀵硅瘽 路 浜烘牸绠＄悊</h2>
+          <h2 class="page-title">AI 对话 · 人格管理</h2>
 
           <div class="panel">
             <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
-              <h3 class="panel-title">浜烘牸鍒楄〃</h3>
+              <h3 class="panel-title">人格列表</h3>
               <div class="toolbar-right">
-                <button id="persona-refresh-btn" class="btn btn-secondary">鍒锋柊</button>
-                <button id="persona-create-open" class="btn btn-primary">鏂板浜烘牸</button>
+                <button id="persona-refresh-btn" class="btn btn-secondary">刷新</button>
+                <button id="persona-create-open" class="btn btn-primary">新增人格</button>
               </div>
             </div>
             <div class="table-container">
               <table class="data-table">
                 <thead>
                   <tr>
-                    <th>鍚嶇О</th>
-                    <th style="width: 160px;">鎿嶄綔</th>
+                    <th>名称</th>
+                    <th style="width: 160px;">操作</th>
                   </tr>
                 </thead>
                 <tbody id="personas-table-body">
-                  <tr><td colspan="4" class="text-center">鍔犺浇涓?..</td></tr>
+                  <tr><td colspan="4" class="text-center">加载中...</td></tr>
                 </tbody>
               </table>
             </div>
@@ -275,13 +275,13 @@
         </section>
 
         <section id="tab-permissions" class="tab-content">
-          <h2 class="page-title">鏉冮檺绠＄悊涓績</h2>
+          <h2 class="page-title">权限管理中心</h2>
           <div class="panel">
             <div class="panel-header">
-              <h3 class="panel-title">鏉冮檺閰嶇疆</h3>
+              <h3 class="panel-title">权限配置</h3>
               <div class="toolbar-right">
-                <button id="open-permissions-json-btn" class="btn btn-secondary">缂栬緫JSON</button>
-                <button id="save-permissions-btn" class="btn btn-primary">淇濆瓨閰嶇疆</button>
+                <button id="open-permissions-json-btn" class="btn btn-secondary">编辑JSON</button>
+                <button id="save-permissions-btn" class="btn btn-primary">保存配置</button>
               </div>
             </div>
             <div id="permissions-list" class="perm-accordion"></div>
@@ -289,19 +289,19 @@
         </section>
 
         <section id="tab-config" class="tab-content">
-          <h2 class="page-title">閰嶇疆绠＄悊涓績</h2>
+          <h2 class="page-title">配置管理中心</h2>
 
           <div class="config-panel">
             <div id="config-tabs-nav" class="config-tabs-nav">
-              <div class="empty-state">姝ｅ湪鍔犺浇閰嶇疆...</div>
+              <div class="empty-state">正在加载配置...</div>
             </div>
 
             <div id="config-tabs-content" class="config-tabs-content">
-              <div class="empty-state">璇烽€夋嫨涓€涓厤缃」</div>
+              <div class="empty-state">请选择一个配置项</div>
             </div>
 
             <div class="config-footer">
-              <button id="config-save-btn" class="btn btn-primary">淇濆瓨褰撳墠閰嶇疆</button>
+              <button id="config-save-btn" class="btn btn-primary">保存当前配置</button>
             </div>
           </div>
         </section>
@@ -312,15 +312,15 @@
   <div id="perm-json-modal" class="modal hidden">
     <div class="modal-dialog">
       <div class="modal-header">
-        <h3 class="panel-title">缂栬緫鏉冮檺JSON</h3>
-        <button id="perm-json-close" class="modal-close">鉁?/button>
+        <h3 class="panel-title">编辑权限JSON</h3>
+        <button id="perm-json-close" class="modal-close">✖</button>
       </div>
       <div class="modal-body">
-        <textarea id="permissions-json" class="json-editor" rows="20" placeholder="鍦ㄦ澶勭紪杈戞潈闄怞SON閰嶇疆..."></textarea>
+        <textarea id="permissions-json" class="json-editor" rows="20" placeholder="在此处编辑权限JSON配置..."></textarea>
       </div>
       <div class="modal-footer">
-        <button id="perm-json-cancel" class="btn btn-secondary">鍙栨秷</button>
-        <button id="perm-json-save" class="btn btn-primary">淇濆瓨JSON</button>
+        <button id="perm-json-cancel" class="btn btn-secondary">取消</button>
+        <button id="perm-json-save" class="btn btn-primary">保存JSON</button>
       </div>
     </div>
   </div>
@@ -329,31 +329,31 @@
     <div class="modal-dialog modal-modern">
       <div class="modal-header">
         <div class="modal-header-content">
-          <div class="modal-icon">馃摚</div>
-          <h3 class="modal-title">鍙戦€侀€氱煡</h3>
+          <div class="modal-icon">📣</div>
+          <h3 class="modal-title">发送通知</h3>
         </div>
-        <button id="notify-close" class="modal-close">鉁?/button>
+        <button id="notify-close" class="modal-close">✖</button>
       </div>
       <div class="modal-body">
         <div class="info-badge">
-          <span class="info-label">宸查€夋嫨</span>
+          <span class="info-label">已选择</span>
           <span id="notify-selected-count" class="info-value">0</span>
-          <span class="info-label">涓兢</span>
+          <span class="info-label">个群</span>
         </div>
 
         <div class="form-group-modern">
           <label class="form-label">
-            <span class="label-icon">馃摑</span>
-            <span>娑堟伅鏂囨湰</span>
+            <span class="label-icon">📝</span>
+            <span>消息文本</span>
           </label>
-          <textarea id="notify-text" class="form-textarea" rows="6" placeholder="杈撳叆瑕佸彂閫佺殑娑堟伅鍐呭..."></textarea>
+          <textarea id="notify-text" class="form-textarea" rows="6" placeholder="输入要发送的消息内容..."></textarea>
         </div>
 
         <div class="form-group-modern">
           <label class="form-label">
-            <span class="label-icon">馃柤锔?/span>
-            <span>鍥剧墖闄勪欢</span>
-            <span class="label-hint">(鍙閫?</span>
+            <span class="label-icon">🖼️</span>
+            <span>图片附件</span>
+            <span class="label-hint">(可多选)</span>
           </label>
           <input type="file" id="notify-images" accept="image/*" multiple class="file-input" />
         </div>
@@ -361,8 +361,8 @@
         <div id="notify-image-previews" class="image-previews"></div>
       </div>
       <div class="modal-footer">
-        <button id="notify-cancel" class="btn btn-secondary">鍙栨秷</button>
-        <button id="notify-confirm" class="btn btn-primary">鍙戦€?/button>
+        <button id="notify-cancel" class="btn btn-secondary">取消</button>
+        <button id="notify-confirm" class="btn btn-primary">发送</button>
       </div>
     </div>
   </div>
@@ -371,69 +371,69 @@
     <div class="modal-dialog modal-modern">
       <div class="modal-header">
         <div class="modal-header-content">
-          <div class="modal-icon">馃洜</div>
-          <h3 class="modal-title" id="extend-modal-title">鏂板/淇敼缇?/h3>
+          <div class="modal-icon">🛠</div>
+          <h3 class="modal-title" id="extend-modal-title">新增/修改群</h3>
         </div>
-        <button id="extend-close" class="modal-close">鉁?/button>
+        <button id="extend-close" class="modal-close">✖</button>
       </div>
       <div class="modal-body">
         <div class="form-group-modern">
           <label class="form-label">
-            <span>缇ゅ彿</span>
+            <span>群号</span>
             <span class="label-hint" style="color: red;">*</span>
           </label>
-          <input id="extend-group-id" class="form-input" placeholder="杈撳叆缇ゅ彿锛堝繀濉級" />
+          <input id="extend-group-id" class="form-input" placeholder="输入群号（必填）" />
         </div>
 
         <div class="form-group-modern">
           <label class="form-label">
-            <span>鍒版湡鏃堕棿</span>
-            <span class="label-hint">(鏍煎紡: YYYY-MM-DD HH:mm:ss锛屾柊澧炴椂涓庣画璐规椂闀夸簩閫変竴蹇呭～)</span>
+            <span>到期时间</span>
+            <span class="label-hint">(格式: YYYY-MM-DD HH:mm:ss，新增时与续费时长二选一必填)</span>
           </label>
-          <input id="extend-expiry-date" class="form-input" type="datetime-local" placeholder="鍒版湡鏃堕棿" />
+          <input id="extend-expiry-date" class="form-input" type="datetime-local" placeholder="到期时间" />
         </div>
 
         <div class="form-group-modern">
           <label class="form-label">
-            <span>缁垂鏃堕暱</span>
-            <span class="label-hint">(蹇嵎鎿嶄綔锛屾柊澧炴椂涓庡埌鏈熸椂闂翠簩閫変竴蹇呭～)</span>
+            <span>续费时长</span>
+            <span class="label-hint">(快捷操作，新增时与到期时间二选一必填)</span>
           </label>
           <div class="input-group">
-            <input id="extend-length" class="form-input" type="number" min="0" value="0" placeholder="0琛ㄧず涓嶇画璐? />
+            <input id="extend-length" class="form-input" type="number" min="0" value="0" placeholder="0表示不续费" />
             <select id="extend-unit" class="form-select">
-              <option value="澶?>澶?/option>
-              <option value="鏈?>鏈?/option>
-              <option value="骞?>骞?/option>
+              <option value="天">天</option>
+              <option value="月">月</option>
+              <option value="年">年</option>
             </select>
           </div>
         </div>
 
         <div class="form-group-modern">
           <label class="form-label">
-            <span>绠＄悊Bot</span>
+            <span>管理Bot</span>
             <span class="label-hint" style="color: red;">*</span>
           </label>
-          <input id="extend-bot-id" class="form-input" placeholder="璇疯緭鍏ヨ浣跨敤鐨凚ot鑷紪鍙? />
+          <input id="extend-bot-id" class="form-input" placeholder="请输入要使用的Bot自编号" />
         </div>
 
         <div class="form-group-modern">
           <label class="form-label">
-            <span>缁垂浜?/span>
+            <span>续费人</span>
             <span class="label-hint" style="color: red;">*</span>
           </label>
-          <input id="extend-renewer" class="form-input" placeholder="濉啓鎿嶄綔浜?缁垂浜? />
+          <input id="extend-renewer" class="form-input" placeholder="填写操作人/续费人" />
         </div>
 
         <div class="form-group-modern">
-          <label class="form-label">澶囨敞</label>
-          <input id="extend-remark" class="form-input" placeholder="澶囨敞淇℃伅锛堝彲閫夛級" />
+          <label class="form-label">备注</label>
+          <input id="extend-remark" class="form-input" placeholder="备注信息（可选）" />
         </div>
 
         <div id="extend-current-info" class="info-text"></div>
       </div>
       <div class="modal-footer">
-        <button id="extend-cancel" class="btn btn-secondary">鍙栨秷</button>
-        <button id="extend-confirm" class="btn btn-primary">淇濆瓨</button>
+        <button id="extend-cancel" class="btn btn-secondary">取消</button>
+        <button id="extend-confirm" class="btn btn-primary">保存</button>
       </div>
     </div>
   </div>
@@ -442,38 +442,38 @@
     <div class="modal-dialog modal-modern">
       <div class="modal-header">
         <div class="modal-header-content">
-          <div class="modal-icon">馃</div>
-          <h3 class="modal-title" id="persona-modal-title">鏂板浜烘牸</h3>
+          <div class="modal-icon">🧠</div>
+          <h3 class="modal-title" id="persona-modal-title">新增人格</h3>
         </div>
-        <button id="persona-close" class="modal-close">鉁?/button>
+        <button id="persona-close" class="modal-close">✖</button>
       </div>
       <div class="modal-body">
         <div class="form-group-modern">
           <label class="form-label">
-            <span>浜烘牸浠ｅ彿</span>
+            <span>人格代号</span>
             <span class="label-hint" style="color: red;">*</span>
           </label>
-          <input id="persona-key" class="form-input" placeholder="浠呭瓧姣嶆暟瀛椼€佷笅鍒掔嚎銆佽繛瀛楃" />
+          <input id="persona-key" class="form-input" placeholder="仅字母数字、下划线、连字符" />
         </div>
 
         <div class="form-group-modern">
-          <label class="form-label"><span>鍚嶇О</span></label>
-          <input id="persona-name" class="form-input" placeholder="渚嬪锛氶粯璁ゅ姪鎵? />
+          <label class="form-label"><span>显示名称</span></label>
+          <input id="persona-name" class="form-input" placeholder="例如：默认助手" />
         </div>
 
         <div class="form-group-modern">
-          <label class="form-label"><span>璇︾粏</span></label>
-          <input id="persona-description" class="form-input" placeholder="涓€鍙ヨ瘽鎻忚堪姝や汉鏍? />
+          <label class="form-label"><span>描述</span></label>
+          <input id="persona-description" class="form-input" placeholder="一句话描述此人格" />
         </div>
 
         <div class="form-group-modern">
-          <label class="form-label"><span>绯荤粺鎻愮ず璇嶏紙System Prompt锛?/span></label>
-          <textarea id="persona-system-prompt" class="form-textarea" rows="10" placeholder="杈撳叆姝や汉鏍肩殑绯荤粺鎻愮ず璇?.."></textarea>
+          <label class="form-label"><span>系统提示词（System Prompt）</span></label>
+          <textarea id="persona-system-prompt" class="form-textarea" rows="10" placeholder="输入此人格的系统提示词..."></textarea>
         </div>
       </div>
       <div class="modal-footer">
-        <button id="persona-cancel" class="btn btn-secondary">鍙栨秷</button>
-        <button id="persona-save" class="btn btn-primary">淇濆瓨</button>
+        <button id="persona-cancel" class="btn btn-secondary">取消</button>
+        <button id="persona-save" class="btn btn-primary">保存</button>
       </div>
     </div>
   </div>
@@ -481,6 +481,3 @@
   <script src="static/console.js"></script>
 </body>
 </html>
-
-
-
