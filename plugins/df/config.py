@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -22,12 +22,12 @@ DATA_DF_DIR = plugin_data_dir("df")
 
 DEFAULT_CFG: Dict[str, Any] = {
     "random_picture_open": True,
-    # DF 表情图库（戳一戳图片）仓库地址
+    # DF 琛ㄦ儏鍥惧簱锛堟埑涓€鎴冲浘鐗囷級浠撳簱鍦板潃
     "poke_repo": "https://cnb.cool/denfenglai/poke.git",
     "poke": {
         "chuo": True,
         "mode": "random",  # image | text | mix | random
-        "imageType": "all",  # 名称或 all
+        "imageType": "all",  # 鍚嶇О鎴?all
         "imageBlack": [],
         "textMode": "hitokoto",  # hitokoto | list
         "hitokoto_api": "https://v1.hitokoto.cn/?encode=text",
@@ -35,9 +35,9 @@ DEFAULT_CFG: Dict[str, Any] = {
     },
     "send_master": {
         "open": True,
-        "success": "已将信息转发给主人",
-        "failed": "发送失败，请稍后重试",
-        "reply_prefix": "主人回复：",
+        "success": "宸插皢淇℃伅杞彂缁欎富浜?,
+        "failed": "鍙戦€佸け璐ワ紝璇风◢鍚庨噸璇?,
+        "reply_prefix": "涓讳汉鍥炲锛?,
     },
     "api_urls": {
         "jk_api": "https://api.suyanw.cn/api/jk.php",
@@ -45,13 +45,7 @@ DEFAULT_CFG: Dict[str, Any] = {
         "lsp_api": "https://api.suyanw.cn/api/lsp.php",
         "zd_api": "https://imgapi.cn/api.php?zd=302&fl=meizi&gs=json",
         "fallback_api": "https://ciallo.hxxn.cc/?name={name}",
-    },
-    "api_timeouts": {
-        "picture_timeout": 15,
-        "poke_timeout": 10,
-    },
-}
-
+    }\r\n
 
 def _validate_cfg(cfg: Dict[str, Any]) -> None:
     def _type(name: str, exp, cond=True):
@@ -93,112 +87,107 @@ def _validate_cfg(cfg: Dict[str, Any]) -> None:
             if k in sm and not isinstance(sm[k], str):
                 raise ValueError(f"send_master.{k} must be str")
 
-    # 验证新增的 api_urls
+    # 楠岃瘉鏂板鐨?api_urls
     api_urls = cfg.get("api_urls", {})
     if api_urls and not isinstance(api_urls, dict):
         raise ValueError("api_urls must be object")
 
-    # 验证新增的 api_timeouts
-    api_timeouts = cfg.get("api_timeouts", {})
-    if api_timeouts and not isinstance(api_timeouts, dict):
-        raise ValueError("api_timeouts must be object")
-
-# 注册插件配置
+# 娉ㄥ唽鎻掍欢閰嶇疆
 REG = register_plugin_config("df", DEFAULT_CFG, validator=_validate_cfg)
 
-# 模块级缓存
+# 妯″潡绾х紦瀛?
 _CACHED: Dict[str, Any] = REG.load()
 
 
 def reload_cache() -> None:
-    """重新加载配置到模块级缓存，供框架重载配置时调用。"""
+    """閲嶆柊鍔犺浇閰嶇疆鍒版ā鍧楃骇缂撳瓨锛屼緵妗嗘灦閲嶈浇閰嶇疆鏃惰皟鐢ㄣ€?""
     global _CACHED
     _CACHED = REG.load()
     from nonebot import logger
-    logger.info(f"[DF] 配置已重载: send_master.success = {_CACHED.get('send_master', {}).get('success', '未设置')}")
+    logger.info(f"[DF] 閰嶇疆宸查噸杞? send_master.success = {_CACHED.get('send_master', {}).get('success', '鏈缃?)}")
 
 
-# 注册重载回调
+# 娉ㄥ唽閲嶈浇鍥炶皟
 register_reload_callback("df", reload_cache)
 
 # Schema for frontend (Chinese labels and help)
 DF_SCHEMA: Dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
-    "title": "DF 插件配置",
+    "title": "DF 鎻掍欢閰嶇疆",
     "properties": {
         "random_picture_open": {
             "type": "boolean",
-            "title": "启用随机图片",
-            "description": "启用后响应‘来张/看看/随机 + 关键词’等随机图片命令，以及本地表情库",
+            "title": "鍚敤闅忔満鍥剧墖",
+            "description": "鍚敤鍚庡搷搴斺€樻潵寮?鐪嬬湅/闅忔満 + 鍏抽敭璇嶁€欑瓑闅忔満鍥剧墖鍛戒护锛屼互鍙婃湰鍦拌〃鎯呭簱",
             "default": True,
-            "x-group": "随机图片",
+            "x-group": "闅忔満鍥剧墖",
             "x-order": 1,
         },
         "poke_repo": {
             "type": "string",
-            "title": "表情图库仓库",
-            "description": "DF 表情图库（戳一戳图片）Git 仓库地址，用于更新本地资源",
+            "title": "琛ㄦ儏鍥惧簱浠撳簱",
+            "description": "DF 琛ㄦ儏鍥惧簱锛堟埑涓€鎴冲浘鐗囷級Git 浠撳簱鍦板潃锛岀敤浜庢洿鏂版湰鍦拌祫婧?,
             "default": "https://cnb.cool/denfenglai/poke.git",
-            "x-group": "随机图片",
+            "x-group": "闅忔満鍥剧墖",
             "x-order": 2,
         },
         "poke": {
             "type": "object",
-            "title": "戳一戳回复",
-            "description": "配置收到戳一戳时的图片/文本回复策略",
-            "x-group": "戳一戳",
+            "title": "鎴充竴鎴冲洖澶?,
+            "description": "閰嶇疆鏀跺埌鎴充竴鎴虫椂鐨勫浘鐗?鏂囨湰鍥炲绛栫暐",
+            "x-group": "鎴充竴鎴?,
             "x-order": 10,
             "properties": {
                 "chuo": {
                     "type": "boolean",
-                    "title": "启用戳一戳",
-                    "description": "是否响应戳一戳事件",
+                    "title": "鍚敤鎴充竴鎴?,
+                    "description": "鏄惁鍝嶅簲鎴充竴鎴充簨浠?,
                     "default": True,
                     "x-order": 1,
                 },
                 "mode": {
                     "type": "string",
-                    "title": "回复模式",
-                    "description": "random=随机 image/text/mix 三种之一；image=仅图片；text=仅文本；mix=图文",
+                    "title": "鍥炲妯″紡",
+                    "description": "random=闅忔満 image/text/mix 涓夌涔嬩竴锛沬mage=浠呭浘鐗囷紱text=浠呮枃鏈紱mix=鍥炬枃",
                     "enum": ["random", "image", "text", "mix"],
                     "default": "random",
                     "x-order": 2,
                 },
                 "imageType": {
                     "type": "string",
-                    "title": "图片类型/表情名",
-                    "description": "all 表示任意本地表情；或指定某个表情目录名",
+                    "title": "鍥剧墖绫诲瀷/琛ㄦ儏鍚?,
+                    "description": "all 琛ㄧず浠绘剰鏈湴琛ㄦ儏锛涙垨鎸囧畾鏌愪釜琛ㄦ儏鐩綍鍚?,
                     "default": "all",
                     "x-order": 3,
                 },
                 "imageBlack": {
                     "type": "array",
-                    "title": "屏蔽表情",
-                    "description": "不参与随机的表情名称列表",
+                    "title": "灞忚斀琛ㄦ儏",
+                    "description": "涓嶅弬涓庨殢鏈虹殑琛ㄦ儏鍚嶇О鍒楄〃",
                     "items": {"type": "string"},
                     "default": [],
                     "x-order": 4,
                 },
                 "textMode": {
                     "type": "string",
-                    "title": "文本来源",
-                    "description": "hitokoto=随机一言; list=从自定义列表随机",
+                    "title": "鏂囨湰鏉ユ簮",
+                    "description": "hitokoto=闅忔満涓€瑷€; list=浠庤嚜瀹氫箟鍒楄〃闅忔満",
                     "enum": ["hitokoto", "list"],
                     "default": "hitokoto",
                     "x-order": 5,
                 },
                 "hitokoto_api": {
                     "type": "string",
-                    "title": "一言 API",
-                    "description": "当文本来源为 hitokoto 时调用的 API",
+                    "title": "涓€瑷€ API",
+                    "description": "褰撴枃鏈潵婧愪负 hitokoto 鏃惰皟鐢ㄧ殑 API",
                     "default": "https://v1.hitokoto.cn/?encode=text",
                     "x-order": 6,
                 },
                 "textList": {
                     "type": "array",
-                    "title": "自定义文本列表",
-                    "description": "当文本来源为 list 时，从该列表中随机选择",
+                    "title": "鑷畾涔夋枃鏈垪琛?,
+                    "description": "褰撴枃鏈潵婧愪负 list 鏃讹紝浠庤鍒楄〃涓殢鏈洪€夋嫨",
                     "items": {"type": "string"},
                     "default": [],
                     "x-order": 7,
@@ -207,117 +196,86 @@ DF_SCHEMA: Dict[str, Any] = {
         },
         "send_master": {
             "type": "object",
-            "title": "转发给主人",
-            "description": "部分命令的反馈将转发给主人账号，可配置频率与提示文字",
-            "x-group": "主人转发",
+            "title": "杞彂缁欎富浜?,
+            "description": "閮ㄥ垎鍛戒护鐨勫弽棣堝皢杞彂缁欎富浜鸿处鍙凤紝鍙厤缃鐜囦笌鎻愮ず鏂囧瓧",
+            "x-group": "涓讳汉杞彂",
             "x-order": 20,
             "properties": {
                 "open": {
                     "type": "boolean",
-                    "title": "启用",
-                    "description": "是否开启转发给主人",
+                    "title": "鍚敤",
+                    "description": "鏄惁寮€鍚浆鍙戠粰涓讳汉",
                     "default": True,
                     "x-order": 1,
                 },
                 "success": {
                     "type": "string",
-                    "title": "成功提示",
-                    "description": "转发成功时给用户的提示语",
-                    "default": "已将信息转发给主人",
+                    "title": "鎴愬姛鎻愮ず",
+                    "description": "杞彂鎴愬姛鏃剁粰鐢ㄦ埛鐨勬彁绀鸿",
+                    "default": "宸插皢淇℃伅杞彂缁欎富浜?,
                     "x-order": 2,
                 },
                 "failed": {
                     "type": "string",
-                    "title": "失败提示",
-                    "description": "转发失败时给用户的提示语",
-                    "default": "发送失败，请稍后重试",
+                    "title": "澶辫触鎻愮ず",
+                    "description": "杞彂澶辫触鏃剁粰鐢ㄦ埛鐨勬彁绀鸿",
+                    "default": "鍙戦€佸け璐ワ紝璇风◢鍚庨噸璇?,
                     "x-order": 3,
                 },
                 "reply_prefix": {
                     "type": "string",
-                    "title": "回复前缀",
-                    "description": "主人回复用户时的前缀文字",
-                    "default": "主人回复：",
+                    "title": "鍥炲鍓嶇紑",
+                    "description": "涓讳汉鍥炲鐢ㄦ埛鏃剁殑鍓嶇紑鏂囧瓧",
+                    "default": "涓讳汉鍥炲锛?,
                     "x-order": 4,
                 },
             },
         },
         "api_urls": {
             "type": "object",
-            "title": "API地址配置",
-            "description": "随机图片等功能使用的第三方API地址",
-            "x-group": "API配置",
+            "title": "API鍦板潃閰嶇疆",
+            "description": "闅忔満鍥剧墖绛夊姛鑳戒娇鐢ㄧ殑绗笁鏂笰PI鍦板潃",
+            "x-group": "API閰嶇疆",
             "x-order": 30,
             "x-collapse": True,
             "properties": {
                 "jk_api": {
                     "type": "string",
-                    "title": "JK图API",
-                    "description": "随机JK图片API地址",
+                    "title": "JK鍥続PI",
+                    "description": "闅忔満JK鍥剧墖API鍦板潃",
                     "default": "https://api.suyanw.cn/api/jk.php",
                     "x-order": 1,
                 },
                 "ql_api": {
                     "type": "string",
-                    "title": "清冷图API",
-                    "description": "随机清冷图片API地址",
+                    "title": "娓呭喎鍥続PI",
+                    "description": "闅忔満娓呭喎鍥剧墖API鍦板潃",
                     "default": "https://api.suyanw.cn/api/ql.php",
                     "x-order": 2,
                 },
                 "lsp_api": {
                     "type": "string",
-                    "title": "LSP图API",
-                    "description": "随机LSP图片API地址",
+                    "title": "LSP鍥続PI",
+                    "description": "闅忔満LSP鍥剧墖API鍦板潃",
                     "default": "https://api.suyanw.cn/api/lsp.php",
                     "x-order": 3,
                 },
                 "zd_api": {
                     "type": "string",
-                    "title": "指定图API",
-                    "description": "随机指定类型图片API地址",
+                    "title": "鎸囧畾鍥続PI",
+                    "description": "闅忔満鎸囧畾绫诲瀷鍥剧墖API鍦板潃",
                     "default": "https://imgapi.cn/api.php?zd=302&fl=meizi&gs=json",
                     "x-order": 4,
                 },
                 "fallback_api": {
                     "type": "string",
-                    "title": "备用图API",
-                    "description": "主API失败时的备用图片API，{name}会被替换为图片类型",
+                    "title": "澶囩敤鍥続PI",
+                    "description": "涓籄PI澶辫触鏃剁殑澶囩敤鍥剧墖API锛寋name}浼氳鏇挎崲涓哄浘鐗囩被鍨?,
                     "default": "https://ciallo.hxxn.cc/?name={name}",
                     "x-order": 5,
                 },
             },
-        },
-        "api_timeouts": {
-            "type": "object",
-            "title": "API超时设置",
-            "description": "各种API请求的超时时间(秒)",
-            "x-group": "API配置",
-            "x-order": 31,
-            "x-collapse": True,
-            "properties": {
-                "picture_timeout": {
-                    "type": "integer",
-                    "title": "图片请求超时",
-                    "description": "随机图片API请求超时时间(秒)",
-                    "default": 15,
-                    "minimum": 1,
-                    "maximum": 60,
-                    "x-order": 1,
-                },
-                "poke_timeout": {
-                    "type": "integer",
-                    "title": "戳一戳超时",
-                    "description": "戳一戳相关API请求超时时间(秒)",
-                    "default": 10,
-                    "minimum": 1,
-                    "maximum": 60,
-                    "x-order": 2,
-                },
-            },
-        },
-    },
-}
-
+        }\r\n
 try:
     register_plugin_schema("df", DF_SCHEMA)
 except Exception:
@@ -331,21 +289,21 @@ def ensure_dirs() -> None:
 
 
 def load_cfg() -> Dict[str, Any]:
-    """从模块级缓存读取配置。"""
+    """浠庢ā鍧楃骇缂撳瓨璇诲彇閰嶇疆銆?""
     ensure_dirs()
     return _CACHED
 
 
 def save_cfg(cfg: Dict[str, Any]) -> None:
-    """保存配置并更新模块级缓存。"""
+    """淇濆瓨閰嶇疆骞舵洿鏂版ā鍧楃骇缂撳瓨銆?""
     ensure_dirs()
     REG.save(cfg)
-    # 保存后立即更新缓存
+    # 淇濆瓨鍚庣珛鍗虫洿鏂扮紦瀛?
     reload_cache()
 
 
 def face_list() -> List[str]:
-    """返回 resource/df/poke 下可用的表情包名称列表。"""
+    """杩斿洖 resource/df/poke 涓嬪彲鐢ㄧ殑琛ㄦ儏鍖呭悕绉板垪琛ㄣ€?""
     ensure_dirs()
     names: List[str] = []
     try:
@@ -358,7 +316,7 @@ def face_list() -> List[str]:
 
 
 def random_local_image(face: str) -> Optional[Path]:
-    """从本地表情包目录随机选择一个文件路径，若不存在则返回 None。"""
+    """浠庢湰鍦拌〃鎯呭寘鐩綍闅忔満閫夋嫨涓€涓枃浠惰矾寰勶紝鑻ヤ笉瀛樺湪鍒欒繑鍥?None銆?""
     d = POKE_DIR / face
     if not d.exists() or not d.is_dir():
         return None
@@ -371,4 +329,8 @@ def random_local_image(face: str) -> Optional[Path]:
         return random.choice(files)
     except Exception:
         return None
+
+
+
+
 

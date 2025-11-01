@@ -1,4 +1,5 @@
-﻿from __future__ import annotations
+﻿from ..core.constants import DEFAULT_HTTP_TIMEOUT
+from __future__ import annotations
 
 from datetime import datetime, timezone
 import asyncio
@@ -301,7 +302,7 @@ def setup_web_console() -> None:
             stats_api_url = str(load_cfg().get("member_renewal_stats_api_url", "http://127.0.0.1:8000") or "http://127.0.0.1:8000").rstrip("/")
             try:
                 async with httpx.AsyncClient() as client:
-                    resp = await client.get(f"{stats_api_url}/stats/today", timeout=10.0)
+                    resp = await client.get(f"{stats_api_url}/stats/today", timeout=DEFAULT_HTTP_TIMEOUT)
                     resp.raise_for_status()
                     return resp.json()
             except Exception as e:
@@ -787,6 +788,7 @@ def setup_web_console() -> None:
         logger.info("member_renewal Web 控制台已挂载 /member_renewal")
     except Exception as e:
         logger.warning(f"member_renewal Web 控制台挂载失败: {e}")
+
 
 
 
