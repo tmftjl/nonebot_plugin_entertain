@@ -31,7 +31,7 @@ _JRYS_DATA: List[Dict[str, Any]] = []
 _USER_FORTUNES: Dict[str, Dict[str, Any]] = {}
 
 
-P = Plugin(name="entertain", display_name="濞变箰")
+P = Plugin(name="entertain", display_name="娱乐")
 
 
 # ---------- Fonts ----------
@@ -103,25 +103,26 @@ async def _on_shutdown():
 
 # ---------- Utils ----------
 def _num_to_chinese(num: int) -> str:
-    digits = "闆朵竴浜屼笁鍥涗簲鍏竷鍏節"
+    digits = "零一二三四五六七八九"
     if 1 <= num <= 9:
         return digits[num]
     if num == 10:
-        return "鍗?
+        return "十"
     if 10 < num < 20:
-        return "鍗? + digits[num % 10]
+        return "十" + digits[num % 10]
     if num % 10 == 0:
-        return digits[num // 10] + "鍗?
-    return digits[num // 10] + "鍗? + digits[num % 10]
+        return digits[num // 10] + "十"
+    return digits[num // 10] + "十" + digits[num % 10]
 
 
 async def _get_background_image() -> Image.Image | None:
     # Optional local API for random background
-    from .config import cfg_api_urls
-    urls = cfg_api_urls()`n    local_api_url = str(urls.get("background_api") or "http://127.0.0.1:1520/api/wuthering_waves/role_image/random")`n
+    from .config import cfg_api_urls, cfg_api_timeouts
+    urls = cfg_api_urls()
+    local_api_url = str(urls.get("background_api") )
     try:
         async with httpx.AsyncClient() as client:
-            resp = await client.get(local_api_url, timeout=DEFAULT_HTTP_TIMEOUT)
+            resp = await client.get(local_api_url, timeout=float(timeout))
             resp.raise_for_status()
             return Image.open(io.BytesIO(resp.content)).convert("RGBA")
     except Exception:
@@ -130,7 +131,7 @@ async def _get_background_image() -> Image.Image | None:
 
 def _sanitize_stars(s: str) -> str:
     # Keep only typical star characters
-    return "".join(ch for ch in (s or "") if ch in {"鈽?, "鈽?})
+    return "".join(ch for ch in (s or "") if ch in {"★", "☆"})
 
 
 def _draw_wrapped_text(text: str, max_chars: int) -> str:
@@ -172,9 +173,9 @@ def _draw_star_rating(
             ang = math.pi / 5 * i - math.pi / 2
             radius = star_size / 2 if i % 2 == 0 else star_size / 4
             vertices.append((cx + radius * math.cos(ang), y + radius * math.sin(ang)))
-        if ch == "鈽?:
+        if ch == "★":
             draw.polygon(vertices, fill=fill_color)
-        else:  # 鈽?hollow
+        else:  # ☆ hollow
             draw.polygon(vertices, outline=stroke_color, width=stroke_width)
         current_x += star_size + spacing
 
@@ -199,11 +200,11 @@ def _generate_fortune_canvas(
     color = (0, 0, 0, 220)
 
     day_str = _num_to_chinese(datetime.now().day)
-    title = f"{nickname} 鐨剓day_str}鏃ヨ繍鍔?
+    title = f"{nickname} 的{day_str}日运势"
     draw.text((cx, y), title, font=FONT_TINY, fill=color, anchor="mm")
     y += 80
 
-    summary = fortune.get("fortuneSummary", "浠婃棩杩愬娍")
+    summary = fortune.get("fortuneSummary", "今日运势")
     draw.text((cx, y), summary, font=FONT_LARGE, fill=color, anchor="mm")
     y += 120
 
@@ -224,7 +225,7 @@ def _generate_fortune_canvas(
     wrapped = _draw_wrapped_text(unsign_text, 22)
     draw.multiline_text((cx, y), wrapped, font=FONT_SMALL, fill=color, anchor="ma", spacing=15, align="center")
 
-    footer = "| 浠呬緵鍙傝€冿紝鍒囧嬁鎷樻偿 |"
+    footer = "| 仅供参考，切勿拘泥 |"
     draw.text((cx, CANVAS_HEIGHT - 50), footer, font=FONT_TINY, fill=(0, 0, 0, 150), anchor="mm")
 
     return bg
@@ -243,16 +244,16 @@ def _get_or_create_today_fortune(user_id: str) -> Tuple[Dict[str, Any], bool]:
     if rec and rec.get("time") == today:
         return rec, False
     if not _JRYS_DATA:
-        raise ValueError("杩愬娍搴撲负绌猴紝鏃犳硶鐢熸垚")
+        raise ValueError("运势库为空，无法生成")
     new_data = {"fortune": random.choice(_JRYS_DATA), "time": today}
     _USER_FORTUNES[user_id] = new_data
     return new_data, True
 
 
 fortune_cmd = P.on_regex(
-    r"^(#|/)(?:浠婃棩杩愬娍|杩愬娍|鎶界)$",
+    r"^(#|/)(?:今日运势|运势|抽签)$",
     name="today",
-    display_name="浠婃棩杩愬娍",
+    display_name="今日运势",
     priority=5,
     block=True,
 )
@@ -264,19 +265,16 @@ async def _(matcher: Matcher, event: MessageEvent):
     nickname = (
         getattr(event.sender, "card", None)
         or getattr(event.sender, "nickname", None)
-        or f"鐢ㄦ埛{user_id}"
+        or f"用户{user_id}"
     )
 
     try:
         data, _ = _get_or_create_today_fortune(user_id)
     except Exception as e:
-        await matcher.finish(f"鐢熸垚澶辫触锛歿e}")
+        await matcher.finish(f"生成失败：{e}")
 
     # Try to fetch background image
     bg_img = await _get_background_image()
     final_img = _generate_fortune_canvas(nickname, data, background=bg_img)
     image_seg = MessageSegment.image(_pil_to_base64_image(final_img))
     await matcher.finish(Message(image_seg))
-
-
-

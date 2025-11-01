@@ -60,17 +60,17 @@ USER_RESULTS: Dict[str, Tuple[Platform, List[Song]]] = {}
 
 
 # Regex definitions
-P = Plugin(name="entertain", display_name="濞变箰")
+P = Plugin(name="entertain", display_name="娱乐")
 search_matcher = P.on_regex(
-    r"^#鐐规瓕(?:(qq|閰风嫍|缃戞槗浜憒wyy|kugou|netease))?\s*(.*)$",
+    r"^#点歌(?:(qq|酷狗|网易云|wyy|kugou|netease))?\s*(.*)$",
     name="search",
-    display_name="鐐规瓕",
+    display_name="点歌",
     priority=5,
     block=True,
     flags=0,
 )
 
-select_matcher = P.on_regex(r"^#(\d+)$", name="select",display_name="閫夋嫨姝?, flags=0)
+select_matcher = P.on_regex(r"^#(\d+)$", name="select",display_name="选择歌", flags=0)
 
 
 def _platform_alias_to_key(alias: Optional[str]) -> Platform:
@@ -79,15 +79,15 @@ def _platform_alias_to_key(alias: Optional[str]) -> Platform:
     a = alias.lower()
     if a in {"qq"}:
         return "qq"
-    if a in {"閰风嫍", "kugou"}:
+    if a in {"酷狗", "kugou"}:
         return "kugou"
-    if a in {"缃戞槗浜?, "wyy", "netease"}:
+    if a in {"网易云", "wyy", "netease"}:
         return "wangyiyun"
     return "wangyiyun"
 
 
 def _platform_name_human(p: Platform) -> str:
-    return {"qq": "QQ闊充箰", "kugou": "閰风嫍闊充箰", "wangyiyun": "缃戞槗浜戦煶涔?}[p]
+    return {"qq": "QQ音乐", "kugou": "酷狗音乐", "wangyiyun": "网易云音乐"}[p]
 
 
 async def _search_songs(platform: Platform, keyword: str) -> List[Song]:
@@ -120,8 +120,8 @@ async def _lv_search_songs(platform: Platform, keyword: str) -> List[Song]:
         items = items or []
         results: List[Song] = []
         for item in items:
-            name = item.get("song") or "鏈煡姝屾洸"
-            artist = item.get("singer") or "鏈煡姝屾墜"
+            name = item.get("song") or "未知歌曲"
+            artist = item.get("singer") or "未知歌手"
             mid = item.get("mid")
             sid = item.get("id")
             cover = item.get("cover")
@@ -181,20 +181,20 @@ def _ffmpeg_path() -> Optional[str]:
 
 async def _download_audio_via_ffmpeg(url: str, name_hint: str) -> Optional[Path]:
     """
-    涓嬭浇闊抽/杞爜涓?mp3锛屽苟杩斿洖 NapCat 瀹瑰櫒鍐呭彲鐢ㄧ殑璺緞
+    下载音频/转码为 mp3，并返回 NapCat 容器内可用的路径
     """
     ffmpeg = _ffmpeg_path()
     if not ffmpeg:
         logger.error("FFmpeg not found in PATH and FFMPEG_BIN not set; cannot download locally.")
         return None
     logger.info(f"Found ffmpeg executable at: {ffmpeg}")
-    # 閫氱敤鍖栫殑杈撳嚭鐩綍锛氶粯璁や娇鐢ㄩ」鐩笅 data/temp/musicshare锛屽彲閫氳繃鐜鍙橀噺瑕嗙洊
+    # 通用化的输出目录：默认使用项目下 data/temp/musicshare，可通过环境变量覆盖
     host_base_path = Path(os.getenv("NPE_MUSIC_VOICE_DIR") or (Path.cwd() / "data" / "temp" / "musicshare"))
     container_base_env = os.getenv("NPE_CONTAINER_VOICE_DIR")
     container_base_path: Optional[Path] = Path(container_base_env) if container_base_env else None
 
     try:
-        # 纭繚涓绘満涓婄殑涓存椂鐩綍瀛樺湪
+        # 确保主机上的临时目录存在
         host_base_path.mkdir(parents=True, exist_ok=True)
     except Exception as e:
         logger.error(f"Failed to create temp directory on host {host_base_path}: {e}")
@@ -225,7 +225,7 @@ async def _download_audio_via_ffmpeg(url: str, name_hint: str) -> Optional[Path]
         ua,
         "-i",
         url,
-        # 杈撳嚭 MP3 骞惰缃噰鏍风巼/鐮佺巼
+        # 输出 MP3 并设置采样率/码率
         "-vn",
         "-acodec",
         "libmp3lame",
@@ -300,8 +300,8 @@ def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
 
 def _make_song_list_image_grid(platform: Platform, keyword: str, songs: List[Song]) -> bytes:
     """A cleaner two-column song list image without covers."""
-    title = f"涓轰綘鍦▄_platform_name_human(platform)}鎵惧埌浠ヤ笅姝屾洸"
-    subtitle = f"鍏抽敭璇? {keyword}"
+    title = f"为你在{_platform_name_human(platform)}找到以下歌曲"
+    subtitle = f"关键词: {keyword}"
 
     # Layout settings
     pad_x, pad_y = 28, 24
@@ -333,7 +333,7 @@ def _make_song_list_image_grid(platform: Platform, keyword: str, songs: List[Son
     columns = 2
     col_min_width = 420
     grid_width = max(columns * col_min_width + (columns - 1) * grid_gap_x, title_w, sub_w)
-    footer_text = "鍥炲搴忓彿鐐规瓕锛屼緥濡傦細1 鎴?#1"
+    footer_text = "回复序号点歌，例如：1 或 #1"
     footer_w, footer_h = text_size(footer_text, font_footer)
     grid_width = max(grid_width, footer_w)
 
@@ -341,7 +341,7 @@ def _make_song_list_image_grid(platform: Platform, keyword: str, songs: List[Son
     def wrap_to_width(text: str, font: ImageFont.ImageFont, max_w: int) -> str:
         if text_size(text, font)[0] <= max_w:
             return text
-        ell = "鈥?
+        ell = "…"
         lo, hi = 0, len(text)
         while lo < hi:
             mid = (lo + hi) // 2
@@ -428,19 +428,19 @@ async def _(matcher: Matcher, event: MessageEvent, groups: Tuple[Optional[str], 
     alias, keyword = groups
     keyword = (keyword or "").strip()
     if not keyword:
-        await matcher.finish("璇疯緭鍏ヨ鎼滅储鐨勬瓕鏇插悕锛屼緥濡傦細#鐐规瓕 鏅村ぉ")
+        await matcher.finish("请输入要搜索的歌曲名，例如：#点歌 晴天")
 
     platform = _platform_alias_to_key(alias)
     try:
         songs = await _lv_search_songs(platform, keyword)
     except Exception:
         logger.exception("search songs failed")
-        await matcher.finish("鎼滅储姝屾洸鏃跺彂鐢熼敊璇紝璇风◢鍚庡啀璇曘€?)
+        await matcher.finish("搜索歌曲时发生错误，请稍后再试。")
         return
 
     if not songs:
         await matcher.finish(
-            f"鍦ㄢ€渰_platform_name_human(platform)}鈥濇湭鎵惧埌鈥渰keyword}鈥濈浉鍏崇殑姝屾洸"
+            f"在“{_platform_name_human(platform)}”未找到“{keyword}”相关的歌曲"
         )
         return
 
@@ -456,36 +456,36 @@ async def _(matcher: Matcher, event: MessageEvent, groups: Tuple[Optional[str], 
 async def _(matcher: Matcher, event: MessageEvent, groups: Tuple[str] = RegexGroup()) -> None:
     user_id = event.get_user_id()
     if user_id not in USER_RESULTS:
-        await matcher.finish("鎮ㄧ殑鐐规瓕璁板綍宸茶繃鏈燂紝璇峰厛鎼滅储姝屾洸銆備緥濡傦細#鐐规瓕 鏅村ぉ")
+        await matcher.finish("您的点歌记录已过期，请先搜索歌曲。例如：#点歌 晴天")
         return
 
     index_str = groups[0]
     try:
         index = int(index_str) - 1
     except Exception:
-        await matcher.finish("鏃犳晥鐨勬瓕鏇插簭鍙凤紝璇锋鏌ュ悗閲嶈瘯銆?)
+        await matcher.finish("无效的歌曲序号，请检查后重试。")
         return
 
     platform, songs = USER_RESULTS[user_id]
     if index < 0 or index >= len(songs):
-        await matcher.finish("鏃犳晥鐨勬瓕鏇插簭鍙凤紝璇锋鏌ュ悗閲嶈瘯銆?)
+        await matcher.finish("无效的歌曲序号，请检查后重试。")
         return
 
     song = songs[index]
-    await matcher.send(f"姝ｅ湪鑾峰彇锛歿song.name} - {song.artist}锛岃绋嶇瓑...")
+    await matcher.send(f"正在获取：{song.name} - {song.artist}，请稍等...")
 
-    # 鍏堝皾璇曡繑鍥炵洿閾撅紙鑻ュけ璐ュ垯鍚庣画杩斿洖璺宠浆閾炬帴锛?
+    # 先尝试返回直链（若失败则后续返回跳转链接）
     audio_url = await _lv_resolve_audio_url(platform, song)
 
-    # 鑻ュ凡杞爜骞剁敓鎴愬彲鐢ㄦ枃浠讹紝鐩存帴 finish 鍙戦€侊紝缁堟鍚庣画娴佺▼
+    # 若已转码并生成可用文件，直接 finish 发送，终止后续流程
     if audio_url:
-        # 浼樺厛灏濊瘯閫氳繃杩滅▼鐩撮摼鍙戦€佽闊筹紙鐢遍€傞厤鍣ㄤ笅杞藉鐞嗭級
+        # 优先尝试通过远程直链发送语音（由适配器下载处理）
         try:
             await matcher.finish(MessageSegment.record(str(audio_url)))
         except FinishedException:
             raise
         except Exception as e:
-            logger.warning(f"杩滅▼璇煶鍙戦€佸け璐ワ紝灏濊瘯鏈湴杞爜: {e}")
+            logger.warning(f"远程语音发送失败，尝试本地转码: {e}")
         try:
             local_path = await _download_audio_via_ffmpeg(
                 audio_url, f"{song.name}-{song.artist}"
@@ -495,23 +495,14 @@ async def _(matcher: Matcher, event: MessageEvent, groups: Tuple[str] = RegexGro
                     MessageSegment.record(local_path.resolve().as_uri())
                 )
         except FinishedException:
-            # 涓婂眰宸茬粡 finish锛岀户缁姏鍑?
+            # 上层已经 finish，继续抛出
             raise
         except Exception as ee:
-            logger.warning(f"鏈湴杞爜鍙戦€佸け璐? {ee}")
+            logger.warning(f"本地转码发送失败: {ee}")
 
-    # 鏈€鍚庤繑鍥?URL锛堝钩鍙扮洿閾炬垨骞冲彴椤碉級
+    # 最后返回 URL（平台直链或平台页）
     fallback = audio_url or song.link
     if fallback:
         await matcher.finish(f"{song.name} - {song.artist}\n{fallback}")
     else:
-        await matcher.finish("鎾斁澶辫触锛氭湭鑳借幏鍙栨瓕鏇叉挱鏀惧湴鍧€銆?)
-
-
-
-
-
-
-
-
-
+        await matcher.finish("播放失败：未能获取歌曲播放地址。")

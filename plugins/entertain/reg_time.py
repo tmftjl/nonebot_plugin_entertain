@@ -16,13 +16,13 @@ from .config import cfg_reg_time
 
 
 # Config centralized in plugins/entertain/config.py
-P = Plugin(name="entertain", display_name="濞变箰")
+P = Plugin(name="entertain", display_name="娱乐")
 
 
 _REG = P.on_regex(
-    r"^#娉ㄥ唽鏃堕棿$",
+    r"^#注册时间$",
     name="query",
-    display_name="娉ㄥ唽鏃堕棿",
+    display_name="注册时间",
     priority=5,
     block=True,
 )
@@ -47,7 +47,7 @@ async def _query_registration(qq: str) -> Optional[str]:
     api_url = str(cfg.get("qq_reg_time_api_url") )
     api_key = str(cfg.get("qq_reg_time_api_key") or "")`n
     if not api_key:
-        logger.warning("[reg_time] API key 鏈厤缃?璇峰湪閰嶇疆鏂囦欢涓缃?qq_reg_time_api_key")
+        logger.warning("[reg_time] API key 未配置,请在配置文件中设置 qq_reg_time_api_key")
         return None
 
     params = {"qq": qq, "key": api_key}
@@ -55,7 +55,7 @@ async def _query_registration(qq: str) -> Optional[str]:
         r = await client.get(api_url, params=params)
         r.raise_for_status()
         text = r.text
-        if not text or "娉ㄥ唽鏃堕棿" not in text:
+        if not text or "注册时间" not in text:
             return None
         return text
 
@@ -64,11 +64,11 @@ def _build_text_message(raw: str, qq: str) -> str:
     lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     parts = [
-        f"馃搶 鏌ヨQQ: {qq}",
-        "鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲",
+        f"📌 查询QQ: {qq}",
+        "══════════════",
         *lines,
-        "鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲",
-        f"鏌ヨ鏃堕棿: {now}",
+        "══════════════",
+        f"查询时间: {now}",
     ]
     return "\n".join(parts)
 
@@ -81,17 +81,14 @@ async def _(matcher: Matcher, event: MessageEvent, groups: tuple = RegexGroup())
         matched_digits = ""
     qq = _extract_qq(event, matched_digits)
     if not qq:
-        await matcher.finish("鏈寚瀹氭煡璇㈢洰鏍?)
+        await matcher.finish("未指定查询目标")
     try:
         text = await _query_registration(qq)
     except httpx.HTTPError as e:
-        logger.opt(exception=e).warning("娉ㄥ唽鏃堕棿鏌ヨ鎺ュ彛璇锋眰澶辫触")
-        await matcher.finish("鏈嶅姟鏆備笉鍙敤锛岃绋嶅悗閲嶈瘯")
+        logger.opt(exception=e).warning("注册时间查询接口请求失败")
+        await matcher.finish("服务暂不可用，请稍后重试")
         return
     if not text:
-        await matcher.finish("鏌ヨ澶辫触锛岃妫€鏌ヨ处鍙锋湁鏁堟€ф垨API鐘舵€?)
+        await matcher.finish("查询失败，请检查账号有效性或API状态")
         return
     await matcher.finish(_build_text_message(text, qq))
-
-
-

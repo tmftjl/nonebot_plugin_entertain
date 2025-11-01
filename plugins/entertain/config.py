@@ -16,7 +16,7 @@ DEFAULTS: Dict[str, Any] = {
         "api_base": "https://api.vkeys.cn",
         "provider_default": "tencent",  # tencent | netease
         "search_num": 20,
-        # QQ 音乐质量区间 [0,16]; 网易云区间[1,9]，超出将自动调整
+        # QQ 音乐质量区间 [0,16]; 网易云区间 [1,9]，超出将自动调整
         "quality": 4,
     },
     "box": {
@@ -85,14 +85,14 @@ def cfg_music() -> Dict[str, Any]:
 
 # Consolidated plugin-level schema for entertain
 ENTERTAIN_SCHEMA: Dict[str, Any] = {
-    "": "https://json-schema.org/draft/2020-12/schema",
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
     "title": "娱乐",
     "properties": {
         "box": {
             "type": "object",
-            "title": "开箱",
-            "description": "开箱相关设置",
+            "title": "开盒",
+            "description": "开盒",
             "x-order": 1,
             "x-collapse": True,  # 前端可以折叠显示
             "properties": {
@@ -113,8 +113,8 @@ ENTERTAIN_SCHEMA: Dict[str, Any] = {
                 },
                 "increase_box": {
                     "type": "boolean",
-                    "title": "入群自动开箱",
-                    "description": "新成员进群时自动开箱",
+                    "title": "入群自动开盒",
+                    "description": "新成员进群时自动开盒",
                     "default": False,
                     "x-order": 3,
                 },
@@ -129,7 +129,7 @@ ENTERTAIN_SCHEMA: Dict[str, Any] = {
                 "avatar_api_url": {
                     "type": "string",
                     "title": "头像API URL",
-                    "description": "QQ头像获取API模板,{user_id}会被替换为用户QQ",
+                    "description": "QQ头像获取API模板,{user_id}会被替换为用户QQ号",
                     "default": "https://q4.qlogo.cn/headimg_dl?dst_uin={user_id}&spec=640",
                     "x-order": 6,
                 },
@@ -160,7 +160,7 @@ ENTERTAIN_SCHEMA: Dict[str, Any] = {
                 "search_num": {
                     "type": "integer",
                     "title": "搜索返回数量",
-                    "description": "每次搜索返回的歌曲条数(1-60)",
+                    "description": "每次搜索返回的歌曲条数 (1-60)",
                     "default": 20,
                     "minimum": 1,
                     "maximum": 60,
@@ -180,7 +180,7 @@ ENTERTAIN_SCHEMA: Dict[str, Any] = {
         "reg_time": {
             "type": "object",
             "title": "注册时间查询",
-            "description": "设置第三方接口 URL 与 key",
+            "description": "设置第三方接口 URL 和 key",
             "x-order": 2,
             "x-collapse": True,  # 前端可以折叠显示
             "properties": {

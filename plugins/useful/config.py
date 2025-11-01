@@ -10,7 +10,8 @@ DEFAULTS: Dict[str, Any] = {
     "taffy": {
         "api_url": "http://127.0.0.1:8899/stats/api",
         "username": "",
-        "password": "",\r\n    },
+        "password": "",
+    },
 }
 
 
@@ -21,22 +22,22 @@ _CACHED: Dict[str, Any] = CFG.load()
 
 
 def reload_cache() -> None:
-    """閲嶆柊鍔犺浇閰嶇疆鍒版ā鍧楃骇缂撳瓨锛屼緵妗嗘灦閲嶈浇閰嶇疆鏃惰皟鐢ㄣ€?""
+    """重新加载配置到模块级缓存，供框架重载配置时调用。"""
     global _CACHED
     _CACHED = CFG.load()
 
 
-# 娉ㄥ唽閲嶈浇鍥炶皟锛岀‘淇濇鏋堕噸杞介厤缃椂鏇存柊妯″潡缂撳瓨
+# 注册重载回调，确保框架重载配置时更新模块缓存
 register_reload_callback("useful", reload_cache)
 
 
 def cfg_cached() -> Dict[str, Any]:
-    """杩斿洖鏁翠釜閰嶇疆鐨勭紦瀛樺壇鏈€?""
+    """返回整个配置的缓存副本。"""
     return _CACHED
 
 
 def cfg_taffy() -> Dict[str, Any]:
-    """杩斿洖 taffy 閰嶇疆鑺傦紝浠庢ā鍧楃骇缂撳瓨璇诲彇銆?""
+    """返回 taffy 配置节，从模块级缓存读取。"""
     d = _CACHED.get("taffy")
     return d if isinstance(d, dict) else {}
 
@@ -44,35 +45,38 @@ def cfg_taffy() -> Dict[str, Any]:
 # ----- Unified schema (single object with nested properties) -----
 TAFFY_SCHEMA: Dict[str, Any] = {
     "type": "object",
-    "title": "Taffy 缁熻",
+    "title": "Taffy 统计",
     "properties": {
         "api_url": {
             "type": "string",
-            "title": "API 鍦板潃",
-            "description": "Taffy 缁熻鏈嶅姟鐨勫熀纭€鎺ュ彛鍦板潃",
+            "title": "API 地址",
+            "description": "Taffy 统计服务的基础接口地址",
             "default": "http://127.0.0.1:8899/stats/api",
             "x-order": 1,
         },
         "username": {
             "type": "string",
-            "title": "鐢ㄦ埛鍚?,
-            "description": "濡傛湇鍔″紑鍚簡 BasicAuth锛岃濉啓鐢ㄦ埛鍚?,
+            "title": "用户名",
+            "description": "如服务开启了 BasicAuth，请填写用户名",
             "default": "",
             "x-order": 2,
         },
         "password": {
             "type": "string",
-            "title": "瀵嗙爜",
-            "description": "濡傛湇鍔″紑鍚簡 BasicAuth锛岃濉啓瀵嗙爜锛堝墠绔笉鍥炴樉鏃у€硷級",
+            "title": "密码",
+            "description": "如服务开启了 BasicAuth，请填写密码（前端不回显旧值）",
             "default": "",
             "x-secret": True,
             "x-widget": "password",
             "x-order": 3,
-        }\r\n
+        },
+    },
+}
+
 USEFUL_SCHEMA: Dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
-    "title": "鏈夌敤鐨?,
+    "title": "有用的",
     "properties": {
         "taffy": TAFFY_SCHEMA,
     },
@@ -82,4 +86,3 @@ try:
     register_plugin_schema("useful", USEFUL_SCHEMA)
 except Exception:
     pass
-
