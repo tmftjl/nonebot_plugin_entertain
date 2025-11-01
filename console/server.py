@@ -149,11 +149,7 @@ def setup_web_console() -> None:
             # 构造提醒内容：优先使用 payload.content，否则使用配置模板
             cfg = load_cfg()
             tmpl = str(
-                cfg.get(
-                    "member_renewal_remind_template",
-                    "本群会员将在 {days} 天后到期（{expiry}），请尽快联系管理员续费",
-                )
-                or "本群会员将在 {days} 天后到期（{expiry}），请尽快联系管理员续费"
+                cfg.get("member_renewal_remind_template")
             )
             content_payload = str(payload.get("content") or "").strip()
             if content_payload:
@@ -300,7 +296,7 @@ def setup_web_console() -> None:
         # 统计：转发到统计服务 API
         @router.get("/stats/today")
         async def api_stats_today(_: dict = Depends(_auth)):
-            stats_api_url = str(load_cfg().get("member_renewal_stats_api_url", "http://127.0.0.1:8000") or "http://127.0.0.1:8000").rstrip("/")
+            stats_api_url = str(load_cfg().get("member_renewal_stats_api_url")).rstrip("/")
             try:
                 async with httpx.AsyncClient() as client:
                     resp = await client.get(f"{stats_api_url}/stats/today", timeout=DEFAULT_HTTP_TIMEOUT)

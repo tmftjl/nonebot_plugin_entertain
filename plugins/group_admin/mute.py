@@ -13,6 +13,7 @@ from nonebot.adapters.onebot.v11 import (
 )
 
 from . import _P as P
+from ...core.framework.perm import PermLevel
 from .utils import extract_at_or_id, parse_duration_to_seconds
 
 
@@ -26,7 +27,7 @@ mute_all_on = P.on_regex(
     priority=5,
     block=True,
     enabled=True,
-    level="admin",
+    level=PermLevel.ADMIN,
     scene="group",
 )
 
@@ -50,7 +51,7 @@ mute_all_off = P.on_regex(
     priority=5,
     block=True,
     enabled=True,
-    level="admin",
+    level=PermLevel.ADMIN,
     scene="group",
 )
 
@@ -74,7 +75,7 @@ mute_member = P.on_regex(
     priority=5,
     block=True,
     enabled=True,
-    level="admin",
+    level=PermLevel.ADMIN,
     scene="group",
 )
 
@@ -104,7 +105,7 @@ unmute_member = P.on_regex(
     priority=5,
     block=True,
     enabled=True,
-    level="admin",
+    level=PermLevel.ADMIN,
     scene="group",
 )
 

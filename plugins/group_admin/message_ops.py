@@ -9,6 +9,7 @@ from nonebot.adapters.onebot.v11 import (
 )
 
 from . import _P as P
+from ...core.framework.perm import PermLevel
 from .utils import get_target_message_id
 
 recall_msg = P.on_regex(
@@ -18,7 +19,7 @@ recall_msg = P.on_regex(
     priority=5,
     block=True,
     enabled=True,
-    level="admin",
+    level=PermLevel.ADMIN,
     scene="group",
 )
 
@@ -45,7 +46,7 @@ set_essence = P.on_regex(
     priority=5,
     block=True,
     enabled=True,
-    level="admin",
+    level=PermLevel.ADMIN,
     scene="group",
 )
 
@@ -72,7 +73,7 @@ unset_essence = P.on_regex(
     priority=5,
     block=True,
     enabled=True,
-    level="admin",
+    level=PermLevel.ADMIN,
     scene="group",
 )
 

@@ -13,7 +13,7 @@ from .config import (
     upsert_command_defaults,
     upsert_system_command_defaults,
 )
-from .perm import permission_for_cmd, permission_for_plugin
+from .perm import permission_for_cmd, permission_for_plugin, PermLevel
 
 
 def _infer_plugin_name() -> str:
@@ -45,15 +45,17 @@ def _infer_plugin_name() -> str:
     return "unknown"
 
 
-_LEVELS = {"all", "member", "admin", "owner", "superuser"}
+_LEVELS = {"all", "member", "admin", "owner", "bot_admin", "superuser"}
 _SCENES = {"all", "group", "private"}
 
 
 def _validate_entry(*, enabled=None, level=None, scene=None, wl_users=None, wl_groups=None, bl_users=None, bl_groups=None) -> None:
     if enabled is not None and not isinstance(enabled, bool):
         raise TypeError("enabled must be bool")
-    if level is not None and str(level) not in _LEVELS:
-        raise ValueError(f"invalid level: {level}")
+    if level is not None:
+        # 仅接受枚举（不再接受任意字符串）
+        if not isinstance(level, PermLevel):
+            raise TypeError("level must be PermLevel")
     if scene is not None and str(scene) not in _SCENES:
         raise ValueError(f"invalid scene: {scene}")
     def _check_list(v, name):
@@ -126,7 +128,7 @@ class Plugin:
         category: str = "sub",  # "sub" 外部插件（plugins/），"system" 内置系统命令
         display_name: Optional[str] = None,
         enabled: Optional[bool] = None,
-        level: Optional[str] = None,
+        level: Optional[PermLevel] = None,
         scene: Optional[str] = None,
         wl_users: Optional[list[str]] = None,
         wl_groups: Optional[list[str]] = None,
@@ -135,7 +137,7 @@ class Plugin:
     ) -> None:
         self.name = name or _infer_plugin_name()
         self.category = category if category in ("sub", "system") else "sub"
-        self._cmd_levels: dict[str, Optional[str]] = {}
+        self._cmd_levels: dict[str, Optional[PermLevel]] = {}
         # record display name if provided
         try:
             if display_name:
@@ -147,10 +149,23 @@ class Plugin:
         if any(x is not None for x in (enabled, level, scene, wl_users, wl_groups, bl_users, bl_groups)):
             _validate_entry(enabled=enabled, level=level, scene=scene, wl_users=wl_users, wl_groups=wl_groups, bl_users=bl_users, bl_groups=bl_groups)
         if self.category == "sub":
+            def _lvl_str(v):
+                if v is None:
+                    return None
+                if isinstance(v, PermLevel):
+                    return {
+                        PermLevel.LOW: "all",
+                        PermLevel.MEMBER: "member",
+                        PermLevel.ADMIN: "admin",
+                        PermLevel.OWNER: "owner",
+                        PermLevel.BOT_ADMIN: "bot_admin",
+                        PermLevel.SUPERUSER: "superuser",
+                    }[v]
+                return str(v).lower()
             upsert_plugin_defaults(
                 self.name,
                 enabled=enabled,
-                level=level,
+                level=_lvl_str(level),
                 scene=scene,
                 wl_users=wl_users,
                 wl_groups=wl_groups,
@@ -169,7 +184,7 @@ class Plugin:
         # 系统命令不接入外置权限：默认放行；若声明为 superuser 则仅限超管
         if self.category == "system":
             lvl = self._cmd_levels.get(command)
-            if str(lvl or "").lower() == "superuser":
+            if lvl == PermLevel.SUPERUSER:
                 return SUPERUSER
             return Permission()
         return permission_for_cmd(self.name, command, category=self.category)
@@ -182,7 +197,7 @@ class Plugin:
         name: str,
         display_name: Optional[str] = None,
         enabled: Optional[bool] = None,
-        level: Optional[str] = None,
+        level: Optional[PermLevel] = None,
         scene: Optional[str] = None,
         wl_users: Optional[list[str]] = None,
         wl_groups: Optional[list[str]] = None,
@@ -198,11 +213,25 @@ class Plugin:
         if any(x is not None for x in (enabled, level, scene, wl_users, wl_groups, bl_users, bl_groups)):
             _validate_entry(enabled=enabled, level=level, scene=scene, wl_users=wl_users, wl_groups=wl_groups, bl_users=bl_users, bl_groups=bl_groups)
         if self.category == "sub":
+            # 将 level（枚举）规范化为字符串写入 permissions.json
+            def _lvl_str(v):
+                if v is None:
+                    return None
+                if isinstance(v, PermLevel):
+                    return {
+                        PermLevel.LOW: "all",
+                        PermLevel.MEMBER: "member",
+                        PermLevel.ADMIN: "admin",
+                        PermLevel.OWNER: "owner",
+                        PermLevel.BOT_ADMIN: "bot_admin",
+                        PermLevel.SUPERUSER: "superuser",
+                    }[v]
+                return str(v).lower()
             upsert_command_defaults(
                 self.name,
                 name,
                 enabled=enabled,
-                level=level,
+                level=_lvl_str(level),
                 scene=scene,
                 wl_users=wl_users,
                 wl_groups=wl_groups,
@@ -216,7 +245,7 @@ class Plugin:
             # 系统命令：不写入权限配置，不使用外置权限控制
             # 仅当声明 level=superuser 且未显式指定 permission 时，使用 NoneBot 的 SUPERUSER
             self._cmd_levels[name] = level
-            if "permission" not in kwargs and str(level or "").lower() == "superuser":
+            if "permission" not in kwargs and (level == PermLevel.SUPERUSER or str(level or "").lower() == "superuser"):
                 kwargs["permission"] = SUPERUSER
         
         # 1. 先创建原始的 Matcher

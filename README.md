@@ -27,7 +27,7 @@
 
 每个条目包含：
 - `enabled`：布尔开关
-- `level`：`"all"` | `"member"` | `"admin"` | `"owner"` | `"superuser"`
+- `level`：`"all"` | `"member"` | `"admin"` | `"owner"` | `"bot_admin"` | `"superuser"`
 - `scene`：`"all"` | `"group"` | `"private"`
 - `whitelist`：`{users: [], groups: []}`
 - `blacklist`：`{users: [], groups: []}`
@@ -41,11 +41,12 @@
 
 ### 注册模式（`core/framework/registry.py`）
 
-**创建插件：**
+**创建插件（代码中使用枚举）：**
 ```python
 from nonebot_plugin_entertain.core.framework.registry import Plugin
+from nonebot_plugin_entertain.core.framework.perm import PermLevel
 
-P = Plugin(enabled=True, level="all", scene="all")
+P = Plugin(enabled=True, level=PermLevel.LOW, scene="all")
 ```
 
 - 从模块路径自动检测插件名（位于 `plugins/<名称>/` 下）
@@ -158,13 +159,14 @@ cfg = proxy.load()  # 加载 entertain/config.json -> fortune 部分
 
 ## 常见模式
 
-### 添加新命令
+### 添加新命令（代码中使用枚举）
 
 1. 在插件的 `__init__.py` 中创建命令：
 ```python
 from nonebot_plugin_entertain.core.framework.registry import Plugin
+from nonebot_plugin_entertain.core.framework.perm import PermLevel
 
-P = Plugin(enabled=True, level="all", scene="all")
+P = Plugin(enabled=True, level=PermLevel.LOW, scene="all")
 
 cmd = P.on_regex(r"^#?<模式>$", name="my_command", priority=13, block=True)
 

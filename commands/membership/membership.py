@@ -46,14 +46,10 @@ __plugin_meta__ = PluginMetadata(
 
 # 控制台登录
 login_cmd = on_regex(
-    r"^今汐登录$",
-    
+    r"^今汐登录$", 
     priority=5,
     block=True,
-    permission=SUPERUSER,
-    
-    
-    
+    permission=SUPERUSER,   
 )
 
 
@@ -430,28 +426,18 @@ async def _check_and_process() -> Tuple[int, int]:
             if should_remind:
                 preferred = v.get("managed_by_bot")
                 if days <= 0:
-                    content = (
-                        "本群会员已到期。请尽快加群757463664联系管理员购买续费码（首次开通与续费同用），并在群内发送完成续费"
-                    )
+                    content = ("本群会员已到期。请尽快加群757463664联系管理员购买续费码（首次开通与续费同用），并在群内发送完成续费")
                 else:
-                    content = (
-                        f"本群会员将在 {days} 天后到期。请尽快联系管理员购买续费码（首次开通与续费同用），并在群内发送完成续费"
-                    )
+                    content = (f"本群会员将在 {days} 天后到期。请尽快加群757463664联系管理员购买续费码（首次开通与续费同用），并在群内发送完成续费")
                 # 统一改为使用配置模板（如未设置则使用默认模板）
                 tmpl = str(
-                    cfg.get(
-                        "member_renewal_remind_template",
-                        "本群会员将在 {days} 天后到期（{expiry}），请尽快联系管理员续费",
-                    )
-                    or "本群会员将在 {days} 天后到期（{expiry}），请尽快联系管理员续费"
+                    cfg.get("member_renewal_remind_template")
                 )
                 try:
                     content = tmpl.format(days=days, expiry=_format_cn(expiry))
                 except Exception:
                     # 保底沿用原有文案
-                    content = (
-                        f"本群会员将在 {days} 天后到期。请尽快联系管理员购买续费码（首次开通与续费同用），并在群内发送完成续费"
-                    )
+                    content = (f"本群会员将在 {days} 天后到期。请尽快联系管理员购买续费码（首次开通与续费同用），并在群内发送完成续费")
                 # 去掉提醒尾注：不再追加联系方式后缀
                 sent = False
                 for bot in _choose_bots(preferred):

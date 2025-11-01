@@ -14,6 +14,7 @@ from .framework.perm import (
     permission_for_cmd,
     permission_for_plugin,
     reload_permissions,
+    PermLevel,
 )
 from .framework.config import (
     register_plugin_config,
@@ -57,6 +58,7 @@ __all__ = [
     "permission_for_cmd",
     "permission_for_plugin",
     "reload_permissions",
+    "PermLevel",
     # config helpers
     "register_plugin_config",
     "register_namespaced_config",

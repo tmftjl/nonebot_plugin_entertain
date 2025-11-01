@@ -9,6 +9,7 @@ from nonebot.matcher import Matcher
 from nonebot.adapters.onebot.v11 import MessageSegment
 
 from ...core.api import Plugin
+from ...core.framework.perm import PermLevel
 
 # Reuse core logic from bundled nonebot_plugin_help package
 from .config import (
@@ -30,10 +31,10 @@ __plugin_meta__ = PluginMetadata(
     type="application",
 )
 
-P = Plugin(name="help", display_name="帮助", enabled=True, level="all", scene="all")
+P = Plugin(name="help", display_name="帮助", enabled=True, level=PermLevel.LOW, scene="all")
 
 # 触发：<关键词>(帮助|菜单|功能)
-matcher = P.on_regex(r"^(?:#|/)?(.*?)\s*(帮助|菜单|功能)$", name="help",display_name="帮助", priority=5, block=True, enabled=True, level="all", scene="all")
+matcher = P.on_regex(r"^(?:#|/)?(.*?)\s*(帮助|菜单|功能)$", name="help",display_name="帮助", priority=5, block=True, enabled=True, level=PermLevel.LOW, scene="all")
 
 
 @matcher.handle()

@@ -17,6 +17,7 @@ from nonebot.adapters.onebot.v11 import (
 
 from ...core.api import plugin_data_dir
 from . import _P as P
+from ...core.framework.perm import PermLevel
 
 
  
@@ -56,7 +57,7 @@ banword_on = P.on_regex(
     priority=5,
     block=True,
     enabled=True,
-    level="admin",
+    level=PermLevel.ADMIN,
     scene="group",
 )
 
@@ -85,7 +86,7 @@ banword_off = P.on_regex(
     priority=5,
     block=True,
     enabled=True,
-    level="admin",
+    level=PermLevel.ADMIN,
     scene="group",
 )
 
@@ -110,7 +111,7 @@ banword_add = P.on_regex(
     priority=5,
     block=True,
     enabled=True,
-    level="admin",
+    level=PermLevel.ADMIN,
     scene="group",
 )
 
@@ -141,7 +142,7 @@ banword_del = P.on_regex(
     priority=5,
     block=True,
     enabled=True,
-    level="admin",
+    level=PermLevel.ADMIN,
     scene="group",
 )
 
@@ -172,7 +173,7 @@ banword_clear = P.on_regex(
     priority=5,
     block=True,
     enabled=True,
-    level="admin",
+    level=PermLevel.ADMIN,
     scene="group",
 )
 
@@ -197,7 +198,7 @@ banword_list = P.on_regex(
     priority=5,
     block=True,
     enabled=True,
-    level="admin",
+    level=PermLevel.ADMIN,
     scene="group",
 )
 
@@ -235,7 +236,7 @@ banword_action = P.on_regex(
     priority=5,
     block=True,
     enabled=True,
-    level="admin",
+    level=PermLevel.ADMIN,
     scene="group",
 )
 
@@ -263,7 +264,7 @@ banword_mute_seconds = P.on_regex(
     priority=5,
     block=True,
     enabled=True,
-    level="admin",
+    level=PermLevel.ADMIN,
     scene="group",
 )
 
@@ -291,7 +292,7 @@ banword_exempt = P.on_regex(
     priority=5,
     block=True,
     enabled=True,
-    level="admin",
+    level=PermLevel.ADMIN,
     scene="group",
 )
 

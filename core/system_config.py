@@ -19,7 +19,7 @@ SYSTEM_DEFAULTS: Dict[str, Any] = {
     # 提醒行为
     "member_renewal_reminder_days_before": 7,
     "member_renewal_daily_remind_once": True,
-    "member_renewal_remind_template": "本群会员将在 {days} 天后到期（{expiry}），请尽快联系管理员续费",
+    "member_renewal_remind_template": "本群会员将在 {days} 天后到期（{expiry}），请尽快加群757463664联系管理员续费",
     "member_renewal_soon_threshold_days": 7,
     # 到期处理
     "member_renewal_auto_leave_on_expire": True,
@@ -124,7 +124,7 @@ SYSTEM_SCHEMA: Dict[str, Any] = {
             "type": "string",
             "title": "提醒模板",
             "description": "提醒消息模板，支持 {days}/{expiry} 占位符",
-            "default": "本群会员将在 {days} 天后到期（{expiry}），请尽快联系管理员续费",
+            "default": "本群会员将在 {days} 天后到期（{expiry}），请尽快加群757463664联系管理员续费",
             "x-group": "提醒行为",
             "x-widget": "textarea",
             "x-order": 13

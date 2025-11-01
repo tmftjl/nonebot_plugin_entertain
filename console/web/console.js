@@ -483,6 +483,7 @@ function renderPermissionsList(){
     <option value="member" ${v==='member'?'selected':''}>群成员</option>
     <option value="admin" ${v==='admin'?'selected':''}>群管理</option>
     <option value="owner" ${v==='owner'?'selected':''}>群主</option>
+    <option value="bot_admin" ${v==='bot_admin'?'selected':''}>Bot 管理</option>
     <option value="superuser" ${v==='superuser'?'selected':''}>超级用户</option>`;
   const optScene = (v)=>`<option value="all" ${v==='all'?'selected':''}>全部</option>
     <option value="group" ${v==='group'?'selected':''}>群聊</option>

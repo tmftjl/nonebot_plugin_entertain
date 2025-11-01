@@ -9,6 +9,7 @@ from nonebot.adapters.onebot.v11 import (
 )
 from . import _P as P
 from .utils import extract_at_or_id
+from ...core.framework.perm import PermLevel
 
 set_admin = P.on_regex(
     r"^#设置管理\s*(.+)$",
@@ -17,7 +18,7 @@ set_admin = P.on_regex(
     priority=5,
     block=True,
     enabled=True,
-    level="owner",
+    level=PermLevel.OWNER,
     scene="group",
 )
 
@@ -29,7 +30,7 @@ unset_admin = P.on_regex(
     priority=5,
     block=True,
     enabled=True,
-    level="owner",
+    level=PermLevel.OWNER,
     scene="group",
 )
 
@@ -71,7 +72,7 @@ kick_member = P.on_regex(
     priority=5,
     block=True,
     enabled=True,
-    level="admin",
+    level=PermLevel.ADMIN,
     scene="group",
 )
 
@@ -83,7 +84,7 @@ ban_kick_member = P.on_regex(
     priority=5,
     block=True,
     enabled=True,
-    level="admin",
+    level=PermLevel.ADMIN,
     scene="group",
 )
 

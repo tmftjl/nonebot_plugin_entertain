@@ -11,9 +11,10 @@ from __future__ import annotations
 """
 
 from ...core.api import Plugin
+from ...core.framework.perm import PermLevel
 
 # 建立插件级默认项（仅一次）；子模块中使用 Plugin() 即可注册命令
-_P = Plugin(name="group_admin", display_name="群管", enabled=True, level="all", scene="all")
+_P = Plugin(name="group_admin", display_name="群管", enabled=True, level=PermLevel.LOW, scene="all")
 
 # 导入子模块以注册其命令和拦截器
 from . import mute as _mute  # noqa: F401
