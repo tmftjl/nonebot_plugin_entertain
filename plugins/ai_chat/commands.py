@@ -171,7 +171,7 @@ async def handle_chat_auto(bot: Bot, event: MessageEvent):
 
 
 # 清空会话
-clear_cmd = P.on_regex(r"^#清空会话$", name="ai_clear_session", display_name="清空会话", priority=5, block=True)
+clear_cmd = P.on_regex(r"^#清空会话$", name="ai_clear_session", display_name="清空会话", priority=5, block=True, level=PermLevel.ADMIN)
 
 
 @clear_cmd.handle()
@@ -283,7 +283,7 @@ async def handle_persona(event: MessageEvent):
 
 
 # 人格列表
-persona_list_cmd = P.on_regex(r"^#人格列表$", name="ai_persona_list", display_name="人格列表", priority=5, block=True)
+persona_list_cmd = P.on_regex(r"^#人格列表$", name="ai_persona_list", display_name="人格列表", priority=5, block=True,level=PermLevel.ADMIN)
 
 
 @persona_list_cmd.handle()
@@ -341,6 +341,7 @@ api_list_cmd = P.on_regex(
     display_name="服务商列表",
     priority=5,
     block=True,
+    level=PermLevel.SUPERUSER
 )
 
 
@@ -370,7 +371,7 @@ switch_api_cmd = P.on_regex(
     display_name="切换服务商",
     priority=5,
     block=True,
-    level=PermLevel.ADMIN,
+    level=PermLevel.SUPERUSER
 )
 
 
@@ -424,7 +425,7 @@ async def handle_reload(event: MessageEvent):
 
 
 # 列出工具
-tool_list_cmd = P.on_regex(r"^#工具列表$", name="ai_tools_list", display_name="工具列表", priority=5, block=True)
+tool_list_cmd = P.on_regex(r"^#工具列表$", name="ai_tools_list", display_name="工具列表", priority=5, block=True,level=PermLevel.SUPERUSER)
 
 
 @tool_list_cmd.handle()
@@ -435,7 +436,7 @@ async def handle_tool_list(event: MessageEvent):
     if not all_tools:
         await tool_list_cmd.finish("当前没有可用工具")
         return
-    lines = ["🔧 工具列表", "━━━━━━━━━━━━━━━━"]
+    lines = ["🔧 工具列表"]
     for name in sorted(all_tools):
         mark = "✓ 启用" if name in enabled and cfg.tools.enabled else ("× 已禁用" if name in enabled else "× 未启用")
         lines.append(f"- {name}  {mark}")
@@ -445,7 +446,7 @@ async def handle_tool_list(event: MessageEvent):
 
 
 # 开启工具（管理员，且开启总开关）
-tool_on_cmd = P.on_regex(r"^#开启工具\s+(\S+)$", name="ai_tool_on", display_name="开启工具", priority=5, block=True)
+tool_on_cmd = P.on_regex(r"^#开启工具\s+(\S+)$", name="ai_tool_on", display_name="开启工具", priority=5, block=True,level=PermLevel.SUPERUSER)
 
 
 @tool_on_cmd.handle()
@@ -474,7 +475,7 @@ async def handle_tool_on(event: MessageEvent):
 
 
 # 关闭工具（管理员，仅从启用列表移除，不改全局开关）
-tool_off_cmd = P.on_regex(r"^#关闭工具\s+(\S+)$", name="ai_tool_off", display_name="关闭工具", priority=5, block=True)
+tool_off_cmd = P.on_regex(r"^#关闭工具\s+(\S+)$", name="ai_tool_off", display_name="关闭工具", priority=5, block=True,level=PermLevel.SUPERUSER)
 
 
 @tool_off_cmd.handle()
