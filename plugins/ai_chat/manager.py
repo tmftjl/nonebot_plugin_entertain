@@ -334,7 +334,8 @@ class ChatManager:
 
         # 1) System Prompt
         personas = get_personas()
-        persona = personas.get(session.persona_name, personas["default"])
+        # 更健壮：优先当前会话设定，其次 default，最后任一可用人格
+        persona = personas.get(session.persona_name) or personas.get("default") or next(iter(personas.values()))
         # 使用人格详情作为系统提示词
         system_prompt = persona.details
 
