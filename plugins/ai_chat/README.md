@@ -19,9 +19,9 @@
 - 注册默认配置与 schema：`plugins/ai_chat/config.py`。
 
 配置项（`config.json`）
-- `api`：数组。每项包含 `name`、`base_url`、`api_key`、`model`、`timeout`。
+- `api`：字典，键为服务商名称，值包含 `base_url`、`api_key`、`model`、`timeout`。
 - `session`：会话行为。
-  - `api_active`：当前使用的服务商名（匹配 `api[].name`）。
+  - `api_active`：当前使用的服务商名（匹配 `api` 的键）。
   - `default_temperature`：默认温度。
   - `max_rounds`：对话上下文“轮数”（user+assistant 记一轮）。
   - `chatroom_history_max_lines`：群聊“聊天室历史”内存上限行数。
@@ -98,7 +98,7 @@
   - 由 `execute_tool(name, args)` 异步调用，并写入 `tool` 角色消息返回。
 
 **常见问题与注意事项**
-- API Key：必须在 `config/ai_chat/config.json` 的 `api` 项目标记 `api_active` 对应对象中设置 `api_key`，否则插件会禁用对话能力（见 `plugins/ai_chat/__init__.py`）。
+- API Key：必须在 `config/ai_chat/config.json` 的 `api` 字典中，`session.api_active` 对应项设置 `api_key`，否则插件会禁用对话能力（见 `plugins/ai_chat/__init__.py`）。
 - 主动回复：该功能会在群聊中“随机”触发回复，默认概率 0.1，可能造成群内较高活跃/干扰，建议谨慎开启或降低概率，并结合权限白名单使用。
 - 上下文成本：`max_rounds` 越大，调用成本越高；同时 `chatroom_history_max_lines` 过大会增加 System Prompt 体积，注意平衡。
 - SQLite 迁移：`ensure_history_column()` 仅对 SQLite 生效；如更换数据库，需要自行迁移该列。

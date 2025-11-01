@@ -368,7 +368,7 @@ api_list_cmd = P.on_regex(
 @api_list_cmd.handle()
 async def handle_api_list(event: MessageEvent):
     cfg = get_config()
-    providers = getattr(cfg, "api", []) or []
+    providers = getattr(cfg, "api", {}) or {}
     # 当前激活服务商
     active_name = cfg.session.api_active
 
@@ -376,8 +376,7 @@ async def handle_api_list(event: MessageEvent):
         await api_list_cmd.finish("暂无服务商配置")
 
     lines = []
-    for item in providers:
-        name = item.name
+    for name, item in providers.items():
         model = item.model
         base_url = item.base_url
         current = "（当前）" if (active_name and name == active_name) else ""
@@ -407,7 +406,7 @@ async def handle_switch_api(event: MessageEvent):
         return
     target = m.group(1).strip()
     cfg = get_config()
-    names = [x.name for x in (cfg.api or [])]
+    names = list((cfg.api or {}).keys())
     if target not in names:
         available = ", ".join(names) if names else ""
         await switch_api_cmd.finish(f"服务商不存在\n可用: {available}")

@@ -25,8 +25,7 @@ from ...core.framework.utils import config_dir
 # ==================== Pydantic 配置模型 ====================
 
 
-class APIConfig(BaseModel):
-    name: str = Field(description="唯一名称，用于选择")
+class APIItem(BaseModel):
     base_url: str = Field(default="https://api.openai.com/v1", description="API 地址")
     api_key: str = Field(default="", description="API Key")
     model: str = Field(default="gpt-4o-mini", description="默认模型")
@@ -56,7 +55,8 @@ class ToolsConfig(BaseModel):
 
 
 class AIChatConfig(BaseModel):
-    api: List[APIConfig] = Field(default_factory=list)
+    # api 使用字典：{ name: { base_url, api_key, model, timeout } }
+    api: Dict[str, APIItem] = Field(default_factory=dict)
     session: SessionConfig = Field(default_factory=SessionConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
 
@@ -70,15 +70,14 @@ class PersonaConfig(BaseModel):
 
 
 DEFAULTS: Dict[str, Any] = {
-    "api": [
-        {
-            "name": "default",
+    "api": {
+        "default": {
             "base_url": "https://api.openai.com/v1",
             "api_key": "",
             "model": "gpt-4o-mini",
             "timeout": 60,
         }
-    ],
+    },
     "session": {
         "api_active": "default",
         "default_temperature": 0.7,
@@ -108,19 +107,18 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
     "title": "AI 对话",
     "properties": {
         "api": {
-            "type": "array",
-            "title": "服务商（数组）",
+            "type": "object",
+            "title": "服务商（字典，键为名称）",
+            "description": "键为服务商名称，值为该服务商配置。",
             "x-order": 1,
-            "items": {
+            "additionalProperties": {
                 "type": "object",
                 "properties": {
-                    "name": {"type": "string", "title": "名称", "x-order": 1},
-                    "base_url": {"type": "string", "title": "API 地址", "x-order": 2},
-                    "api_key": {"type": "string", "title": "API Key", "x-order": 3},
-                    "model": {"type": "string", "title": "模型", "x-order": 4},
-                    "timeout": {"type": "integer", "title": "超时（秒）", "x-order": 5},
+                    "base_url": {"type": "string", "title": "API 地址", "x-order": 1},
+                    "api_key": {"type": "string", "title": "API Key", "x-order": 2},
+                    "model": {"type": "string", "title": "模型", "x-order": 3},
+                    "timeout": {"type": "integer", "title": "超时（秒）", "x-order": 4},
                 },
-                "required": ["name"],
             },
         },
         "session": {
@@ -300,17 +298,18 @@ def get_config() -> AIChatConfig:
     return _config
 
 
-def get_active_api() -> APIConfig:
+def get_active_api() -> APIItem:
     cfg = get_config()
-    apis: List[APIConfig] = list(getattr(cfg, "api", []) or [])
+    apis: Dict[str, APIItem] = dict(getattr(cfg, "api", {}) or {})
     if not apis:
-        d = DEFAULTS["api"][0]
-        return APIConfig(**d)
+        d = (DEFAULTS.get("api") or {}).get("default") or {}
+        return APIItem(**d)
     active_name = getattr(cfg.session, "api_active", None) or "default"
-    for item in apis:
-        if item.name == active_name:
-            return item
-    return apis[0]
+    if active_name in apis:
+        return apis[active_name]
+    # fallback: 取第一个
+    first_key = next(iter(apis.keys()))
+    return apis[first_key]
 
 
 # ==================== 人格：目录化实现 ====================
