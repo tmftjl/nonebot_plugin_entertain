@@ -139,7 +139,7 @@ async function apiPersonaDelete(key){
 let personaModalMode = 'create'; // 'create' | 'edit'
 let personaEditingKey = '';
 function closePersonaModal(){
-  const modal = #persona-modal; if(!modal) return;
+  const modal = $('#persona-modal'); if(!modal) return;
   modal.classList.add('hidden');
 }
 
@@ -2033,7 +2033,14 @@ document.addEventListener('click', async (e)=>{
       showToast('\u5df2\u5220\u9664', 'success');
       await loadPersonas();
     }catch(err){
-      showToast('\u5220\u9664\u5931\u8d25: '+(err&&err.message?err.message:err), 'error');
+      const msg = err && err.message ? String(err.message) : String(err);
+      if(msg.includes('HTTP 404')){
+        // 人格文件已不存在（或曾由旧版本留下的幽灵项），刷新列表即消失
+        showToast('\u5df2\u79fb\u9664\u6216\u5df2\u4e0d\u5b58\u5728\uff0c\u5df2\u5237\u65b0', 'success');
+        await loadPersonas();
+      } else {
+        showToast('\u5220\u9664\u5931\u8d25: '+msg, 'error');
+      }
     }finally{
       showLoading(false);
     }

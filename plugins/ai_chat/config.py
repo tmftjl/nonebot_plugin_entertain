@@ -592,9 +592,13 @@ def save_personas(personas: Dict[str, PersonaConfig]) -> None:
 
 
 def get_personas() -> Dict[str, PersonaConfig]:
+    """Always reload personas from disk to avoid stale cache issues.
+
+    This keeps the console list in sync and prevents phantom entries
+    when files were added/removed outside the process or by prior bugs.
+    """
     global _personas
-    if not _personas:
-        _personas = load_personas()
+    _personas = load_personas()
     return _personas
 
 
