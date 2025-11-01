@@ -501,6 +501,65 @@ class ConfigManager:
                 except Exception:
                     pass
         return ok_all, results
+    
+    def get_all_configs(self) -> Dict[str, Any]:
+        """获取所有已注册插件的配置（从内存缓存中读取）。
+
+        返回格式:
+        {
+            "system": {...},
+            "plugin_name": {...},
+            ...
+        }
+        """
+        result: Dict[str, Any] = {}
+        for (plugin, filename), proxy in list(_CONFIG_REGISTRY.items()):
+            try:
+                # 使用load()从内存缓存读取
+                cfg = proxy.load()
+                result[plugin] = cfg
+            except Exception:
+                # 出错时返回空dict
+                result[plugin] = {}
+        return result
+
+    def save_configs(self, configs: Dict[str, Any]) -> Tuple[bool, Dict[str, str]]:
+        """保存多个插件的配置，并更新内存缓存。
+
+        Args:
+            configs: 格式为 {"plugin_name": {config_dict}, ...}
+
+        Returns:
+            (success, errors) - success为True表示全部成功，errors包含失败的插件及错误信息
+        """
+        errors: Dict[str, str] = {}
+        for plugin_name, cfg in configs.items():
+            if not isinstance(cfg, dict):
+                errors[plugin_name] = "配置必须是JSON对象"
+                continue
+
+            # 查找对应的proxy
+            proxy = None
+            for (p, fname), px in list(_CONFIG_REGISTRY.items()):
+                if p == plugin_name and fname == "config.json":
+                    proxy = px
+                    break
+
+            if proxy is None:
+                # 尝试注册新的
+                try:
+                    proxy = register_plugin_config(plugin_name, cfg)
+                except Exception as e:
+                    errors[plugin_name] = f"注册失败: {e}"
+                    continue
+
+            try:
+                # 保存会自动更新缓存
+                proxy.save(cfg)
+            except Exception as e:
+                errors[plugin_name] = f"保存失败: {e}"
+
+        return (len(errors) == 0), errors
 
 
 # ========== 对外接口 ==========
@@ -563,3 +622,26 @@ def bootstrap_configs() -> None:
 def reload_all_configs() -> Tuple[bool, Dict[str, Any]]:
     return ConfigManager().reload_all()
 
+def get_all_plugin_configs() -> Dict[str, Any]:
+    """获取所有已注册的插件配置（从内存缓存中读取）。
+
+    返回格式：
+    {
+        "system": {...},
+        "plugin_name": {...},
+        ...
+    }
+    """
+    return ConfigManager().get_all_configs()
+
+
+def save_all_plugin_configs(configs: Dict[str, Any]) -> Tuple[bool, Dict[str, str]]:
+    """保存多个插件的配置，并更新内存缓存。
+
+    Args:
+        configs: 格式为 {"plugin_name": {config_dict}, ...}
+
+    Returns:
+        (success, errors) - success为True表示全部成功，errors包含失败的插件及错误信息
+    """
+    return ConfigManager().save_configs(configs)
