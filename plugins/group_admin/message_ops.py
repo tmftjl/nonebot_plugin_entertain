@@ -9,7 +9,7 @@ from nonebot.adapters.onebot.v11 import (
 )
 
 from . import _P as P
-from ...core.framework.perm import PermLevel
+from ...core.framework.perm import PermLevel, PermScene
 from .utils import get_target_message_id
 
 recall_msg = P.on_regex(
@@ -20,7 +20,7 @@ recall_msg = P.on_regex(
     block=True,
     enabled=True,
     level=PermLevel.ADMIN,
-    scene="group",
+    scene=PermScene.GROUP,
 )
 
 
@@ -47,7 +47,7 @@ set_essence = P.on_regex(
     block=True,
     enabled=True,
     level=PermLevel.ADMIN,
-    scene="group",
+    scene=PermScene.GROUP,
 )
 
 
@@ -74,7 +74,7 @@ unset_essence = P.on_regex(
     block=True,
     enabled=True,
     level=PermLevel.ADMIN,
-    scene="group",
+    scene=PermScene.GROUP,
 )
 
 
@@ -91,5 +91,6 @@ async def _unset_essence(matcher: Matcher, bot: Bot, event: MessageEvent):
         logger.exception(f"取消精华失败: {e}")
         await matcher.finish("取消失败，可能权限不足或该平台不支持")
     await matcher.finish("已取消精华")
+
 
 

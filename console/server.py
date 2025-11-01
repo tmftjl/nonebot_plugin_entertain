@@ -313,15 +313,10 @@ def setup_web_console() -> None:
 
         @router.put("/permissions")
         async def api_update_permissions(payload: Dict[str, Any], _: dict = Depends(_auth)):
-            from ..core.framework.config import save_permissions, optimize_permissions
+            from ..core.framework.config import save_permissions
             from ..core.framework.perm import reload_permissions
             try:
                 save_permissions(payload)
-                # 规范化并立即重载到内存
-                try:
-                    optimize_permissions()
-                except Exception:
-                    pass
                 try:
                     reload_permissions()
                 except Exception:

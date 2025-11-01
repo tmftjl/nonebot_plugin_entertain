@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+# 说明：本文件为权限与插件配置的统一管理模块
+# 要求：
+# - 仅使用 UTF-8 编码
+# - 注释为中文
+# - 移除 system 相关内容（仅管理子插件权限）
+
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -7,9 +13,8 @@ from typing import Any, Dict, Optional, Callable, Tuple
 
 from .utils import config_dir
 
-# Framework identifier kept for identification only; not used as a root key
-FRAMEWORK_NAME = "nonebot_plugin_entertain"
 
+# ========== 工具函数（字典合并） ==========
 
 def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
     def _merge(a: Dict[str, Any], b: Dict[str, Any]) -> Dict[str, Any]:
@@ -29,6 +34,8 @@ def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any
     b = json.loads(json.dumps(override)) if isinstance(override, dict) else {}
     return _merge(a, b)
 
+
+# ========== 单文件配置代理 ==========
 
 @dataclass
 class ConfigProxy:
@@ -59,12 +66,11 @@ class ConfigProxy:
             except Exception:
                 pass
         else:
-            # 文件存在，检查是否为空对象，如果是则填充默认值
+            # 若存在且内容为空对象，则写入默认值
             try:
                 content = p.read_text(encoding="utf-8")
                 data = json.loads(content)
                 if isinstance(data, dict) and len(data) == 0:
-                    # 空对象，写入默认值
                     p.write_text(json.dumps(self.defaults, ensure_ascii=False, indent=2), encoding="utf-8")
                     self._cache = json.loads(json.dumps(self.defaults))
                     try:
@@ -80,12 +86,10 @@ class ConfigProxy:
             text = self.path.read_text(encoding="utf-8")
             data = json.loads(text)
             if isinstance(data, dict):
-                # 如果设置了校验器，先校验
                 if self.validator is not None:
                     try:
                         self.validator(data)
-                    except Exception as e:
-                        # 校验失败，使用默认值
+                    except Exception:
                         self._cache = json.loads(json.dumps(self.defaults))
                         self._loaded = True
                         return
@@ -98,7 +102,7 @@ class ConfigProxy:
                 return
         except Exception:
             pass
-        # fallback
+        # 失败回退到默认
         self._cache = json.loads(json.dumps(self.defaults))
         self._loaded = True
 
@@ -114,20 +118,15 @@ class ConfigProxy:
             self._reload()
 
     def load(self) -> Dict[str, Any]:
-        """Load config and deep-fill missing keys from defaults (in-memory cache).
-
-        Existing user values are preserved; only absent keys are filled from
-        the registered defaults.
-        """
+        """加载配置：用默认值补齐缺失键（内存缓存）。"""
         self.ensure()
         self.ensure_loaded()
         merged = _deep_merge(self.defaults or {}, self._cache or {})
-        # Persist filled defaults when file lacks keys
+        # 文件缺键时将补齐后的结果回写
         try:
             if json.dumps(merged, sort_keys=True, ensure_ascii=False) != json.dumps(self._cache or {}, sort_keys=True, ensure_ascii=False):
                 self.save(merged)
         except Exception:
-            # best effort; keep merged in memory
             self._cache = json.loads(json.dumps(merged))
         return json.loads(json.dumps(merged))
 
@@ -145,24 +144,19 @@ class ConfigProxy:
             pass
 
     def reload_and_validate(self) -> Tuple[bool, Dict[str, Any], Optional[str]]:
-        """Reload config from disk and optionally validate.
-
-        Returns (ok, cfg, error_message). If no validator is set, ok is True
-        when the JSON is a dict; otherwise the validator may raise and ok
-        becomes False with the error captured.
-        """
+        """从磁盘重载并校验，返回 (ok, cfg, 错误信息)。"""
         self.ensure()
         try:
             raw_text = self.path.read_text(encoding="utf-8")
             raw = json.loads(raw_text)
             if not isinstance(raw, dict):
-                return False, json.loads(json.dumps(self.defaults)), "config is not a JSON object"
+                return False, json.loads(json.dumps(self.defaults)), "配置不是对象类型"
             if self.validator is not None:
                 try:
                     self.validator(raw)
                 except Exception as e:
-                    return False, raw, f"validation failed: {e}"
-            # update cache
+                    return False, raw, f"校验失败: {e}"
+            # 更新缓存
             self._cache = raw
             try:
                 self._mtime = self.path.stat().st_mtime
@@ -171,16 +165,13 @@ class ConfigProxy:
             self._loaded = True
             return True, raw, None
         except Exception as e:
-            return False, json.loads(json.dumps(self.defaults)), f"reload failed: {e}"
+            return False, json.loads(json.dumps(self.defaults)), f"重载失败: {e}"
 
+
+# ========== 命名空间配置代理（共享文件下的子对象） ==========
 
 @dataclass
 class NamespacedConfigProxy:
-    """Config proxy working on a sub-dict namespace within a single JSON file.
-
-    This allows multiple features to share one file (e.g. entertain/config.json)
-    while keeping per-feature sections like { "reg_time": { ... } }.
-    """
     plugin: str
     namespace: str
     filename: str = "config.json"
@@ -197,7 +188,7 @@ class NamespacedConfigProxy:
         all_cfg = self._load_whole()
         sec = all_cfg.get(self.namespace) or {}
         eff = _deep_merge(self.defaults or {}, sec if isinstance(sec, dict) else {})
-        # Persist back if defaults filled new keys
+        # 将补齐结果回写到同一文件
         if json.dumps(eff, sort_keys=True, ensure_ascii=False) != json.dumps(sec or {}, sort_keys=True, ensure_ascii=False):
             all_cfg[self.namespace] = eff
             self._file_proxy.save(all_cfg)
@@ -209,10 +200,10 @@ class NamespacedConfigProxy:
         self._file_proxy.save(all_cfg)
 
 
-# ----- New unified permissions (single global file, nested: framework -> sub_plugins -> commands) -----
+# ========== 权限（permissions.json） ==========
 
 
-def _perm_entry_default(level: str = "all", scene: str = "all") -> Dict[str, Any]:
+def _perm_entry_default(level: str = "member", scene: str = "all") -> Dict[str, Any]:
     return {
         "enabled": True,
         "level": level,
@@ -223,24 +214,9 @@ def _perm_entry_default(level: str = "all", scene: str = "all") -> Dict[str, Any
 
 
 def _scan_plugins_for_permissions() -> Dict[str, Any]:
-    """扫描子插件与内置系统命令，生成 permissions.json 初始结构。
-
-    目标结构：
-    {
-      "top": Entry,
-      "sub_plugins": {
-        "<sub_plugin>": { "top": Entry, "commands": { "name": Entry } }
-      },
-      "system": {
-        "membership": { "commands": { "name": Entry } }
-      }
-    }
-
-    仅在无文件时作为首次写入的默认内容。
-    """
-    result: Dict[str, Any] = {"top": _perm_entry_default(), "sub_plugins": {}, "system": {}}
+    """扫描子插件以生成 permissions.json 初始结构（不包含 system）。"""
+    result: Dict[str, Any] = {"top": _perm_entry_default(), "sub_plugins": {}}
     try:
-        # project root (two levels up from core/framework)
         proj_root = Path(__file__).resolve().parents[2]
         base = proj_root / "plugins"
         sub_map = result.setdefault("sub_plugins", {})
@@ -254,7 +230,6 @@ def _scan_plugins_for_permissions() -> Dict[str, Any]:
                 cmds = node.setdefault("commands", {})
 
                 import ast as _ast
-
                 for f in pdir.rglob("*.py"):
                     try:
                         text = f.read_text(encoding="utf-8", errors="ignore")
@@ -264,17 +239,6 @@ def _scan_plugins_for_permissions() -> Dict[str, Any]:
                         tree = _ast.parse(text.lstrip("\ufeff"))
                     except Exception:
                         continue
-
-                    # collect alias names for upsert_command_defaults
-                    up_names = {"upsert_command_defaults"}
-                    for node_ in _ast.walk(tree):
-                        if isinstance(node_, _ast.ImportFrom):
-                            try:
-                                for alias in node_.names:
-                                    if alias.name == "upsert_command_defaults" and alias.asname:
-                                        up_names.add(alias.asname)
-                            except Exception:
-                                pass
 
                     for node_ in _ast.walk(tree):
                         try:
@@ -289,78 +253,20 @@ def _scan_plugins_for_permissions() -> Dict[str, Any]:
                                 if isinstance(fn, _ast.Attribute) and isinstance(fn.value, _ast.Name) and fn.value.id == "P" and fn.attr == "permission_cmd":
                                     if node_.args and isinstance(node_.args[0], _ast.Constant) and isinstance(node_.args[0].value, str):
                                         cmds.setdefault(str(node_.args[0].value), _perm_entry_default())
-                                # upsert_command_defaults or alias called with (plugin, command)
-                                if isinstance(fn, _ast.Name) and fn.id in up_names:
-                                    if len(node_.args) >= 2 and all(isinstance(a, _ast.Constant) and isinstance(a.value, str) for a in node_.args[:2]):
-                                        pn = str(node_.args[0].value)
-                                        cn = str(node_.args[1].value)
-                                        if pn == sub_name and cn:
-                                            cmds.setdefault(cn, _perm_entry_default())
                         except Exception:
                             continue
             except Exception:
                 return
 
-        # 1) 扫描外部子插件目录（plugins/）
         if base.exists():
             for pdir in base.iterdir():
                 _scan_one(pdir, pdir.name)
-
-        # 2) 扫描框架内置系统功能（如 membership），收集命令到 system（扁平 commands）
-        def _scan_system_one(pdir: Path, name: str) -> None:
-            try:
-                if not pdir.is_dir() or not (pdir / "__init__.py").exists():
-                    return
-                sys_map = result.setdefault("system", {})
-                cmds = sys_map.setdefault("commands", {})
-
-                import ast as _ast
-                for f in pdir.rglob("*.py"):
-                    try:
-                        text = f.read_text(encoding="utf-8", errors="ignore")
-                    except Exception:
-                        continue
-                    try:
-                        tree = _ast.parse(text.lstrip("\ufeff"))
-                    except Exception:
-                        continue
-
-                    up_names = {"upsert_system_command_defaults", "upsert_command_defaults"}
-                    for node_ in _ast.walk(tree):
-                        try:
-                            if isinstance(node_, _ast.Call):
-                                fn = node_.func
-                                if isinstance(fn, _ast.Attribute) and isinstance(fn.value, _ast.Name) and fn.value.id == "P" and fn.attr == "on_regex":
-                                    for kw in node_.keywords or []:
-                                        if kw.arg == "name" and isinstance(kw.value, _ast.Constant) and isinstance(kw.value.value, str):
-                                            cmds.setdefault(str(kw.value.value), _perm_entry_default())
-                                if isinstance(fn, _ast.Attribute) and isinstance(fn.value, _ast.Name) and fn.value.id == "P" and fn.attr == "permission_cmd":
-                                    if node_.args and isinstance(node_.args[0], _ast.Constant) and isinstance(node_.args[0].value, str):
-                                        cmds.setdefault(str(node_.args[0].value), _perm_entry_default())
-                                if isinstance(fn, _ast.Name) and fn.id in up_names:
-                                    if len(node_.args) >= 2 and all(isinstance(a, _ast.Constant) and isinstance(a.value, str) for a in node_.args[:2]):
-                                        pn = str(node_.args[0].value)
-                                        cn = str(node_.args[1].value)
-                                        if pn == name and cn:
-                                            cmds.setdefault(cn, _perm_entry_default())
-                        except Exception:
-                            continue
-            except Exception:
-                return
-
-        # Locate built-in system package root (this file is core/framework/config.py)
-        core_pkg_dir = Path(__file__).resolve().parents[1]
-        if (core_pkg_dir / "__init__.py").exists():
-            _scan_system_one(core_pkg_dir, "core")
     except Exception:
-        # return what we have gathered so far on any unexpected error
         pass
     return result
 
 
 def _permissions_default() -> Dict[str, Any]:
-    # Generate a flat permissions map on demand (ephemeral).
-    # This is used as the in-memory default shape; the project file is initialized from it.
     return _scan_plugins_for_permissions()
 
 
@@ -372,7 +278,6 @@ def ensure_permissions_file() -> None:
     p = permissions_path()
     p.parent.mkdir(parents=True, exist_ok=True)
     if not p.exists():
-        # Initialize with scanned defaults if available; otherwise empty means "allow all"
         try:
             defaults = _permissions_default()
         except Exception:
@@ -406,7 +311,6 @@ def _normalize_id_list(v: Any) -> list[str]:
     try:
         if not isinstance(v, (list, tuple, set)):
             return []
-        # unique + stringify + stable order
         return sorted({str(x) for x in v if x is not None})
     except Exception:
         return []
@@ -434,82 +338,11 @@ def _normalize_entry_shape(entry: Any) -> Dict[str, Any]:
         return base
     return out
 
-
-def optimize_permissions() -> Tuple[bool, Dict[str, Any]]:
-    """Sort and normalize permissions.json for readability and consistency.
-
-    - Ensures keys: top, sub_plugins, system
-    - Normalizes entry shapes and ID lists
-    - Sorts plugin and command names alphabetically
-    - Removes empty containers
-    Returns (changed, new_data)
-    """
-    data = load_permissions()
-    changed = False
-
-    def _norm_sub_plugins(sp: Any) -> Dict[str, Any]:
-        if not isinstance(sp, dict):
-            return {}
-        out: Dict[str, Any] = {}
-        for name in sorted(sp.keys(), key=lambda x: str(x)):
-            node = sp.get(name)
-            if not isinstance(node, dict):
-                continue
-            top = _normalize_entry_shape(node.get("top")) if "top" in node else _perm_entry_default()
-            cmds_src = node.get("commands") if isinstance(node.get("commands"), dict) else {}
-            cmds: Dict[str, Any] = {}
-            for cname in sorted(cmds_src.keys(), key=lambda x: str(x)):
-                centry = _normalize_entry_shape(cmds_src.get(cname))
-                cmds[cname] = centry
-            # keep node only if has commands or meaningful top
-            out[name] = {"top": top, "commands": cmds}
-        return out
-
-def _norm_system(sys_map: Any) -> Dict[str, Any]:
-    """规范化 system 节点，支持两种结构：
-    - 扁平：{"commands": {...}}
-    - 分组：{"<name>": {"commands": {...}}}
-    按需转换为扁平结构。
-    """
-    if not isinstance(sys_map, dict):
-        return {}
-    # 扁平结构
-    if isinstance(sys_map.get("commands"), dict):
-        cmds_src = sys_map.get("commands") or {}
-        cmds: Dict[str, Any] = {}
-        for cname in sorted(cmds_src.keys(), key=lambda x: str(x)):
-            cmds[cname] = _normalize_entry_shape(cmds_src.get(cname))
-        return {"commands": cmds}
-    # 分组结构 -> 合并为扁平
-    flat_cmds: Dict[str, Any] = {}
-    for name in sorted(sys_map.keys(), key=lambda x: str(x)):
-        node = sys_map.get(name)
-        if not isinstance(node, dict):
-            continue
-        cmds_src = node.get("commands") if isinstance(node.get("commands"), dict) else {}
-        for cname in sorted(cmds_src.keys(), key=lambda x: str(x)):
-            flat_cmds[cname] = _normalize_entry_shape(cmds_src.get(cname))
-    return {"commands": flat_cmds}
-
-    new_root: Dict[str, Any] = {}
-    new_root["top"] = _normalize_entry_shape((data or {}).get("top"))
-    new_root["sub_plugins"] = _norm_sub_plugins((data or {}).get("sub_plugins"))
-    new_root["system"] = _norm_system((data or {}).get("system"))
-
-    try:
-        if json.dumps(new_root, ensure_ascii=False, sort_keys=False) != json.dumps(data or {}, ensure_ascii=False, sort_keys=False):
-            save_permissions(new_root)
-            changed = True
-    except Exception:
-        pass
-    return changed, new_root
-
-
 def _as_str_list(v: Any) -> list[str]:
     if v is None:
         return []
     if not isinstance(v, (list, tuple, set)):
-        raise TypeError("expect list for id list")
+        raise TypeError("应为列表类型")
     return [str(x) for x in v]
 
 
@@ -523,14 +356,13 @@ def upsert_plugin_defaults(
     wl_groups: Optional[list[str]] = None,
     bl_users: Optional[list[str]] = None,
     bl_groups: Optional[list[str]] = None,
-    ) -> None:
-    """Upsert defaults for a sub-plugin (flat schema)."""
+) -> None:
+    """为子插件写入顶层默认项（仅 sub_plugins）。"""
     data = load_permissions()
     root = data
     sub_map = root.setdefault("sub_plugins", {})
     sp = sub_map.setdefault(plugin, {})
     d = sp.setdefault("top", _perm_entry_default())
-    # Set only provided keys; strict validation happens in registry
     if enabled is not None:
         d["enabled"] = bool(enabled)
     if level is not None:
@@ -548,9 +380,6 @@ def upsert_plugin_defaults(
     save_permissions(root)
 
 
-# removed legacy main_plugins top helpers
-
-
 def upsert_command_defaults(
     plugin: str,
     command: str,
@@ -563,7 +392,7 @@ def upsert_command_defaults(
     bl_users: Optional[list[str]] = None,
     bl_groups: Optional[list[str]] = None,
 ) -> None:
-    """Upsert defaults for a specific command under a sub-plugin (flat schema)."""
+    """为子插件的具体命令写入默认项（仅 sub_plugins）。"""
     data = load_permissions()
     root = data
     sub_map = root.setdefault("sub_plugins", {})
@@ -600,55 +429,27 @@ def upsert_system_command_defaults(
     bl_users: Optional[list[str]] = None,
     bl_groups: Optional[list[str]] = None,
 ) -> None:
-    """为系统命令写入默认项（不受全局 top 影响），扁平到 system.commands。"""
-    data = load_permissions()
-    root = data
-    sys_map = root.setdefault("system", {})
-    cmds = sys_map.setdefault("commands", {})
-    c = cmds.setdefault(command, _perm_entry_default())
-    if enabled is not None:
-        c["enabled"] = bool(enabled)
-    if level is not None:
-        c["level"] = level
-    if scene is not None:
-        c["scene"] = scene
-    if wl_users is not None:
-        c.setdefault("whitelist", {}).update({"users": _as_str_list(wl_users)})
-    if wl_groups is not None:
-        c.setdefault("whitelist", {}).update({"groups": _as_str_list(wl_groups)})
-    if bl_users is not None:
-        c.setdefault("blacklist", {}).update({"users": _as_str_list(bl_users)})
-    if bl_groups is not None:
-        c.setdefault("blacklist", {}).update({"groups": _as_str_list(bl_groups)})
-    save_permissions(root)
+    """保留接口但不再生效：system 命令不接入外置权限。"""
+    return
 
 
-# removed legacy main_plugins command helpers
-
+# ========== 配置注册与重载（供控制台与插件使用） ==========
 
 _CONFIG_REGISTRY: Dict[tuple[str, str], ConfigProxy] = {}
-
-# 配置重载回调注册表：插件名 -> 重载函数列表
 _RELOAD_CALLBACKS: Dict[str, list[Callable[[], None]]] = {}
+_SCHEMAS_PLUGIN: Dict[str, Dict[str, Any]] = {}
+_SCHEMAS_NS: Dict[tuple[str, str], Dict[str, Any]] = {}
 
 
 def register_reload_callback(plugin: str, callback: Callable[[], None]) -> None:
-    """注册配置重载回调函数。
-
-    当框架重载配置时，会调用所有注册的回调函数来更新插件模块级缓存。
-
-    Args:
-        plugin: 插件名称
-        callback: 重载回调函数，无参数无返回值
-    """
+    """注册配置重载回调（当统一重载时会依次调用）。"""
     if plugin not in _RELOAD_CALLBACKS:
         _RELOAD_CALLBACKS[plugin] = []
     _RELOAD_CALLBACKS[plugin].append(callback)
 
 
-# ---- 配置管理器 ----
 class ConfigManager:
-    """统一的配置管理器，负责在框架启动时加载所有配置到缓存。"""
+    """统一的配置管理器：负责启动时预热与集中重载。"""
 
     _instance: Optional["ConfigManager"] = None
     _initialized: bool = False
@@ -659,47 +460,32 @@ class ConfigManager:
         return cls._instance
 
     def __init__(self):
-        """单例模式，避免重复初始化。"""
         pass
 
     def bootstrap(self) -> None:
-        """框架启动时调用，预加载所有已注册的配置到内存缓存。"""
+        """启动时调用：预热必要的配置文件与权限文件。"""
         if self._initialized:
             return
-
-        # 确保配置目录存在
         try:
             config_dir().mkdir(parents=True, exist_ok=True)
         except Exception:
             pass
-
-        # 确保权限文件存在
         try:
             ensure_permissions_file()
         except Exception:
             pass
-
-        # 预加载所有已注册的配置文件到缓存
         for (plugin, filename), proxy in list(_CONFIG_REGISTRY.items()):
             try:
                 proxy.ensure()
                 proxy.ensure_loaded()
             except Exception:
-                # 单个配置加载失败不影响其他配置
                 pass
-
         self._initialized = True
 
     def reload_all(self) -> Tuple[bool, Dict[str, Any]]:
-        """重载所有已注册的配置，更新内存缓存。
-
-        返回: (success, details)
-        - success: 是否全部成功
-        - details: 详细结果，包含每个插件的加载状态
-        """
+        """重载所有已注册的配置并执行回调，返回结果摘要。"""
         results: Dict[str, Any] = {"plugins": {}}
         ok_all = True
-
         for (plugin, filename), proxy in list(_CONFIG_REGISTRY.items()):
             ok, cfg, err = proxy.reload_and_validate()
             prev = results["plugins"].get(plugin, {})
@@ -708,172 +494,48 @@ class ConfigManager:
                 "error": err or prev.get("error")
             }
             ok_all = ok_all and ok
-
-        # 调用所有注册的重载回调，更新插件模块级缓存
         for plugin, callbacks in _RELOAD_CALLBACKS.items():
             for callback in callbacks:
                 try:
                     callback()
                 except Exception:
-                    # 单个回调失败不影响其他回调
                     pass
-
-        # 重载权限配置
-        try:
-            from .perm import reload_permissions
-            reload_permissions()
-            p_ok = True
-        except Exception:
-            p_ok = False
-
-        results["permissions"] = {"ok": p_ok}
-        return (ok_all and p_ok), results
-
-    def get_all_configs(self) -> Dict[str, Any]:
-        """获取所有已注册插件的配置（从内存缓存中读取）。
-
-        返回格式:
-        {
-            "system": {...},
-            "plugin_name": {...},
-            ...
-        }
-        """
-        result: Dict[str, Any] = {}
-        for (plugin, filename), proxy in list(_CONFIG_REGISTRY.items()):
-            try:
-                # 使用load()从内存缓存读取
-                cfg = proxy.load()
-                result[plugin] = cfg
-            except Exception:
-                # 出错时返回空dict
-                result[plugin] = {}
-        return result
-
-    def save_configs(self, configs: Dict[str, Any]) -> Tuple[bool, Dict[str, str]]:
-        """保存多个插件的配置，并更新内存缓存。
-
-        Args:
-            configs: 格式为 {"plugin_name": {config_dict}, ...}
-
-        Returns:
-            (success, errors) - success为True表示全部成功，errors包含失败的插件及错误信息
-        """
-        errors: Dict[str, str] = {}
-        for plugin_name, cfg in configs.items():
-            if not isinstance(cfg, dict):
-                errors[plugin_name] = "配置必须是JSON对象"
-                continue
-
-            # 查找对应的proxy
-            proxy = None
-            for (p, fname), px in list(_CONFIG_REGISTRY.items()):
-                if p == plugin_name and fname == "config.json":
-                    proxy = px
-                    break
-
-            if proxy is None:
-                # 尝试注册新的
-                try:
-                    proxy = register_plugin_config(plugin_name, cfg)
-                except Exception as e:
-                    errors[plugin_name] = f"注册失败: {e}"
-                    continue
-
-            try:
-                # 保存会自动更新缓存
-                proxy.save(cfg)
-            except Exception as e:
-                errors[plugin_name] = f"保存失败: {e}"
-
-        return (len(errors) == 0), errors
+        return ok_all, results
 
 
-# 创建全局配置管理器实例
-_config_manager = ConfigManager()
-
-# ---- Schema registry for frontend forms (Plan A) ----
-_SCHEMA_REGISTRY: Dict[str, Dict[str, Any]] = {}
+# ========== 对外接口 ==========
 
 
 def register_plugin_schema(plugin: str, schema: Dict[str, Any]) -> None:
-    """Register or replace the schema for a plugin root.
-
-    The `schema` should be a JSON-serializable dict, ideally compatible with
-    JSON Schema. For namespaced configs (multiple sections inside one file),
-    consider using `register_namespaced_schema` to place schema under
-    `properties[namespace]` of the plugin root.
-    """
-    try:
-        # store a deep copy to avoid accidental mutation by callers
-        _SCHEMA_REGISTRY[plugin] = json.loads(json.dumps(schema or {}))
-    except Exception:
-        _SCHEMA_REGISTRY[plugin] = schema or {}
+    _SCHEMAS_PLUGIN[plugin] = json.loads(json.dumps(schema or {}))
 
 
 def register_namespaced_schema(plugin: str, namespace: str, schema: Dict[str, Any]) -> None:
-    """Register schema under a plugin's namespace (object property).
-
-    Ensures the plugin root schema is an object with `properties` dict, then
-    sets/overwrites the `namespace` entry with the given schema.
-    """
-    root = _SCHEMA_REGISTRY.get(plugin)
-    if not isinstance(root, dict):
-        root = {
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "type": "object",
-            "title": plugin,
-            "properties": {},
-        }
-        _SCHEMA_REGISTRY[plugin] = root
-    if root.get("type") != "object":
-        root["type"] = "object"
-    props = root.setdefault("properties", {})
-    try:
-        props[namespace] = json.loads(json.dumps(schema or {}))
-    except Exception:
-        props[namespace] = schema or {}
-
-
-def get_all_plugin_schemas() -> Dict[str, Any]:
-    """Return a deep-copied map of plugin -> schema for frontend consumption."""
-    try:
-        return json.loads(json.dumps(_SCHEMA_REGISTRY))
-    except Exception:
-        # best-effort shallow copy if deep copy fails
-        return dict(_SCHEMA_REGISTRY)
+    _SCHEMAS_NS[(plugin, namespace)] = json.loads(json.dumps(schema or {}))
 
 
 def register_plugin_config(
     plugin: str,
-    defaults: Optional[Dict[str, Any]] = None,
+    defaults: Dict[str, Any],
     *,
     filename: str = "config.json",
     validator: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> ConfigProxy:
-    """Register per-plugin config file (no per-plugin permissions).
-
-    - Writes defaults if file missing
-    - No default-merge on load
-    - Optional validator used by reload helper
-    """
-    cfg_proxy = ConfigProxy(plugin=plugin, filename=filename, defaults=defaults or {}, validator=validator)
-    cfg_proxy.ensure()
-    _CONFIG_REGISTRY[(plugin, filename)] = cfg_proxy
-    return cfg_proxy
+    key = (plugin, filename)
+    if key not in _CONFIG_REGISTRY:
+        _CONFIG_REGISTRY[key] = ConfigProxy(plugin=plugin, filename=filename, defaults=defaults or {}, validator=validator)
+    return _CONFIG_REGISTRY[key]
 
 
 def register_namespaced_config(
     plugin: str,
     namespace: str,
-    defaults: Optional[Dict[str, Any]] = None,
+    defaults: Dict[str, Any] = None,
     *,
     filename: str = "config.json",
 ) -> NamespacedConfigProxy:
-    # Ensure the underlying file exists, then work on a sub-dict
-    file_proxy = ConfigProxy(plugin=plugin, filename=filename, defaults={}, validator=None)
-    file_proxy.ensure()
-    return NamespacedConfigProxy(plugin=plugin, namespace=namespace, filename=filename, defaults=defaults or {})
+    proxy = NamespacedConfigProxy(plugin=plugin, namespace=namespace, filename=filename, defaults=defaults or {})
+    return proxy
 
 
 def get_plugin_config(plugin: str, *, filename: str = "config.json", defaults: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -881,7 +543,7 @@ def get_plugin_config(plugin: str, *, filename: str = "config.json", defaults: O
 
 
 def save_plugin_config(plugin: str, cfg: Dict[str, Any], *, filename: str = "config.json") -> None:
-    register_plugin_config(plugin, {}, filename=filename).save(cfg)
+    register_plugin_config(plugin, {}, filename=filename).save(cfg or {})
 
 
 def reload_plugin_config(
@@ -890,60 +552,14 @@ def reload_plugin_config(
     filename: str = "config.json",
     validator: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Tuple[bool, Dict[str, Any], Optional[str]]:
-    """Reload one plugin's config and validate.
-
-    Returns (ok, cfg, err). If validator provided, it is used to validate
-    the config; otherwise only JSON-object shape is checked.
-    """
     proxy = _CONFIG_REGISTRY.get((plugin, filename)) or register_plugin_config(plugin, {}, filename=filename, validator=validator)
     return proxy.reload_and_validate()
 
 
 def bootstrap_configs() -> None:
-    """框架启动时初始化配置系统。
+    ConfigManager().bootstrap()
 
-    - 创建配置目录
-    - 确保权限文件存在
-    - 预加载所有已注册的配置到内存缓存
-    """
-    _config_manager.bootstrap()
-    # Populate permissions effective cache once at startup; avoid repeated scans later
-    try:
-        from .perm import prime_permissions_cache
-        prime_permissions_cache()
-    except Exception:
-        # best-effort; runtime will fall back to empty perms (allow all)
-        pass
 
 def reload_all_configs() -> Tuple[bool, Dict[str, Any]]:
-    """重载所有已注册的插件配置和权限配置。
+    return ConfigManager().reload_all()
 
-    Returns:
-        (ok, details) 其中 details 包含每个插件的加载结果和权限状态。
-    """
-    return _config_manager.reload_all()
-
-
-def get_all_plugin_configs() -> Dict[str, Any]:
-    """获取所有已注册的插件配置（从内存缓存中读取）。
-
-    返回格式：
-    {
-        "system": {...},
-        "plugin_name": {...},
-        ...
-    }
-    """
-    return _config_manager.get_all_configs()
-
-
-def save_all_plugin_configs(configs: Dict[str, Any]) -> Tuple[bool, Dict[str, str]]:
-    """保存多个插件的配置，并更新内存缓存。
-
-    Args:
-        configs: 格式为 {"plugin_name": {config_dict}, ...}
-
-    Returns:
-        (success, errors) - success为True表示全部成功，errors包含失败的插件及错误信息
-    """
-    return _config_manager.save_configs(configs)

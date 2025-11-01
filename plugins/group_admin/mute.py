@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Tuple
 
@@ -13,7 +13,7 @@ from nonebot.adapters.onebot.v11 import (
 )
 
 from . import _P as P
-from ...core.framework.perm import PermLevel
+from ...core.framework.perm import PermLevel, PermScene
 from .utils import extract_at_or_id, parse_duration_to_seconds
 
 
@@ -28,7 +28,7 @@ mute_all_on = P.on_regex(
     block=True,
     enabled=True,
     level=PermLevel.ADMIN,
-    scene="group",
+    scene=PermScene.GROUP,
 )
 
 
@@ -52,7 +52,7 @@ mute_all_off = P.on_regex(
     block=True,
     enabled=True,
     level=PermLevel.ADMIN,
-    scene="group",
+    scene=PermScene.GROUP,
 )
 
 
@@ -63,20 +63,20 @@ async def _mute_all_off(matcher: Matcher, bot: Bot, event: MessageEvent):
     try:
         await bot.set_group_whole_ban(group_id=event.group_id, enable=False)  # type: ignore[arg-type]
     except Exception as e:
-        logger.exception(f"关闭全体禁言失败: {e}")
+        logger.exception(f"鍏抽棴全体禁言失败: {e}")
         await matcher.finish("操作失败，可能权限不足")
     await matcher.finish("已关闭全体禁言")
 
 
 mute_member = P.on_regex(
-    r"^#禁言\s*(.+?)(?:\s+(\d+[a-zA-Z\u4e00-\u9fa5]*))?$",
+    r"^#绂佽█\s*(.+?)(?:\s+(\d+[a-zA-Z\u4e00-\u9fa5]*))?$",
     name="mute_member",
     display_name="禁言",
     priority=5,
     block=True,
     enabled=True,
     level=PermLevel.ADMIN,
-    scene="group",
+    scene=PermScene.GROUP,
 )
 
 
@@ -99,14 +99,14 @@ async def _mute_member(matcher: Matcher, bot: Bot, event: MessageEvent, groups: 
 
 
 unmute_member = P.on_regex(
-    r"^#(?:解禁|取消禁言)\s*(.+)?$",
+    r"^#(?:瑙ｇ|鍙栨秷绂佽█)\s*(.+)?$",
     name="unmute_member",
     display_name="解禁",
     priority=5,
     block=True,
     enabled=True,
     level=PermLevel.ADMIN,
-    scene="group",
+    scene=PermScene.GROUP,
 )
 
 
@@ -124,4 +124,10 @@ async def _unmute_member(matcher: Matcher, bot: Bot, event: MessageEvent, groups
         logger.exception(f"解禁失败: {e}")
         await matcher.finish("操作失败，可能权限不足或目标不在群内")
     await matcher.finish("已解除禁言")
+
+
+
+
+
+
 

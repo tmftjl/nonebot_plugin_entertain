@@ -11,9 +11,8 @@ from nonebot.permission import Permission, SUPERUSER
 from .config import (
     upsert_plugin_defaults,
     upsert_command_defaults,
-    upsert_system_command_defaults,
 )
-from .perm import permission_for_cmd, permission_for_plugin, PermLevel
+from .perm import permission_for_cmd, permission_for_plugin, PermLevel, PermScene
 
 
 def _infer_plugin_name() -> str:
@@ -45,19 +44,14 @@ def _infer_plugin_name() -> str:
     return "unknown"
 
 
-_LEVELS = {"all", "member", "admin", "owner", "bot_admin", "superuser"}
-_SCENES = {"all", "group", "private"}
-
-
 def _validate_entry(*, enabled=None, level=None, scene=None, wl_users=None, wl_groups=None, bl_users=None, bl_groups=None) -> None:
     if enabled is not None and not isinstance(enabled, bool):
         raise TypeError("enabled must be bool")
-    if level is not None:
-        # 仅接受枚举（不再接受任意字符串）
-        if not isinstance(level, PermLevel):
-            raise TypeError("level must be PermLevel")
-    if scene is not None and str(scene) not in _SCENES:
-        raise ValueError(f"invalid scene: {scene}")
+    if level is not None and not isinstance(level, PermLevel):
+        raise TypeError("level must be PermLevel")
+    if scene is not None and not isinstance(scene, PermScene):
+        raise TypeError("scene must be PermScene")
+
     def _check_list(v, name):
         if v is None:
             return
@@ -91,7 +85,7 @@ def get_plugin_display_names() -> dict[str, str]:
 
 
 def set_command_display_name(plugin: str, command: str, display_name: str) -> None:
-    """设置命令的中文显示名称"""
+    """Set Chinese display name for a command."""
     try:
         p = str(plugin).strip()
         c = str(command).strip()
@@ -105,7 +99,7 @@ def set_command_display_name(plugin: str, command: str, display_name: str) -> No
 
 
 def get_command_display_names() -> dict[str, dict[str, str]]:
-    """获取所有命令的中文显示名称"""
+    """Get all command display names (Chinese)."""
     try:
         return {k: dict(v) for k, v in _COMMAND_DISPLAY_NAMES.items()}
     except Exception:
@@ -125,11 +119,11 @@ class Plugin:
         self,
         name: Optional[str] = None,
         *,
-        category: str = "sub",  # "sub" 外部插件（plugins/），"system" 内置系统命令
+        category: str = "sub",  # "sub" external plugins (plugins/); "system" built-ins (not controlled)
         display_name: Optional[str] = None,
         enabled: Optional[bool] = None,
         level: Optional[PermLevel] = None,
-        scene: Optional[str] = None,
+        scene: Optional[PermScene] = None,
         wl_users: Optional[list[str]] = None,
         wl_groups: Optional[list[str]] = None,
         bl_users: Optional[list[str]] = None,
@@ -144,8 +138,7 @@ class Plugin:
                 set_plugin_display_name(self.name, str(display_name))
         except Exception:
             pass
-        # No per-plugin config auto-creation here; plugins handle their own configs
-        # Always create a plugin-level default entry; if fields provided, validate and set them
+        # Create a plugin-level default entry; if fields provided, validate and set them
         if any(x is not None for x in (enabled, level, scene, wl_users, wl_groups, bl_users, bl_groups)):
             _validate_entry(enabled=enabled, level=level, scene=scene, wl_users=wl_users, wl_groups=wl_groups, bl_users=bl_users, bl_groups=bl_groups)
         if self.category == "sub":
@@ -162,18 +155,28 @@ class Plugin:
                         PermLevel.SUPERUSER: "superuser",
                     }[v]
                 return str(v).lower()
+            def _scene_str(v):
+                if v is None:
+                    return None
+                if isinstance(v, PermScene):
+                    return {
+                        PermScene.ALL: "all",
+                        PermScene.GROUP: "group",
+                        PermScene.PRIVATE: "private",
+                    }[v]
+                return str(v).lower()
             upsert_plugin_defaults(
                 self.name,
                 enabled=enabled,
                 level=_lvl_str(level),
-                scene=scene,
+                scene=_scene_str(scene),
                 wl_users=wl_users,
                 wl_groups=wl_groups,
                 bl_users=bl_users,
                 bl_groups=bl_groups,
             )
         else:
-            # 系统命令不使用全局 top，不做插件级 upsert
+            # system commands: do not write to external permissions
             pass
 
     # ----- Permissions -----
@@ -181,7 +184,7 @@ class Plugin:
         return permission_for_plugin(self.name, category=self.category)
 
     def permission_cmd(self, command: str):
-        # 系统命令不接入外置权限：默认放行；若声明为 superuser 则仅限超管
+        # System commands are not controlled; only SUPERUSER respected if declared
         if self.category == "system":
             lvl = self._cmd_levels.get(command)
             if lvl == PermLevel.SUPERUSER:
@@ -198,14 +201,14 @@ class Plugin:
         display_name: Optional[str] = None,
         enabled: Optional[bool] = None,
         level: Optional[PermLevel] = None,
-        scene: Optional[str] = None,
+        scene: Optional[PermScene] = None,
         wl_users: Optional[list[str]] = None,
         wl_groups: Optional[list[str]] = None,
         bl_users: Optional[list[str]] = None,
         bl_groups: Optional[list[str]] = None,
         **kwargs: Any,
     ) -> Matcher:
-        # 如果提供了中文名，注册它
+        # record Chinese display name
         if display_name:
             set_command_display_name(self.name, name, display_name)
 
@@ -213,7 +216,6 @@ class Plugin:
         if any(x is not None for x in (enabled, level, scene, wl_users, wl_groups, bl_users, bl_groups)):
             _validate_entry(enabled=enabled, level=level, scene=scene, wl_users=wl_users, wl_groups=wl_groups, bl_users=bl_users, bl_groups=bl_groups)
         if self.category == "sub":
-            # 将 level（枚举）规范化为字符串写入 permissions.json
             def _lvl_str(v):
                 if v is None:
                     return None
@@ -227,39 +229,44 @@ class Plugin:
                         PermLevel.SUPERUSER: "superuser",
                     }[v]
                 return str(v).lower()
+            def _scene_str(v):
+                if v is None:
+                    return None
+                if isinstance(v, PermScene):
+                    return {
+                        PermScene.ALL: "all",
+                        PermScene.GROUP: "group",
+                        PermScene.PRIVATE: "private",
+                    }[v]
+                return str(v).lower()
             upsert_command_defaults(
                 self.name,
                 name,
                 enabled=enabled,
                 level=_lvl_str(level),
-                scene=scene,
+                scene=_scene_str(scene),
                 wl_users=wl_users,
                 wl_groups=wl_groups,
                 bl_users=bl_users,
                 bl_groups=bl_groups,
             )
-            # 外部插件：注入基于 permissions.json 的权限对象
             if "permission" not in kwargs:
                 kwargs["permission"] = self.permission_cmd(name)
         else:
-            # 系统命令：不写入权限配置，不使用外置权限控制
-            # 仅当声明 level=superuser 且未显式指定 permission 时，使用 NoneBot 的 SUPERUSER
+            # System commands: do not write to external permissions.
             self._cmd_levels[name] = level
-            if "permission" not in kwargs and (level == PermLevel.SUPERUSER or str(level or "").lower() == "superuser"):
+            if "permission" not in kwargs and level == PermLevel.SUPERUSER:
                 kwargs["permission"] = SUPERUSER
-        
-        # 1. 先创建原始的 Matcher
+
+        # 1) create matcher
         matcher = on_regex(pattern, **kwargs)
 
-        # 2. 【核心】定义并添加用于运行时日志记录的 handler
+        # 2) add a simple log handler to trace command entry
         async def _log_command_entry():
-            """这个 handler 会在命令被触发时执行"""
             logger.opt(colors=True).info(
-                f"插件 <y>{self.name}</y> | 命令 <g>{name}</g> 已触发, 准备处理..."
+                f"plugin <y>{self.name}</y> | command <g>{name}</g> triggered, processing..."
             )
-
-        # 3. 【核心】将这个日志 handler 添加到 matcher 中，让它最先执行
         matcher.append_handler(_log_command_entry)
 
-        # 4. 返回添加了日志功能的 matcher
         return matcher
+
