@@ -274,7 +274,7 @@ async def handle_persona(event: MessageEvent):
         f"🧠 当前人格\n"
         f"━━━━━━━━━━━━━━━━\n"
         f"名称: {persona.name}\n"
-        f"描述: {persona.description}\n"
+        f"详情: {persona.details}\n"
     )
     await persona_cmd.finish(info_text)
 

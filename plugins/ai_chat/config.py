@@ -1,4 +1,4 @@
-"""AI 对话配置（api 使用数组形式）
+﻿"""AI 对话配置（api 使用数组形式）
 
 - 注册并管理 `config/ai_chat/config.json`
 - 提供 Pydantic 配置对象供代码内部访问
@@ -74,11 +74,12 @@ class AIChatConfig(BaseModel):
 
 
 class PersonaConfig(BaseModel):
-    """人格配置"""
+    """人格配置（仅：名称 + 详情）"""
 
+    # 人格名称（用于展示和切换）
     name: str = Field(description="人格名称")
-    description: str = Field(description="人格描述")
-    system_prompt: str = Field(description="系统提示词")
+    # 人格详情：即系统提示词（System Prompt）
+    details: str = Field(description="系统提示词/人格详细设定")
 
 
 # ==================== 默认值与前端 Schema ====================
@@ -455,17 +456,17 @@ def load_personas() -> Dict[str, PersonaConfig]:
             "default": PersonaConfig(
                 name="默认助手",
                 description="一个友好的 AI 助手",
-                system_prompt="你是一个友好、耐心且乐于助人的 AI 助手。回答简洁清晰，有同理心。",
+                details="你是一个友好、耐心且乐于助人的 AI 助手。回答简洁清晰，有同理心。",
             ),
             "tsundere": PersonaConfig(
                 name="傲娇少女",
                 description="傲娇属性的人格",
-                system_prompt="你是一个有些傲娇的人格，说话常带有‘才不是’‘哼’之类的口癖，外冷内热。",
+                details="你是一个有些傲娇的人格，说话常带有‘才不是’‘哼’之类的口癖，外冷内热。",
             ),
             "professional": PersonaConfig(
                 name="专业问答",
                 description="专业的技术问答",
-                system_prompt="你是一个专业的技术问答助手，擅长编程、系统架构等。回答准确、专业，提供实用建议。",
+                details="你是一个专业的技术问答助手，擅长编程、系统架构等。回答准确、专业，提供实用建议。",
             ),
         }
         save_personas(_personas)
@@ -482,7 +483,7 @@ def load_personas() -> Dict[str, PersonaConfig]:
             "default": PersonaConfig(
                 name="默认助手",
                 description="一个友好的 AI 助手",
-                system_prompt="你是一个友好、耐心且乐于助人的 AI 助手。回答简洁清晰，有同理心。",
+                details="你是一个友好、耐心且乐于助人的 AI 助手。回答简洁清晰，有同理心。",
             )
         }
     return _personas
@@ -540,19 +541,19 @@ def load_personas() -> Dict[str, PersonaConfig]:
         meta, body = _parse_front_matter(raw)
         name = meta.get("name") or key
         desc = meta.get("description") or _summarize_description(body)
-        system_prompt = body.strip()
-        if not system_prompt:
+        details = body.strip()
+        if not details:
             logger.warning(f"[AI Chat] 人格文件空内容，已跳过: {fp.name}")
             continue
 
-        personas[key] = PersonaConfig(name=name, description=desc, system_prompt=system_prompt)
+        personas[key] = PersonaConfig(name=name, details=details)
 
     if not personas:
         personas = {
             "default": PersonaConfig(
                 name="默认助手",
                 description="一个友好的 AI 助手",
-                system_prompt=(
+                details=(
                     "你是一个友好、耐心且乐于助人的 AI 助手。回答简洁清晰，有同理心。"
                 ),
             )
@@ -582,7 +583,7 @@ def save_personas(personas: Dict[str, PersonaConfig]) -> None:
             fname = f"{key}.md"
             fp = dir_path / fname
             content = (
-                f"---\nname: {p.name}\ndescription: {p.description}\n---\n\n{p.system_prompt}\n"
+                f"---\\nname: {p.name}\\n---\\n\\n{p.details}\\n"
             )
             fp.write_text(content, encoding="utf-8")
         logger.info("[AI Chat] 人格已写入 personas 目录")
@@ -606,3 +607,6 @@ def reload_all() -> None:
 
 # Register framework-level reload callback
 register_reload_callback("ai_chat", reload_all)
+
+
+

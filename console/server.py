@@ -202,7 +202,7 @@ def setup_web_console() -> None:
             text = str(payload.get("text") or "")
             imgs = payload.get("images") or []
             if not group_ids:
-                raise HTTPException(400, "未指定任何群组")
+                raise HTTPException(400, "同名人格已存在")
 
             def _norm_img(u: object) -> str:
                 try:
@@ -349,7 +349,7 @@ def setup_web_console() -> None:
                 success: bool = True
                 errors: Dict[str, str] = {}
                 if not is_batch:
-                    raise HTTPException(400, "配置格式无效：必须为 {plugin: {...}} 结构（已弃用旧格式）")
+                    raise HTTPException(400, "同名人格已存在")
 
                 # 批量更新：payload 为 { plugin: { ... }, ... }
                 if is_batch:
@@ -430,7 +430,7 @@ def setup_web_console() -> None:
             except Exception as e:
                 raise HTTPException(500, f"获取配置Schema失败: {e}")
 
-        # ==================== AI 对话：人格管理 ====================
+        # ==================== AI 对话：人格管理
         @router.get("/ai_chat/personas")
         async def api_ai_personas(_: dict = Depends(_auth)):
             if not ai_get_personas:
@@ -443,7 +443,7 @@ def setup_web_console() -> None:
                     try:
                         data[k] = {
                             "name": getattr(p, "name", "") or "",
-                            "details": getattr(p, "system_prompt", "") or "",                        }
+                            "details": getattr(p, "details", "") or "",                        }
                     except Exception:
                         continue
                 return {"personas": data}
@@ -452,13 +452,12 @@ def setup_web_console() -> None:
 
         def _sanitize_persona_key(key: str) -> str:
             s = (key or "").strip()
-            if not s:
-                raise HTTPException(400, "名称不能为空")
+            if not s:\n                raise HTTPException(400, "名称不能为空")
             if s in {".", ".."}:
                 raise HTTPException(400, "名称非法")
             invalid = set('<>":/\\|?*')
             if any(ch in invalid for ch in s):
-                raise HTTPException(400, "名称包含非法字符")
+                raise HTTPException(400, "名称含有非法字符")
             if s.endswith(" ") or s.endswith("."):
                 raise HTTPException(400, "名称不允许以空格或点结尾")
             return s
@@ -466,7 +465,7 @@ def setup_web_console() -> None:
         def _write_persona_file(dir_path: Path, key: str, name: str, description: str, system_prompt: str) -> None:
             # 写入 Markdown（带 front matter）
             content = (
-                f"---\nname: {name}\ndescription: {description}\n---\n\n{system_prompt}\n"
+                f"---\nname: {name}\n---\n\n{system_prompt}\n"
             )
             fp = dir_path / f"{key}.md"
             fp.write_text(content, encoding="utf-8")
@@ -483,71 +482,85 @@ def setup_web_console() -> None:
                     continue
             return removed
 
-        def _write_persona_file(dir_path: Path, key: str, name: str, details: str) -> None:  # type: ignore[no-redef]
-            content = f"{details}\n"
+        def _write_persona_file(dir_path: Path, key: str, name: str, description: str, system_prompt: str) -> None:  # type: ignore[no-redef]
+            content = (
+                f"---\nname: {name}\n---\n\n{system_prompt}\n"
+            )
             fp = dir_path / f"{key}.md"
             fp.write_text(content, encoding="utf-8")
 
+        # 简易摘要：取正文首个非空行，截断 40 字
+        def _summarize_desc(body: str, width: int = 40) -> str:
+            try:
+                for ln in str(body or "").splitlines():
+                    s = ln.strip().lstrip("#:-* ")
+                    if s:
+                        return s[:width]
+            except Exception:
+                pass
+            return ""
+
         @router.post("/ai_chat/persona")
         async def api_ai_persona_create(payload: Dict[str, Any], _: dict = Depends(_auth)):
+            """创建人格（仅名称 + 详情）"""
             if not ai_get_personas_dir or not ai_reload_ai_configs:
                 raise HTTPException(500, "未找到 AI 对话模块，无法创建人格")
             name_raw = str(payload.get("name") or "").strip()
-            description = str(payload.get("description") or "").strip()
             if not name_raw:
                 raise HTTPException(400, "名称不能为空")
-            if not description:
-                raise HTTPException(400, "描述不能为空")
             key = _sanitize_persona_key(name_raw)
             name = name_raw
-            system_prompt = ""
-
+            details = str(payload.get("details") or "").strip()
+            if not details:
+                raise HTTPException(400, "详情不能为空")
+        
             dir_path = ai_get_personas_dir()
-            # 不允许覆盖已有同名（任意后缀）
+            # 检查同名（不同扩展名）
             for ext in (".md", ".txt", ".docx"):
                 if (dir_path / f"{key}{ext}").exists():
-                    raise HTTPException(400, "该名称已存在")
-
+                    raise HTTPException(400, "同名人格已存在")
+        
             try:
-                _write_persona_file(dir_path, key, name, description, system_prompt)
-                # 重载到内存
+                _write_persona_file(dir_path, key, name, "", details)
                 ai_reload_ai_configs()
                 return {"success": True}
             except Exception as e:
                 raise HTTPException(500, f"创建失败: {e}")
-
+        
         @router.put("/ai_chat/persona/{key}")
         async def api_ai_persona_update(key: str, payload: Dict[str, Any], _: dict = Depends(_auth)):
+            """更新人格（仅名称 + 详情）"""
             if not ai_get_personas_dir or not ai_reload_ai_configs:
                 raise HTTPException(500, "未找到 AI 对话模块，无法更新人格")
             old_key = _sanitize_persona_key(key)
             name_raw = str(payload.get("name") or "").strip()
-            description = str(payload.get("description") or "").strip()
             if not name_raw:
                 raise HTTPException(400, "名称不能为空")
-            if not description:
-                raise HTTPException(400, "描述不能为空")
             new_key = _sanitize_persona_key(name_raw)
             name = name_raw
-
+        
             dir_path = ai_get_personas_dir()
-
-            # 若重命名，确保目标不存在
+        
+            # 如更名，确保目标不存在
             if new_key != old_key:
                 for ext in (".md", ".txt", ".docx"):
                     if (dir_path / f"{new_key}{ext}").exists():
-                        raise HTTPException(400, "目标人格代号已存在")
-
-            # 先删除旧的任意后缀文件，避免同 stem 重复
+                        raise HTTPException(400, "同名人格已存在")
+        
+            # 先移除旧文件
             _remove_persona_files(dir_path, old_key)
             # 写入新文件
             try:
-                _write_persona_file(dir_path, new_key, name, description, system_prompt)
+                details = str(payload.get("details") or "").strip()
+                if not details:
+                    raise HTTPException(400, "详情不能为空")
+                _write_persona_file(dir_path, new_key, name, "", details)
                 ai_reload_ai_configs()
                 return {"success": True, "key": new_key}
+            except HTTPException:
+                raise
             except Exception as e:
                 raise HTTPException(500, f"更新失败: {e}")
-
         @router.delete("/ai_chat/persona/{key}")
         async def api_ai_persona_delete(key: str, _: dict = Depends(_auth)):
             if not ai_get_personas_dir or not ai_reload_ai_configs:
@@ -637,11 +650,11 @@ def setup_web_console() -> None:
                 try:
                     length = int(payload.get("length"))
                 except Exception:
-                    raise HTTPException(400, "length 无效")
+                    raise HTTPException(400, "同名人格已存在")
             if payload.get("unit") is not None:
                 unit = str(payload.get("unit"))
                 if unit not in UNITS:
-                    raise HTTPException(400, "单位无效")
+                    raise HTTPException(400, "同名人格已存在")
 
             # expiry optional
             expiry_dt = None
@@ -652,7 +665,7 @@ def setup_web_console() -> None:
                     if expiry_dt.tzinfo is None:
                         expiry_dt = expiry_dt.replace(tzinfo=timezone.utc)
                 except Exception:
-                    raise HTTPException(400, "expiry 无效")
+                    raise HTTPException(400, "同名人格已存在")
 
             # Determine target record: by id, or by existing group_id, or create new
             rec: Dict[str, Any] | None = None
@@ -664,7 +677,7 @@ def setup_web_console() -> None:
                 try:
                     rid = int(rid_raw)
                 except Exception:
-                    raise HTTPException(400, "id 无效")
+                    raise HTTPException(400, "同名人格已存在")
                 for k, v in data.items():
                     if k == "generatedCodes" or not isinstance(v, dict):
                         continue
@@ -681,16 +694,16 @@ def setup_web_console() -> None:
                 # Allow renaming group_id when provided and unused
                 if gid and gid != target_gid:
                     if isinstance(data.get(gid), dict):
-                        raise HTTPException(400, "目标群已存在记录")
+                        raise HTTPException(400, "同名人格已存在")
                     # Move key later by updating target_gid and removing old
                     data.pop(target_gid, None)
                     target_gid = gid
             else:
                 # Only allow create when group_id not exists; editing requires id
                 if not gid or gid.lower() == "none":
-                    raise HTTPException(400, "缺少或无效的 group_id")
+                    raise HTTPException(400, "同名人格已存在")
                 if isinstance(data.get(gid), dict):
-                    raise HTTPException(400, "该群已存在记录，请在列表中选择后进行修改/续费")
+                    raise HTTPException(400, "同名人格已存在")
                 target_gid = gid
                 rec = {}
 
@@ -716,7 +729,7 @@ def setup_web_console() -> None:
             elif expiry_dt is not None:
                 new_expiry = expiry_dt
             else:
-                raise HTTPException(400, "缺少续费信息：需提供 length+unit 或 expiry")
+                raise HTTPException(400, "同名人格已存在")
 
             # Optional fields
             managed_by_bot = str(payload.get("managed_by_bot") or "").strip()
@@ -773,3 +786,18 @@ def setup_web_console() -> None:
         logger.info("member_renewal Web 控制台已挂载 /member_renewal")
     except Exception as e:
         logger.warning(f"member_renewal Web 控制台挂载失败: {e}")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

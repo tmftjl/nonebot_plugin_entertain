@@ -335,7 +335,8 @@ class ChatManager:
         # 1) System Prompt
         personas = get_personas()
         persona = personas.get(session.persona_name, personas["default"])
-        system_prompt = persona.system_prompt
+        # 使用人格详情作为系统提示词
+        system_prompt = persona.details
 
         # 聊天室历史（注入到 system）
         if active_reply:
