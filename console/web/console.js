@@ -130,131 +130,18 @@ async function apiPersonaDelete(key){
   return apiCall(`/ai_chat/persona/${encodeURIComponent(key)}`, { method: 'DELETE' });
 }
 
-async function loadPersonas(){
-  try{
-    showLoading(true);
-    const data = await apiPersonasList();
-    state.personas = (data && data.personas) || {};
-    renderPersonasTable();
-  }catch(e){
-    showToast(`加载人格失败: ${e.message||e}`, 'error');
-    const body=$('#personas-table-body'); if(body){ body.innerHTML = `<tr><td colspan="4" class="text-center">加载失败</td></tr>`; }
-  }finally{
-    showLoading(false);
-  }
-}
+// --- 热修复：人格管理 UI 防重与去重 ---
+// 某些构建里重复绑定了“人格”相关点击事件，导致多次弹窗、重复请求与偶发 502。
+// 这里使用一次性的捕获阶段监听器统一拦截处理，并阻止其它重复监听器执行。
+ 
 
-function renderPersonasTable(){
-  const tbody = $('#personas-table-body');
-  if(!tbody) return;
-  const entries = Object.entries(state.personas||{});
-  if(entries.length===0){
-    tbody.innerHTML = `<tr><td colspan="4" class="text-center">暂无人格</td></tr>`;
-    return;
-  }
-  const html = entries.map(([key, p])=>{
-    const name = (p && p.name) || '';
-    const desc = (p && p.details) || '';
-    return `<tr>
-      <td>${escapeHtml(name)}</td>
-      <td>
-        <button class="btn btn-secondary btn-sm persona-edit" data-key="${escapeHtml(key)}">编辑</button>
-        <button class="btn btn-danger btn-sm persona-delete" data-key="${escapeHtml(key)}">删除</button>
-      </td>
-    </tr>`;
-  }).join('');
-  tbody.innerHTML = html;
-}
-
+// 人格状态与关闭弹窗（唯一实现保留在下方）
 let personaModalMode = 'create'; // 'create' | 'edit'
 let personaEditingKey = '';
-
-function openPersonaModal(mode='create', key=''){
-  personaModalMode = mode;
-  personaEditingKey = key || '';
-  const modal = $('#persona-modal'); if(!modal) return;
-  $('#persona-modal-title').textContent = mode==='edit' ? '编辑人格' : '新增人格';
-  const keyInput = $('#persona-key');
-  const nameInput = $('#persona-name');
-  const descInput = $('#persona-description'); // 作为详情使用
-  const spInput = $('#persona-system-prompt');
-  if(keyInput){ const g = keyInput.closest('.form-group-modern'); if(g) g.style.display='none'; }
-  if(spInput){ const g2 = spInput.closest('.form-group-modern'); if(g2) g2.style.display='none'; }
-  if(mode==='edit' && key && state.personas[key]){
-    const p = state.personas[key];
-    keyInput.value = key;
-    nameInput.value = p.name || '';
-    descInput.value = p.details || '';
-    if(spInput) spInput.value = '';
-  }else{
-    keyInput.value = '';
-    nameInput.value = '';
-    descInput.value = '';
-    if(spInput) spInput.value = '';
-  }
-  modal.classList.remove('hidden');
-}
-
 function closePersonaModal(){
-  const modal = $('#persona-modal'); if(!modal) return;
+  const modal = #persona-modal; if(!modal) return;
   modal.classList.add('hidden');
 }
-
-async function savePersonaFromModal(){
-  const name = ($('#persona-name')?.value||'').trim();
-  const content = ($('#persona-description')?.value||'').trim();
-  if(!name){ showToast('名字不能为空', 'warning'); return; }
-  if(!details){ showToast('详情不能为空', 'warning'); return; }
-  try{
-    showLoading(true);
-    if(personaModalMode==='edit'){
-      const payload = { name, details };
-      await apiPersonaUpdate(personaEditingKey, payload);
-      showToast('人格已更新', 'success');
-    }else{
-      await apiPersonaCreate({ name, details });
-      showToast('人格已创建', 'success');
-    }
-    closePersonaModal();
-    await loadPersonas();
-  }catch(e){
-    showToast(`保存失败: ${e.message||e}`, 'error');
-  }finally{
-    showLoading(false);
-  }
-}
-
-// 事件绑定（人格）
-document.addEventListener('click', async (e)=>{
-  const t = e.target;
-  if(!(t instanceof Element)) return;
-  if(t.matches('#persona-create-open')){
-    openPersonaModal('create');
-  }else if(t.matches('#persona-refresh-btn')){
-    loadPersonas();
-  }else if(t.matches('#persona-close') || t.matches('#persona-cancel')){
-    closePersonaModal();
-  }else if(t.matches('#persona-save')){
-    await savePersonaFromModal();
-  }else if(t.matches('.persona-edit')){
-    const key = t.getAttribute('data-key')||'';
-    openPersonaModal('edit', key);
-  }else if(t.matches('.persona-delete')){
-    const key = t.getAttribute('data-key')||'';
-    if(!key) return;
-    if(!confirm(`确认删除人格 "${key}" ?`)) return;
-    try{
-      showLoading(true);
-      await apiPersonaDelete(key);
-      showToast('已删除', 'success');
-      await loadPersonas();
-    }catch(err){
-      showToast(`删除失败: ${err.message||err}`, 'error');
-    }finally{
-      showLoading(false);
-    }
-  }
-});
 
 // 仪表盘
 async function loadDashboard(){
@@ -2018,9 +1905,9 @@ window.addEventListener('DOMContentLoaded', ()=>{
 
 window.switchTab = switchTab;
 
-
-
-// ===== Override: Fix persona UI texts and behavior (name + details only)
+// 人格管理 · 唯一实现
+// - 中文注释与提示
+// - 仅使用 name + details(System Prompt)
 function __fixPersonaTexts(){
   try{
     const sec = document.querySelector('#tab-personas');
@@ -2043,8 +1930,8 @@ async function loadPersonas(){
     state.personas = (data && data.personas) || {};
     renderPersonasTable();
   }catch(e){
-    showToast(`加载人格失败: ${e && e.message ? e.message : e}`, 'error');
-    const body=$('#personas-table-body'); if(body){ body.innerHTML = `<tr><td colspan="4" class="text-center">加载失败</td></tr>`; }
+    showToast('加载人格失败: '+(e && e.message ? e.message : e), 'error');
+    const body=$('#personas-table-body'); if(body){ body.innerHTML = '<tr><td colspan="4" class="text-center">加载失败</td></tr>'; }
   }finally{
     showLoading(false);
   }
@@ -2055,7 +1942,7 @@ function renderPersonasTable(){
   if(!tbody) return;
   const entries = Object.entries(state.personas||{});
   if(entries.length===0){
-    tbody.innerHTML = `<tr><td colspan="4" class="text-center">暂无人格</td></tr>`;
+    tbody.innerHTML = '<tr><td colspan="4" class="text-center">暂无人格</td></tr>';
     return;
   }
   const html = entries.map(([key, p])=>{
@@ -2078,20 +1965,19 @@ function openPersonaModal(mode='create', key=''){
   const title = $('#persona-modal-title'); if(title) title.textContent = mode==='edit' ? '编辑人格' : '新增人格';
   const keyInput = $('#persona-key');
   const nameInput = $('#persona-name');
-  const descInput = $('#persona-description'); // 不使用
+  const descInput = $('#persona-description'); // 未使用，仅占位
   const spInput = $('#persona-system-prompt');
   if(keyInput){ const g = keyInput.closest('.form-group-modern'); if(g) g.style.display='none'; }
-  // 只保留名称 + 系统提示词
   if(descInput){ const g1 = descInput.closest('.form-group-modern'); if(g1) g1.style.display='none'; }
   if(spInput){ const g2 = spInput.closest('.form-group-modern'); if(g2) g2.style.display=''; }
   if(mode==='edit' && key && state.personas[key]){
     const p = state.personas[key];
-    keyInput.value = key;
-    nameInput.value = p.name || '';
+    if(keyInput) keyInput.value = key;
+    if(nameInput) nameInput.value = p.name || '';
     if(spInput) spInput.value = p.details || '';
   }else{
-    keyInput.value = '';
-    nameInput.value = '';
+    if(keyInput) keyInput.value = '';
+    if(nameInput) nameInput.value = '';
     if(spInput) spInput.value = '';
   }
   modal.classList.remove('hidden');
@@ -2115,146 +2001,13 @@ async function savePersonaFromModal(){
     closePersonaModal();
     await loadPersonas();
   }catch(e){
-    showToast('保存失败: '+(e&&e.message?e.message:e), 'error');
+    showToast('保存失败: '+(e && e.message ? e.message : e), 'error');
   }finally{
     showLoading(false);
   }
 }
 
-document.addEventListener('click', async (e)=>{
-  const t = e.target;
-  if(!(t instanceof Element)) return;
-  if(t.matches('#persona-create-open')){
-    openPersonaModal('create');
-  }else if(t.matches('#persona-refresh-btn')){
-    loadPersonas();
-  }else if(t.matches('#persona-close') || t.matches('#persona-cancel')){
-    closePersonaModal();
-  }else if(t.matches('#persona-save')){
-    await savePersonaFromModal();
-  }else if(t.matches('.persona-edit')){
-    const key = t.getAttribute('data-key')||'';
-    openPersonaModal('edit', key);
-  }else if(t.matches('.persona-delete')){
-    const key = t.getAttribute('data-key')||'';
-    if(!key) return;
-    if(!confirm(`确认删除人格 "${key}" ?`)) return;
-    try{
-      showLoading(true);
-      await apiPersonaDelete(key);
-      showToast('已删除', 'success');
-      await loadPersonas();
-    }catch(err){
-      showToast('删除失败: '+(err&&err.message?err.message:err), 'error');
-    }finally{
-      showLoading(false);
-    }
-  }
-});
 
-// ===== Override (ASCII-safe): Persona UI texts and behavior (name + details only)
-function __fixPersonaTexts(){
-  try{
-    const sec = document.querySelector('#tab-personas');
-    if(sec){
-      const title = sec.querySelector('.page-title'); if(title) title.textContent = 'AI \u5bf9\u8bdd \u00b7 \u4eba\u683c\u7ba1\u7406';
-      const panelTitle = sec.querySelector('.panel-title'); if(panelTitle) panelTitle.textContent = '\u4eba\u683c\u5217\u8868';
-      const btnRefresh = document.querySelector('#persona-refresh-btn'); if(btnRefresh) btnRefresh.textContent = '\u5237\u65b0';
-      const btnCreate = document.querySelector('#persona-create-open'); if(btnCreate) btnCreate.textContent = '\u65b0\u589e\u4eba\u683c';
-      const ths = sec.querySelectorAll('table thead th');
-      if(ths && ths.length >= 2){ ths[0].textContent = '\u540d\u79f0'; ths[1].textContent = '\u64cd\u4f5c'; }
-      const tbody = document.querySelector('#personas-table-body');
-      if(tbody && /\S/.test(tbody.textContent||'')){
-        tbody.innerHTML = tbody.innerHTML.replace('\u4e0a\u8f7d\u4e2d...', '\u52a0\u8f7d\u4e2d...');
-      }
-    }
-  }catch{}
-}
-
-async function loadPersonas(){
-  try{
-    showLoading(true);
-    __fixPersonaTexts();
-    const data = await apiPersonasList();
-    state.personas = (data && data.personas) || {};
-    renderPersonasTable();
-  }catch(e){
-    showToast('\u52a0\u8f7d\u4eba\u683c\u5931\u8d25: '+(e&&e.message?e.message:e), 'error');
-    const body=$('#personas-table-body'); if(body){ body.innerHTML = '<tr><td colspan="4" class="text-center">\u52a0\u8f7d\u5931\u8d25</td></tr>'; }
-  }finally{
-    showLoading(false);
-  }
-}
-
-function renderPersonasTable(){
-  const tbody = $('#personas-table-body');
-  if(!tbody) return;
-  const entries = Object.entries(state.personas||{});
-  if(entries.length===0){
-    tbody.innerHTML = '<tr><td colspan="4" class="text-center">\u6682\u65e0\u4eba\u683c</td></tr>';
-    return;
-  }
-  const html = entries.map(([key, p])=>{
-    const name = (p && p.name) || '';
-    return `<tr>
-      <td>${escapeHtml(name)}</td>
-      <td>
-        <button class="btn btn-secondary btn-sm persona-edit" data-key="${escapeHtml(key)}">\u7f16\u8f91</button>
-        <button class="btn btn-danger btn-sm persona-delete" data-key="${escapeHtml(key)}">\u5220\u9664</button>
-      </td>
-    </tr>`;
-  }).join('');
-  tbody.innerHTML = html;
-}
-
-function openPersonaModal(mode='create', key=''){
-  personaModalMode = mode;
-  personaEditingKey = key || '';
-  const modal = $('#persona-modal'); if(!modal) return;
-  const title = $('#persona-modal-title'); if(title) title.textContent = mode==='edit' ? '\u7f16\u8f91\u4eba\u683c' : '\u65b0\u589e\u4eba\u683c';
-  const keyInput = $('#persona-key');
-  const nameInput = $('#persona-name');
-  const descInput = $('#persona-description'); // unused
-  const spInput = $('#persona-system-prompt');
-  if(keyInput){ const g = keyInput.closest('.form-group-modern'); if(g) g.style.display='none'; }
-  if(descInput){ const g1 = descInput.closest('.form-group-modern'); if(g1) g1.style.display='none'; }
-  if(spInput){ const g2 = spInput.closest('.form-group-modern'); if(g2) g2.style.display=''; }
-  if(mode==='edit' && key && state.personas[key]){
-    const p = state.personas[key];
-    keyInput.value = key;
-    nameInput.value = p.name || '';
-    if(spInput) spInput.value = p.details || '';
-  }else{
-    keyInput.value = '';
-    nameInput.value = '';
-    if(spInput) spInput.value = '';
-  }
-  modal.classList.remove('hidden');
-}
-
-async function savePersonaFromModal(){
-  const name = ($('#persona-name')?.value||'').trim();
-  const content = ($('#persona-system-prompt')?.value||'').trim();
-  if(!name){ showToast('\u540d\u79f0\u4e0d\u80fd\u4e3a\u7a7a', 'warning'); return; }
-  if(!content){ showToast('\u8be6\u60c5\u4e0d\u80fd\u4e3a\u7a7a', 'warning'); return; }
-  try{
-    showLoading(true);
-    if(personaModalMode==='edit'){
-      const payload = { name, details: content };
-      await apiPersonaUpdate(personaEditingKey, payload);
-      showToast('\u4eba\u683c\u5df2\u66f4\u65b0', 'success');
-    }else{
-      await apiPersonaCreate({ name, details: content });
-      showToast('\u4eba\u683c\u5df2\u521b\u5efa', 'success');
-    }
-    closePersonaModal();
-    await loadPersonas();
-  }catch(e){
-    showToast('\u4fdd\u5b58\u5931\u8d25: '+(e&&e.message?e.message:e), 'error');
-  }finally{
-    showLoading(false);
-  }
-}
 
 document.addEventListener('click', async (e)=>{
   const t = e.target;

@@ -452,7 +452,8 @@ def setup_web_console() -> None:
 
         def _sanitize_persona_key(key: str) -> str:
             s = (key or "").strip()
-            if not s:\n                raise HTTPException(400, "名称不能为空")
+            if not s:               
+                raise HTTPException(400, "名称不能为空")
             if s in {".", ".."}:
                 raise HTTPException(400, "名称非法")
             invalid = set('<>":/\\|?*')
