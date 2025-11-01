@@ -67,7 +67,7 @@ async def _(matcher: Matcher, event: MessageEvent, groups: tuple = RegexGroup())
         import base64
         raw = "{}:{}".format(username, password)
         auth = base64.b64encode(raw.encode()).decode()
-        headers["Authorization"] = "Basic {}".format(auth)`n
+        headers["Authorization"] = "Basic {}".format(auth)
     try:
         async with httpx.AsyncClient(timeout=DEFAULT_HTTP_TIMEOUT) as client:
             resp = await client.get(url, headers=headers)

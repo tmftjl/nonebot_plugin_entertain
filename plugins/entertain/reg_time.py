@@ -45,7 +45,7 @@ def _extract_qq(e: MessageEvent, matched: str) -> Optional[str]:
 async def _query_registration(qq: str) -> Optional[str]:
     cfg = cfg_reg_time()
     api_url = str(cfg.get("qq_reg_time_api_url") )
-    api_key = str(cfg.get("qq_reg_time_api_key") or "")`n
+    api_key = str(cfg.get("qq_reg_time_api_key") or "")
     if not api_key:
         logger.warning("[reg_time] API key 未配置,请在配置文件中设置 qq_reg_time_api_key")
         return None
