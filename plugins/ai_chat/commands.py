@@ -199,7 +199,6 @@ async def handle_info(event: MessageEvent):
     rounds = int(getattr(cfg_now.session, "max_rounds", 8) or 8)
     info_text = (
         f"🧾 会话信息\n"
-        f"━━━━━━━━━━━━━━━━\n"
         f"会话 ID: {session.session_id}\n"
         f"状态: {status}\n"
         f"人格: {persona.name if persona else session.persona_name}\n"
@@ -272,9 +271,7 @@ async def handle_persona(event: MessageEvent):
 
     info_text = (
         f"🧠 当前人格\n"
-        f"━━━━━━━━━━━━━━━━\n"
         f"名称: {persona.name}\n"
-        f"详情: {persona.details}\n"
     )
     await persona_cmd.finish(info_text)
 
@@ -293,7 +290,7 @@ async def handle_persona_list(event: MessageEvent):
     for key, persona in personas.items():
         persona_lines.append(f"- {persona.name}")
 
-    info_text = f"🧠 可用人格列表\n━━━━━━━━━━━━━━━━\n" + "\n".join(persona_lines)
+    info_text = f"可用人格列表" + "\n".join(persona_lines)
     await persona_list_cmd.finish(info_text)
 
 
@@ -325,27 +322,16 @@ async def handle_switch_persona(event: MessageEvent):
         await switch_persona_cmd.finish(f"人格不存在\n可用人格: {available}")
 
     if persona_name not in personas:
-
         _k = None
-
         for k, p in personas.items():
-
             if p.name == persona_name:
-
                 _k = k
-
                 break
-
         if _k:
-
             persona_name = _k
-
         else:
-
             available = ', '.join(sorted([p.name for p in personas.values()]))
-
             await switch_persona_cmd.finish(f'人格不存在\n可用人格: {available}')
-
 
     session_id = get_session_id(event)
     await chat_manager.set_persona(session_id, persona_name)
@@ -378,11 +364,10 @@ async def handle_api_list(event: MessageEvent):
     lines = []
     for name, item in providers.items():
         model = item.model
-        base_url = item.base_url
         current = "（当前）" if (active_name and name == active_name) else ""
-        lines.append(f"- {name}{current} | 模型: {model} | 地址: {base_url}")
+        lines.append(f"- {name}{current} | 模型: {model}")
 
-    info_text = "🧩 服务商列表\n━━━━━━━━━━━━━━━━\n" + "\n".join(lines)
+    info_text = "🧩 服务商列表" + "\n".join(lines)
     await api_list_cmd.finish(info_text)
 
 
