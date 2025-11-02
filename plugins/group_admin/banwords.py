@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from typing import Dict, List, Tuple
@@ -82,7 +82,7 @@ async def _banword_on(matcher: Matcher, event: MessageEvent):
 banword_off = P.on_regex(
     r"^#关闭违禁词$",
     name="banword_off",
-    display_name="删除违禁词",
+    display_name="关闭违禁词",
     priority=5,
     block=True,
     enabled=True,
@@ -107,7 +107,7 @@ async def _banword_off(matcher: Matcher, event: MessageEvent):
 banword_add = P.on_regex(
     r"^#添加违禁词\s*(.+)$",
     name="banword_add",
-    display_name="删除违禁词",
+    display_name="添加违禁词",
     priority=5,
     block=True,
     enabled=True,
@@ -136,7 +136,7 @@ async def _banword_add(matcher: Matcher, event: MessageEvent, groups: Tuple = Re
 
 
 banword_del = P.on_regex(
-    r"^#删除违禁词\\s*(.+)$",
+    r"^#删除违禁词\s*(.+)$",
     name="banword_del",
     display_name="删除违禁词",
     priority=5,
@@ -169,7 +169,7 @@ async def _banword_del(matcher: Matcher, event: MessageEvent, groups: Tuple = Re
 banword_clear = P.on_regex(
     r"^#清空违禁词$",
     name="banword_clear",
-    display_name="删除违禁词",
+    display_name="清空违禁词",
     priority=5,
     block=True,
     enabled=True,
@@ -215,10 +215,22 @@ async def _banword_list(matcher: Matcher, event: MessageEvent):
     action = str(rec.get("action", "recall"))
     mute_seconds = int(rec.get("mute_seconds", 300) or 300)
     status = "开启" if enabled else "关闭"
+    if not words:
+        await matcher.finish(f"违禁词检测：{status}\n动作：{action}\n时长：{mute_seconds}s\n暂无词条")
+    await matcher.finish(
+        "\n".join(
+            [
+                f"违禁词检测：{status}",
+                f"动作：{action}",
+                f"时长：{mute_seconds}s",
+                "词条：" + ", ".join(words[:100]),
+            ]
+        )
+    )
 
 
 banword_action = P.on_regex(
-    r"^#违禁词动作\\s*(警告|撤回|禁言)$",
+    r"^#违禁词动作\s*(警告|撤回|禁言)$",
     name="banword_action",
     display_name="违禁词动作",
     priority=5,
@@ -246,7 +258,7 @@ async def _banword_action(matcher: Matcher, event: MessageEvent, groups: Tuple =
 
 
 banword_mute_seconds = P.on_regex(
-    r"^#违禁词时长\s*(\\d+[a-zA-Z\\u4e00-\\u9fa5]*)$",
+    r"^#违禁词时长\s*(\d+[a-zA-Z\u4e00-\u9fa5]*)$",
     name="banword_mute_seconds",
     display_name="违禁词禁言时长",
     priority=5,
@@ -274,9 +286,9 @@ async def _banword_mute_seconds(matcher: Matcher, event: MessageEvent, groups: T
 
 
 banword_exempt = P.on_regex(
-    r"^#杩濈璇嶇鐞嗗憳淇濇姢\s*(寮€鍚瘄鍏抽棴)$",
+    r"^#违禁词管理员保护\s*(开启|关闭)$",
     name="banword_exempt",
-    display_name="杩濈璇嶇鐞嗗憳淇濇姢",
+    display_name="违禁词管理员保护",
     priority=5,
     block=True,
     enabled=True,
@@ -297,10 +309,10 @@ async def _banword_exempt(matcher: Matcher, event: MessageEvent, groups: Tuple =
     rec["exempt_admin"] = val
     store[key] = rec
     _save_ban_store(store)
-    await matcher.finish(f"管理员豁免：{onoff}")
+    await matcher.finish(f"管理员保护：{onoff}")
 
 
-# 杩濈璇嶆嫤鎴櫒
+# 违禁词拦截器
 banwatch = on_message(priority=98, block=False, permission=P.permission())
 
 
@@ -365,30 +377,8 @@ async def _(bot: Bot, event: MessageEvent):
         if action == "warn":
             await bot.send_group_msg(
                 group_id=event.group_id,
-                message=MessageSegment.at(event.user_id) + Message(f" 瑙﹀彂杩濈璇嶏細{hit}"),
+                message=MessageSegment.at(event.user_id) + Message(f" 触发违禁词：{hit}"),
             )
     except Exception as e:
-        logger.debug(f"杩濈璇嶅鐞嗗紓甯? {e}")
+        logger.debug(f"违禁词处理异常: {e}")
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-    if not words:
-        await matcher.finish(f"违禁词检测：{status}\n动作：{action}\n时长：{mute_seconds}s\n暂无词条")
-    text = "\n".join([
-        f"违禁词检测：{status}",
-        f"动作：{action}",
-        f"时长：{mute_seconds}s",
-        "词条：" + ", ".join(words[:100]),
-    ])
-    await matcher.finish(text)
