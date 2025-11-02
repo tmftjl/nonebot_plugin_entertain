@@ -26,12 +26,10 @@ from .tools import list_tools as ai_list_tools
 
 
 P = Plugin(name="ai_chat", display_name="AI 对话", enabled=True, level=PermLevel.LOW, scene=PermScene.ALL)
-
-
 def get_session_id(event: MessageEvent) -> str:
     if isinstance(event, GroupMessageEvent):
         return f"group_{event.group_id}"
-    elif isinstance(event, PrivateMessageEvent):
+    if isinstance(event, PrivateMessageEvent):
         return f"private_{event.user_id}"
     return f"unknown_{event.user_id}"
 
@@ -101,10 +99,8 @@ async def check_superuser(event: MessageEvent) -> bool:
     return _is_superuser(user_id)
 
 
-# ==================== 对话触发命令 ====================
-
-
-# 统一触发（群聊需@，私聊无需@）
+# ==================== 对话触发 ====================
+# 群聊需 @ 机器人或命中“主动回复”；私聊直接触发
 at_cmd = P.on_regex(
     r"^(.+)$",
     name="ai_chat_at",
@@ -112,8 +108,6 @@ at_cmd = P.on_regex(
     priority=100,
     block=False,
 )
-
-
 @at_cmd.handle()
 async def handle_chat_auto(bot: Bot, event: MessageEvent):
     """统一处理：
@@ -166,10 +160,9 @@ async def handle_chat_auto(bot: Bot, event: MessageEvent):
         logger.exception(f"[AI Chat] 对话处理失败: {e}")
 
 
+# ==================== 会话管理 ====================
 # 清空会话
 clear_cmd = P.on_regex(r"^#清空会话$", name="ai_clear_session", display_name="清空会话", priority=5, block=True, level=PermLevel.ADMIN)
-
-
 @clear_cmd.handle()
 async def handle_clear(event: MessageEvent):
     session_id = get_session_id(event)
@@ -183,8 +176,6 @@ async def handle_clear(event: MessageEvent):
 
 # 会话信息
 info_cmd = P.on_regex(r"^#会话信息$", name="ai_session_info", display_name="会话信息", priority=5, block=True)
-
-
 @info_cmd.handle()
 async def handle_info(event: MessageEvent):
     session_id = get_session_id(event)
@@ -195,17 +186,19 @@ async def handle_info(event: MessageEvent):
     personas = get_personas()
     persona = personas.get(session.persona_name, personas.get("default"))
 
-    status = "已启用" if session.is_active else "已禁用"
+    status = "已启用" if session.is_active else "已停用"
+    cfg_now = get_config()
+    rounds = int(getattr(cfg_now.session, "max_rounds", 8) or 8)
     info_text = (
-        f"📊 会话信息\n"
-        f"━━━━━━━━━━━━━━━━\n"
+        f"🧾 会话信息\n"
         f"会话 ID: {session.session_id}\n"
         f"状态: {status}\n"
         f"人格: {persona.name if persona else session.persona_name}\n"
-        f"最大历史: {session.max_history} 条\n"
+        f"最大轮数: {rounds} 轮（历史上限约 {rounds} 条）\n"
         f"创建时间: {session.created_at[:19]}\n"
         f"更新时间: {session.updated_at[:19]}"
     )
+    await info_cmd.finish(info_text)
     await info_cmd.finish(info_text)
 
 
@@ -218,8 +211,6 @@ enable_cmd = P.on_regex(
     block=True,
     level=PermLevel.ADMIN,
 )
-
-
 @enable_cmd.handle()
 async def handle_enable(event: MessageEvent):
     if not await check_admin(event):
@@ -227,7 +218,6 @@ async def handle_enable(event: MessageEvent):
     session_id = get_session_id(event)
     await chat_manager.set_session_active(session_id, True)
     await enable_cmd.finish("✓ 已开启 AI")
-
 
 # 关闭 AI（管理员）
 disable_cmd = P.on_regex(
@@ -238,8 +228,6 @@ disable_cmd = P.on_regex(
     block=True,
     level=PermLevel.ADMIN,
 )
-
-
 @disable_cmd.handle()
 async def handle_disable(event: MessageEvent):
     if not await check_admin(event):
@@ -250,12 +238,8 @@ async def handle_disable(event: MessageEvent):
 
 
 # ==================== 人格系统 ====================
-
-
 # 查看当前人格
 persona_cmd = P.on_regex(r"^#人格$", name="ai_persona", display_name="查看人格", priority=5, block=True)
-
-
 @persona_cmd.handle()
 async def handle_persona(event: MessageEvent):
     session_id = get_session_id(event)
@@ -271,7 +255,6 @@ async def handle_persona(event: MessageEvent):
 
     info_text = (
         f"🎭 当前人格\n"
-        f"━━━━━━━━━━━━━━━━\n"
         f"名称: {persona.name}\n"
         f"描述: {persona.description}\n"
     )
@@ -280,8 +263,6 @@ async def handle_persona(event: MessageEvent):
 
 # 人格列表
 persona_list_cmd = P.on_regex(r"^#人格列表$", name="ai_persona_list", display_name="人格列表", priority=5, block=True,level=PermLevel.ADMIN)
-
-
 @persona_list_cmd.handle()
 async def handle_persona_list(event: MessageEvent):
     personas = get_personas()
@@ -292,25 +273,23 @@ async def handle_persona_list(event: MessageEvent):
     for key, persona in personas.items():
         persona_lines.append(f"- {key}: {persona.name} - {persona.description}")
 
-    info_text = f"🎭 可用人格列表\n━━━━━━━━━━━━━━━━\n" + "\n".join(persona_lines)
+    info_text = "\n".join(["🎭 可用人格列表", *lines])
     await persona_list_cmd.finish(info_text)
 
 
 # 切换人格（管理员）
 switch_persona_cmd = P.on_regex(
-    r"^#切换人格\s+(.+)$",
+    r"^#切换人格\s*(.+)$",
     name="ai_switch_persona",
     display_name="切换人格",
     priority=5,
     block=True,
     level=PermLevel.ADMIN,
 )
-
-
 @switch_persona_cmd.handle()
 async def handle_switch_persona(event: MessageEvent):
     plain_text = event.get_plaintext().strip()
-    match = re.search(r"^#切换人格\s+(.+)$", plain_text)
+    match = re.search(r"^#切换人格\s*(.+)$", plain_text)
     if not match:
         logger.error(f"[AI Chat] 切换人格 handle 触发，但 re.search 匹配失败: {plain_text}")
         await switch_persona_cmd.finish("内部错误：无法解析人格名称")
@@ -328,59 +307,60 @@ async def handle_switch_persona(event: MessageEvent):
     await switch_persona_cmd.finish(f"✓ 已切换到人格: {personas[persona_name].name}")
 
 
-# ==================== 服务商切换 ====================
-
-# 服务商列表
+# ==================== 服务商管理 ====================
+# 服务商列表（超管）
 api_list_cmd = P.on_regex(
     r"^#服务商列表$",
     name="ai_api_list",
     display_name="服务商列表",
     priority=5,
     block=True,
-    level=PermLevel.SUPERUSER
+    level=PermLevel.SUPERUSER,
 )
-
-
 @api_list_cmd.handle()
 async def handle_api_list(event: MessageEvent):
     cfg = get_config()
-    providers = getattr(cfg, "api", []) or []
+    providers = dict(getattr(cfg, "api", {}) or {})  # { name: APIItem }
 
     if not providers:
         await api_list_cmd.finish("暂无服务商配置")
 
+    active = getattr(getattr(cfg, "session", None), "api_active", "") or ""
     lines = []
-    for item in providers:
-        current = "（当前）" if item.name == cfg.api_active else ""
-        lines.append(
-            f"- {item.name}{current} | 模型: {item.model} | 地址: {item.base_url}"
-        )
+    for name, item in providers.items():
+        try:
+            model = getattr(item, "model", "")
+            base_url = getattr(item, "base_url", "")
+        except Exception:
+            # 兼容可能为原始 dict 的情况
+            model = (item or {}).get("model", "")  # type: ignore[assignment]
+            base_url = (item or {}).get("base_url", "")  # type: ignore[assignment]
+        mark = "（当前）" if name == active else ""
+        lines.append(f"- {name}{mark} | 模型: {model}")
 
-    info_text = "🧩 服务商列表\n━━━━━━━━━━━━━━━━\n" + "\n".join(lines)
+    info_text = "\n".join(["🧩 服务商列表", *lines])
     await api_list_cmd.finish(info_text)
 
 
-# 切换服务商（管理员）
+# 切换服务商（超管）
 switch_api_cmd = P.on_regex(
-    r"^#切换服务商\s+(.+)$",
+    r"^#切换服务商\s*(.+)$",
     name="ai_switch_api",
     display_name="切换服务商",
     priority=5,
     block=True,
-    level=PermLevel.SUPERUSER
+    level=PermLevel.SUPERUSER,
 )
-
-
 @switch_api_cmd.handle()
 async def handle_switch_api(event: MessageEvent):
     plain_text = event.get_plaintext().strip()
-    m = re.search(r"^#切换服务商\s+(.+)$", plain_text)
+    m = re.search(r"^#切换服务商\s*(.+)$", plain_text)
     if not m:
         await switch_api_cmd.finish("内部错误：无法解析服务商名称")
         return
     target = m.group(1).strip()
     cfg = get_config()
-    names = [it.name for it in cfg.api]
+    names = list((getattr(cfg, "api", {}) or {}).keys())
     if target not in names:
         available = ", ".join(names) if names else ""
         await switch_api_cmd.finish(f"服务商不存在\n可用: {available}")
@@ -388,14 +368,12 @@ async def handle_switch_api(event: MessageEvent):
     # 更新当前启用的服务商并保存配置
     cfg.api_active = target
     save_config(cfg)
+
     # 重建客户端以应用新的服务商配置
     chat_manager.reset_client()
     await switch_api_cmd.finish(f"✓ 已切换到服务商: {target}")
 
-
-# ==================== 系统管理命令 ====================
-
-
+# ==================== 系统管理 ====================
 # 重载配置（超级用户）
 reload_cmd = P.on_regex(
     r"^#重载AI配置$",
@@ -405,8 +383,6 @@ reload_cmd = P.on_regex(
     block=True,
     level=PermLevel.SUPERUSER,
 )
-
-
 @reload_cmd.handle()
 async def handle_reload(event: MessageEvent):
     if not await check_superuser(event):
@@ -418,12 +394,8 @@ async def handle_reload(event: MessageEvent):
 
 
 # ==================== 工具管理 ====================
-
-
 # 列出工具
 tool_list_cmd = P.on_regex(r"^#工具列表$", name="ai_tools_list", display_name="工具列表", priority=5, block=True,level=PermLevel.SUPERUSER)
-
-
 @tool_list_cmd.handle()
 async def handle_tool_list(event: MessageEvent):
     cfg = get_config()
@@ -442,15 +414,13 @@ async def handle_tool_list(event: MessageEvent):
 
 
 # 开启工具（管理员，且开启总开关）
-tool_on_cmd = P.on_regex(r"^#开启工具\s+(\S+)$", name="ai_tool_on", display_name="开启工具", priority=5, block=True,level=PermLevel.SUPERUSER)
-
-
+tool_on_cmd = P.on_regex(r"^#开启工具\s*(\S+)$", name="ai_tool_on", display_name="开启工具", priority=5, block=True,level=PermLevel.SUPERUSER)
 @tool_on_cmd.handle()
 async def handle_tool_on(event: MessageEvent):
     if not await check_admin(event):
         await tool_on_cmd.finish("仅管理员可用")
     plain_text = event.get_plaintext().strip()
-    m = re.search(r"^#开启工具\s+(\S+)$", plain_text)
+    m = re.search(r"^#开启工具\s*(\S+)$", plain_text)
     if not m:
         await tool_on_cmd.finish("格式错误：请使用 #开启工具 工具名")
     tool_name = m.group(1).strip()
@@ -471,15 +441,13 @@ async def handle_tool_on(event: MessageEvent):
 
 
 # 关闭工具（管理员，仅从启用列表移除，不改全局开关）
-tool_off_cmd = P.on_regex(r"^#关闭工具\s+(\S+)$", name="ai_tool_off", display_name="关闭工具", priority=5, block=True,level=PermLevel.SUPERUSER)
-
-
+tool_off_cmd = P.on_regex(r"^#关闭工具\s*(\S+)$", name="ai_tool_off", display_name="关闭工具", priority=5, block=True,level=PermLevel.SUPERUSER)
 @tool_off_cmd.handle()
 async def handle_tool_off(event: MessageEvent):
     if not await check_admin(event):
         await tool_off_cmd.finish("仅管理员可用")
     plain_text = event.get_plaintext().strip()
-    m = re.search(r"^#关闭工具\s+(\S+)$", plain_text)
+    m = re.search(r"^#关闭工具\s*(\S+)$", plain_text)
     if not m:
         await tool_off_cmd.finish("格式错误：请使用 #关闭工具 工具名")
     tool_name = m.group(1).strip()
