@@ -563,15 +563,55 @@ class ConfigManager:
 
 
 # ========== 对外接口 ==========
-
+# ---- Schema registry for frontend forms (Plan A) ----
+_SCHEMA_REGISTRY: Dict[str, Dict[str, Any]] = {}
 
 def register_plugin_schema(plugin: str, schema: Dict[str, Any]) -> None:
-    _SCHEMAS_PLUGIN[plugin] = json.loads(json.dumps(schema or {}))
+    """Register or replace the schema for a plugin root.
+
+    The `schema` should be a JSON-serializable dict, ideally compatible with
+    JSON Schema. For namespaced configs (multiple sections inside one file),
+    consider using `register_namespaced_schema` to place schema under
+    `properties[namespace]` of the plugin root.
+    """
+    try:
+        # store a deep copy to avoid accidental mutation by callers
+        _SCHEMA_REGISTRY[plugin] = json.loads(json.dumps(schema or {}))
+    except Exception:
+        _SCHEMA_REGISTRY[plugin] = schema or {}
 
 
 def register_namespaced_schema(plugin: str, namespace: str, schema: Dict[str, Any]) -> None:
-    _SCHEMAS_NS[(plugin, namespace)] = json.loads(json.dumps(schema or {}))
+    """Register schema under a plugin's namespace (object property).
 
+    Ensures the plugin root schema is an object with `properties` dict, then
+    sets/overwrites the `namespace` entry with the given schema.
+    """
+    root = _SCHEMA_REGISTRY.get(plugin)
+    if not isinstance(root, dict):
+        root = {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "title": plugin,
+            "properties": {},
+        }
+        _SCHEMA_REGISTRY[plugin] = root
+    if root.get("type") != "object":
+        root["type"] = "object"
+    props = root.setdefault("properties", {})
+    try:
+        props[namespace] = json.loads(json.dumps(schema or {}))
+    except Exception:
+        props[namespace] = schema or {}
+
+
+def get_all_plugin_schemas() -> Dict[str, Any]:
+    """Return a deep-copied map of plugin -> schema for frontend consumption."""
+    try:
+        return json.loads(json.dumps(_SCHEMA_REGISTRY))
+    except Exception:
+        # best-effort shallow copy if deep copy fails
+        return dict(_SCHEMA_REGISTRY)
 
 def register_plugin_config(
     plugin: str,
