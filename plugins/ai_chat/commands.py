@@ -366,12 +366,10 @@ async def handle_switch_api(event: MessageEvent):
         await switch_api_cmd.finish(f"服务商不存在\n可用: {available}")
 
     # 更新当前启用的服务商并保存配置
-    cfg.api_active = target
+    cfg.session.api_active = target
     save_config(cfg)
-
-    # 重建客户端以应用新的服务商配置
     chat_manager.reset_client()
-    await switch_api_cmd.finish(f"✓ 已切换到服务商: {target}")
+    await switch_api_cmd.finish(f"✓ 已切换到服务商 {target}")
 
 # ==================== 系统管理 ====================
 # 重载配置（超级用户）
