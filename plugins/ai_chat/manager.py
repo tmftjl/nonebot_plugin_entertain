@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from collections import defaultdict
@@ -190,6 +191,33 @@ class ChatManager:
 
     # ==================== 核心处理 ====================
 
+    def _sanitize_response(self, text: str) -> str:
+        """移除模型返回中的思考/内部标签块，避免泄露思考过程。
+
+        会清理以下块及其内容（大小写不敏感）：
+        <thinking>、<analysis>、<reflection>、<chain_of_thought>、<cot>、
+        <reasoning>、<plan>、<instructions>、<internal>、<scratchpad>、
+        <tool>、<tool_call>、<function_call>
+        """
+        if not text:
+            return text
+        try:
+            tags = (
+                "thinking|analysis|reflection|chain_of_thought|cot|reasoning|"
+                "plan|instructions|internal|scratchpad|tool|tool_call|function_call"
+            )
+            # 移除成对块标签及内容
+            cleaned = re.sub(rf"(?is)<(?:{tags})[^>]*>.*?</(?:{tags})\s*>", "", text)
+            # 清理可能残留的这些标签的孤立起止标签
+            cleaned = re.sub(rf"(?is)</?(?:{tags})[^>]*>", "", cleaned)
+            # 兼容 [thinking]...[/thinking] 的写法
+            cleaned = re.sub(rf"(?is)\[(?:{tags})[^\]]*\].*?\[/(?:{tags})\s*\]", "", cleaned)
+            # 规范空白
+            cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+            return cleaned
+        except Exception:
+            return text
+
     async def process_message(
         self,
         session_id: str,
@@ -296,6 +324,9 @@ class ChatManager:
                     user_name=user_name,
                     request_text=message,
                 )
+
+                # 最终输出清洗（移除 <thinking> 等内部标签）
+                response = self._sanitize_response(response)
 
                 # 5. 异步持久化（不阻塞回复）
                 max_msgs = max(0, 2 * int(get_config().session.max_rounds))

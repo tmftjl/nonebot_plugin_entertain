@@ -238,29 +238,6 @@ async def handle_disable(event: MessageEvent):
 
 
 # ==================== 人格系统 ====================
-# 查看当前人格
-persona_cmd = P.on_regex(r"^#人格$", name="ai_persona", display_name="查看人格", priority=5, block=True)
-@persona_cmd.handle()
-async def handle_persona(event: MessageEvent):
-    session_id = get_session_id(event)
-    session = await chat_manager.get_session_info(session_id)
-    if not session:
-        await persona_cmd.finish("未找到当前会话")
-
-    personas = get_personas()
-    persona = personas.get(session.persona_name, personas.get("default"))
-
-    if not persona:
-        await persona_cmd.finish(f"人格不存在: {session.persona_name}")
-
-    info_text = (
-        f"🎭 当前人格\n"
-        f"名称: {persona.name}\n"
-        f"描述: {persona.description}\n"
-    )
-    await persona_cmd.finish(info_text)
-
-
 # 人格列表
 persona_list_cmd = P.on_regex(r"^#人格列表$", name="ai_persona_list", display_name="人格列表", priority=5, block=True,level=PermLevel.ADMIN)
 @persona_list_cmd.handle()
@@ -269,11 +246,23 @@ async def handle_persona_list(event: MessageEvent):
     if not personas:
         await persona_list_cmd.finish("暂无可用人格")
 
+    session_id = get_session_id(event)
+    session = await chat_manager.get_session_info(session_id)
+    if not session:
+        await persona_list_cmd.finish("未找到当前会话")
+
+    personas = get_personas()
+    persona = personas.get(session.persona_name, personas.get("default"))
+
+    info_text = (
+        f"当前人格: {persona.name}\n"
+    )
+
     persona_lines = []
     for key, persona in personas.items():
-        persona_lines.append(f"- {key}: {persona.name} - {persona.description}")
-
-    info_text = "\n".join(["🎭 可用人格列表", *lines])
+        persona_lines.append(f"- {key}: {persona.name}")
+    persona_lines.append(info_text)
+    info_text = "\n".join(["🎭 可用人格列表", *persona_lines])
     await persona_list_cmd.finish(info_text)
 
 
@@ -288,7 +277,7 @@ switch_persona_cmd = P.on_regex(
 )
 @switch_persona_cmd.handle()
 async def handle_switch_persona(event: MessageEvent):
-    plain_text = event.get_plaintext().strip()
+    plain_text = event.get_plaintext()
     match = re.search(r"^#切换人格\s*(.+)$", plain_text)
     if not match:
         logger.error(f"[AI Chat] 切换人格 handle 触发，但 re.search 匹配失败: {plain_text}")
@@ -353,7 +342,7 @@ switch_api_cmd = P.on_regex(
 )
 @switch_api_cmd.handle()
 async def handle_switch_api(event: MessageEvent):
-    plain_text = event.get_plaintext().strip()
+    plain_text = event.get_plaintext()
     m = re.search(r"^#切换服务商\s*(.+)$", plain_text)
     if not m:
         await switch_api_cmd.finish("内部错误：无法解析服务商名称")
@@ -417,7 +406,7 @@ tool_on_cmd = P.on_regex(r"^#开启工具\s*(\S+)$", name="ai_tool_on", display_
 async def handle_tool_on(event: MessageEvent):
     if not await check_admin(event):
         await tool_on_cmd.finish("仅管理员可用")
-    plain_text = event.get_plaintext().strip()
+    plain_text = event.get_plaintext()
     m = re.search(r"^#开启工具\s*(\S+)$", plain_text)
     if not m:
         await tool_on_cmd.finish("格式错误：请使用 #开启工具 工具名")
@@ -444,7 +433,7 @@ tool_off_cmd = P.on_regex(r"^#关闭工具\s*(\S+)$", name="ai_tool_off", displa
 async def handle_tool_off(event: MessageEvent):
     if not await check_admin(event):
         await tool_off_cmd.finish("仅管理员可用")
-    plain_text = event.get_plaintext().strip()
+    plain_text = event.get_plaintext()
     m = re.search(r"^#关闭工具\s*(\S+)$", plain_text)
     if not m:
         await tool_off_cmd.finish("格式错误：请使用 #关闭工具 工具名")
