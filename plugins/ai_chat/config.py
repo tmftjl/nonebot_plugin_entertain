@@ -51,7 +51,22 @@ class SessionConfig(BaseModel):
 class ToolsConfig(BaseModel):
     enabled: bool = Field(default=False, description="是否启用工具调用")
     max_iterations: int = Field(default=3, description="最多工具往返次数")
-    builtin_tools: list[str] = Field(default_factory=lambda: ["get_time", "get_weather"], description="内置工具")
+    builtin_tools: list[str] = Field(
+        default_factory=lambda: [
+            "get_time",
+            "get_weather",
+            "image_generate",
+            "tts_speak",
+        ],
+        description="内置工具",
+    )
+
+
+class TTSConfig(BaseModel):
+    enabled: bool = Field(default=False, description="是否启用语音合成（TTS）")
+    provider: str = Field(default="openai", description="TTS 服务商（openai/custom）")
+    default_voice: str = Field(default="alloy", description="默认音色")
+    default_format: str = Field(default="mp3", description="默认音频格式（mp3/wav）")
 
 
 class AIChatConfig(BaseModel):
@@ -59,6 +74,7 @@ class AIChatConfig(BaseModel):
     api: Dict[str, APIItem] = Field(default_factory=dict)
     session: SessionConfig = Field(default_factory=SessionConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    tts: TTSConfig = Field(default_factory=TTSConfig)
 
 
 class PersonaConfig(BaseModel):
@@ -86,7 +102,13 @@ DEFAULTS: Dict[str, Any] = {
     "tools": {
         "enabled": False,
         "max_iterations": 3,
-        "builtin_tools": ["get_time", "get_weather"],
+        "builtin_tools": ["get_time", "get_weather", "image_generate", "tts_speak"],
+    },
+    "tts": {
+        "enabled": False,
+        "provider": "openai",
+        "default_voice": "alloy",
+        "default_format": "mp3",
     },
 }
 
@@ -138,6 +160,18 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
                 "enabled": {"type": "boolean", "title": "启用工具", "x-order": 1},
                 "max_iterations": {"type": "integer", "title": "最多工具往返次数", "minimum": 1, "maximum": 10, "x-order": 2},
                 "builtin_tools": {"type": "array", "title": "内置工具", "items": {"type": "string"}, "x-order": 3},
+            },
+        },
+        "tts": {
+            "type": "object",
+            "title": "语音合成（TTS）",
+            "x-order": 7,
+            "x-collapse": True,
+            "properties": {
+                "enabled": {"type": "boolean", "title": "启用 TTS", "x-order": 1},
+                "provider": {"type": "string", "title": "服务商（openai/custom）", "x-order": 2},
+                "default_voice": {"type": "string", "title": "默认音色", "x-order": 3},
+                "default_format": {"type": "string", "title": "默认格式（mp3/wav）", "x-order": 4},
             },
         },
     },
