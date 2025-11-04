@@ -25,9 +25,9 @@ from .hooks import run_pre_ai_hooks, run_post_ai_hooks
 
 
 class ChatroomMemory:
-    """聊天室历史（轻量内存环形缓冲）。
+    """聊天室历史（轻量内存环形缓冲）
 
-    仅用于群聊上下文提示，不做持久化。
+    仅用于群聊上下文提示，不做持久化：
     - 记录格式：[昵称/HH:MM:SS]: 文本
     - get_history_str() 返回以 "\n---\n" 连接的历史串
     """
@@ -69,15 +69,9 @@ class ChatManager:
 
     def __init__(self):
         self.client: Optional[AsyncOpenAI] = None
-        # 会话锁（同一会话串行，不同会话并行）
         self._session_locks: Dict[str, asyncio.Lock] = {}
-        # 历史 JSON 持久化锁（避免异步写入竞态）
         self._history_locks: Dict[str, asyncio.Lock] = {}
-        # 简易迁移检查标记
-        self._schema_checked: bool = False
-        # 初始化客户端
         self.reset_client()
-        # 聊天室历史（内存）
         try:
             self.ltm = ChatroomMemory(max_cnt=max(1, int(get_config().session.chatroom_history_max_lines)))
         except Exception:
@@ -86,7 +80,7 @@ class ChatManager:
     def reset_client(self) -> None:
         """根据当前配置重建 OpenAI 客户端"""
 
-        cfg = get_config()  # 预热配置
+        cfg = get_config()
         try:
             active_api = get_active_api()
             if not active_api.api_key:
@@ -99,7 +93,6 @@ class ChatManager:
                 timeout=active_api.timeout,
             )
             logger.debug("[AI Chat] OpenAI 客户端已初始化")
-            # 热更新聊天室历史容量
             try:
                 if hasattr(self, "ltm") and self.ltm:
                     self.ltm.max_cnt = max(1, int(cfg.session.chatroom_history_max_lines))
@@ -125,18 +118,9 @@ class ChatManager:
     ) -> ChatSession:
         """获取或创建会话（直接查库）"""
 
-        # 仅在首次调用时做一次列检查
-        if not self._schema_checked:
-            try:
-                await ChatSession.ensure_history_column()
-            finally:
-                self._schema_checked = True
-
         chat_session = await ChatSession.get_by_session_id(session_id=session_id)
 
-        # 自动创建会话
-        cfg = get_config()
-        if not chat_session :
+        if not chat_session:
             chat_session = await ChatSession.create_session(
                 session_id=session_id,
                 session_type=session_type,
@@ -169,7 +153,7 @@ class ChatManager:
         return history_list
 
     def _trim_history_rounds(self, history: List[Dict[str, Any]], max_pairs: int) -> List[Dict[str, Any]]:
-        """按轮(user+assistant)裁剪历史，确保从第一个 user 开始"""
+        """按轮（user+assistant）裁剪历史，确保从第一个 user 开始"""
 
         try:
             if not history:
@@ -178,11 +162,12 @@ class ChatManager:
                 return []
             keep = max_pairs * 2
             trimmed = history[-keep:] if len(history) > keep else list(history)
-            # 定位第一个 user，保证对齐
-            idx = next((i for i, m in enumerate(trimmed) if (isinstance(m, dict) and m.get("role") == "user") or getattr(m, "role", None) == "user"), 0)
+            idx = next(
+                (i for i, m in enumerate(trimmed) if (isinstance(m, dict) and m.get("role") == "user") or getattr(m, "role", None) == "user"),
+                0,
+            )
             if idx > 0:
                 trimmed = trimmed[idx:]
-            # 再次截断到偶数长度
             if len(trimmed) > keep:
                 trimmed = trimmed[-keep:]
             return trimmed
@@ -195,8 +180,8 @@ class ChatManager:
         """移除模型返回中的思考/内部标签块，避免泄露思考过程。
 
         会清理以下块及其内容（大小写不敏感）：
-        <thinking>、<analysis>、<reflection>、<chain_of_thought>、<cot>、
-        <reasoning>、<plan>、<instructions>、<internal>、<scratchpad>、
+        <thinking>、<analysis>、<reflection>、<chain_of_thought>、<cot>
+        <reasoning>、<plan>、<instructions>、<internal>、<scratchpad>
         <tool>、<tool_call>、<function_call>
         """
         if not text:
@@ -206,13 +191,9 @@ class ChatManager:
                 "thinking|analysis|reflection|chain_of_thought|cot|reasoning|"
                 "plan|instructions|internal|scratchpad|tool|tool_call|function_call"
             )
-            # 移除成对块标签及内容
             cleaned = re.sub(rf"(?is)<(?:{tags})[^>]*>.*?</(?:{tags})\s*>", "", text)
-            # 清理可能残留的这些标签的孤立起止标签
             cleaned = re.sub(rf"(?is)</?(?:{tags})[^>]*>", "", cleaned)
-            # 兼容 [thinking]...[/thinking] 的写法
             cleaned = re.sub(rf"(?is)\[(?:{tags})[^\]]*\].*?\[/(?:{tags})\s*\]", "", cleaned)
-            # 规范空白
             cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
             return cleaned
         except Exception:
@@ -231,10 +212,10 @@ class ChatManager:
         active_reply_suffix: Optional[str] = None,
         images: Optional[List[str]] = None,
     ) -> Any:
-        """处理用户消息（串行同会话，支持工具调用与前后钩子，多模态输入/输出）
+        """处理用户消息（串行同会话，支持工具与前后钩子，多模态输出）。
 
-        返回：优先返回 dict：{"text": str, "images": [str], "tts_path": Optional[str]}；
-        为兼容历史逻辑，必要时可返回纯文本 str。
+        返回优先为 dict：{"text": str, "images": [str], "tts_path": Optional[str]}。
+        兼容纯文本返回 str。
         """
 
         if not self.client:
@@ -243,21 +224,18 @@ class ChatManager:
         lock = self._get_session_lock(session_id)
         async with lock:
             try:
-                # 1. 会话与历史
                 session = await self._get_session(session_id, session_type, group_id, user_id)
                 history = await self._get_history(session_id, session=session)
 
                 if not session or not session.is_active:
                     return ""
 
-                # 2. 裁剪历史（按轮）
                 try:
                     pairs_limit = max(1, int(get_config().session.max_rounds))
                     history = self._trim_history_rounds(history, pairs_limit)
                 except Exception:
                     pass
 
-                # 2.1 群聊记录“聊天室历史”（内存）
                 chatroom_history = ""
                 if session_type == "group":
                     self.ltm.record_user(session_id, user_name, message)
@@ -266,8 +244,6 @@ class ChatManager:
                 if active_reply:
                     history = []
 
-                # 3. 构建消息列表
-                # 3.0 可选长期记忆摘要（降低上下文体积）
                 try:
                     await self._maybe_update_summary(session, history)
                 except Exception:
@@ -284,23 +260,8 @@ class ChatManager:
                     images=images,
                 )
 
-                # 3.1 默认参数（可被 pre 钩子覆盖）
                 cfg = get_config()
-                # 工具（包含可用的 MCP 动态工具）
-                default_tools = None
-                try:
-                    if getattr(cfg, "tools", None):
-                        default_tools = get_enabled_tools(cfg.tools.builtin_tools)
-                        try:
-                            from .mcp import mcp_manager
-                            await mcp_manager.ensure_started()
-                            mcp_schemas = mcp_manager.get_tool_schemas_for_names(cfg.tools.builtin_tools)
-                            if mcp_schemas:
-                                default_tools = (default_tools or []) + mcp_schemas
-                        except Exception:
-                            pass
-                except Exception:
-                    default_tools = None
+                default_tools = get_enabled_tools(cfg.tools.builtin_tools) if getattr(cfg, "tools", None) else None
                 default_model = get_active_api().model or "gpt-4o-mini"
                 default_temperature = cfg.session.default_temperature
 
@@ -322,7 +283,6 @@ class ChatManager:
                 tools = overrides.get("tools", default_tools)
                 messages = overrides.get("messages", messages)
 
-                # 4. 调用 AI
                 response = await self._call_ai(
                     session,
                     messages,
@@ -331,7 +291,6 @@ class ChatManager:
                     tools=tools,
                 )
 
-                # 4.1 post 钩子（允许二次处理）
                 response = await run_post_ai_hooks(
                     session=session,
                     messages=messages,
@@ -346,10 +305,8 @@ class ChatManager:
                     request_text=message,
                 )
 
-                # 最终输出清洗（移除 <thinking> 等内部标签）
                 response = self._sanitize_response(response)
 
-                # 输出多模态处理：提取图片并生成 TTS（可选）
                 clean_text, out_images = self._extract_output_media(response)
                 tts_path: Optional[str] = None
                 try:
@@ -360,13 +317,11 @@ class ChatManager:
                 except Exception:
                     tts_path = None
 
-                # 5. 异步持久化（不阻塞回复）
                 max_msgs = max(0, 2 * int(get_config().session.max_rounds))
                 asyncio.create_task(
                     self._save_conversation(session_id, user_name, message, clean_text, max_msgs)
                 )
 
-                # 6. 记录机器人回复到“聊天室历史”
                 if session_type == "group" and clean_text:
                     try:
                         self.ltm.record_bot(session_id, clean_text)
@@ -396,21 +351,15 @@ class ChatManager:
 
         messages: List[Dict[str, Any]] = []
 
-        # 1) System Prompt
         personas = get_personas()
-        # 更健壮：优先当前会话设定，其次 default，最后任一可用人格
         persona = personas.get(session.persona_name) or personas.get("default") or next(iter(personas.values()))
-        # 使用人格详情作为系统提示词
         system_prompt = persona.details
 
-        # 聊天室历史（注入到 system）
-        if active_reply:
-            if chatroom_history:
-                system_prompt += (
-                    "\nYou are now in a chatroom. The chat history is as follows:\n" + chatroom_history
-                )
+        if active_reply and chatroom_history:
+            system_prompt += (
+                "\nYou are now in a chatroom. The chat history is as follows:\n" + chatroom_history
+            )
 
-        # 注入长期记忆摘要（如有）
         try:
             import json as _json
             cfg_json = _json.loads(getattr(session, "config_json", "{}") or "{}")
@@ -420,20 +369,18 @@ class ChatManager:
         except Exception:
             pass
         messages.append({"role": "system", "content": system_prompt})
+
         _active_reply = bool(active_reply)
         _ar_suffix = (active_reply_suffix or "")
 
-        # 2) 历史消息
         for msg in history:
             role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
             content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", "")
             uname = msg.get("user_name") if isinstance(msg, dict) else getattr(msg, "user_name", None)
-            # 群聊时为用户消息添加“昵称: 内容”前缀
             if session_type == "group" and role == "user" and uname:
                 content = f"{uname}: {content}"
             messages.append({"role": role, "content": content})
 
-        # 3) 当前用户消息（多模态支持）
         current_text = f"{user_name}: {message}" if session_type == "group" else message
         if images:
             parts: List[Dict[str, Any]] = []
@@ -471,7 +418,6 @@ class ChatManager:
         rounds = self._count_rounds(history)
         if rounds < int(mem.summarize_min_rounds):
             return
-        # 读取上次摘要轮数
         try:
             import json as _json
             cfg_json = _json.loads(getattr(session, "config_json", "{}") or "{}")
@@ -480,9 +426,7 @@ class ChatManager:
         last_rounds = int(cfg_json.get("summary_rounds", 0) or 0)
         if rounds - last_rounds < int(mem.summarize_interval_rounds):
             return
-        # 生成摘要
         try:
-            # 取最近 2*max_rounds 的对话生成摘要
             max_pairs = max(8, int(get_config().session.max_rounds) * 2)
             context = []
             for msg in history[-max_pairs * 2:]:
@@ -491,7 +435,6 @@ class ChatManager:
                 context.append({"role": role, "content": content})
             sys_prompt = "请用中文将以下对话要点进行简洁摘要，50-150 字，突出人物、事件、事实，不要赘述。"
             msgs = [{"role": "system", "content": sys_prompt}] + context
-            # 使用当前激活服务商的默认模型
             model_s = get_active_api().model or "gpt-4o-mini"
             temp_s = get_config().session.default_temperature
             resp = await self.client.chat.completions.create(model=model_s, messages=msgs, temperature=temp_s)
@@ -499,7 +442,6 @@ class ChatManager:
             import json as _json2
             cfg_json["memory_summary"] = summary
             cfg_json["summary_rounds"] = rounds
-            # 持久化
             asyncio.create_task(ChatSession.set_config_json(session_id=session.session_id, data=cfg_json))
         except Exception:
             pass
@@ -520,17 +462,12 @@ class ChatManager:
 
         cfg = get_config()
         if tools is None:
-            tools = (
-                get_enabled_tools(cfg.tools.builtin_tools)
-                if getattr(cfg, "tools", None)
-                else None
-            )
+            tools = get_enabled_tools(cfg.tools.builtin_tools) if getattr(cfg, "tools", None) else None
         if model is None:
             model = get_active_api().model or "gpt-4o-mini"
         if temperature is None:
             temperature = cfg.session.default_temperature
 
-        # 初次调用
         current_response = await self.client.chat.completions.create(
             model=model,
             messages=messages,
@@ -538,18 +475,13 @@ class ChatManager:
             tools=tools,
         )
 
-        # 处理可能的工具调用（简单循环）
         max_iterations = (cfg.tools.max_iterations if getattr(cfg, "tools", None) else 2)
         iteration = 0
         while iteration < max_iterations:
             choice = current_response.choices[0]
             tool_calls = choice.message.tool_calls or []
-
-            # 无工具调用则直接返回
             if not tool_calls:
                 break
-
-            # 将 AI 的工具调用消息加入 messages
             messages.append(
                 {
                     "role": "assistant",
@@ -568,15 +500,12 @@ class ChatManager:
                 }
             )
 
-            # 并发执行工具调用后合并结果
             tasks = []
-            parsed_args: List[Dict[str, Any]] = []
             for tc in tool_calls:
                 try:
                     args = json.loads(tc.function.arguments or "{}")
                 except Exception:
                     args = {}
-                parsed_args.append(args)
                 tasks.append(execute_tool(tc.function.name, args))
             results = []
             if tasks:
@@ -585,7 +514,6 @@ class ChatManager:
                 content = str(res) if not isinstance(res, Exception) else f"工具执行异常: {res}"
                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
 
-            # 再次调用 AI 继续对话
             current_response = await self.client.chat.completions.create(
                 model=model,
                 messages=messages,
@@ -595,50 +523,42 @@ class ChatManager:
 
             iteration += 1
 
-        # 返回最终回复
         return current_response.choices[0].message.content or ""
 
     # ==================== 输出多模态处理 ====================
 
     def _extract_output_media(self, text: str) -> tuple[str, List[str]]:
-        """从模型输出文本中提取图片 URL，并返回（清洗后的文本, 图片URL列表）。
+        """从模型输出文本中提取图片 URL，并返回（清洗后文本, 图片URL列表）"""
 
-        识别：
-        - Markdown 图片：![](...)
-        - 直接图片链接：http/https 结尾为常见图片扩展
-        - data:image/...;base64,...
-        """
         if not text:
             return "", []
         try:
             imgs: List[str] = []
             cleaned = text
-            # 1) Markdown 图片
             import re as _re
             md_img = _re.compile(r"!\[[^\]]*\]\(([^)\s]+)\)")
+
             def _md_sub(m):
                 url = m.group(1)
                 imgs.append(url)
                 return ""
+
             cleaned = md_img.sub(_md_sub, cleaned)
-            # 2) 直接图片链接
-            url_pat = _re.compile(r"(https?://\S+?\.(?:png|jpe?g|gif|webp|bmp))(?!\S)", _re.IGNORECASE)
+            url_pat = _re.compile(r"(https?:\/\/\S+?\.(?:png|jpe?g|gif|webp|bmp))(?!\S)", _re.IGNORECASE)
+
             def _url_sub(m):
                 url = m.group(1)
                 imgs.append(url)
                 return url
+
             cleaned = url_pat.sub(_url_sub, cleaned)
-            # 3) data:image
-            data_pat = _re.compile(r"data:image/[^;]+;base64,[A-Za-z0-9+/=]+")
+            data_pat = _re.compile(r"data:image\/[^;]+;base64,[A-Za-z0-9+\/=]+")
             for m in data_pat.finditer(cleaned):
                 imgs.append(m.group(0))
-            # 文本规范
             cleaned = cleaned.strip()
             return cleaned, imgs
         except Exception:
             return text, []
-
-    # 统一改由 plugins.ai_chat.tts.run_tts 提供 TTS 能力；此处移除旧实现
 
     async def _save_conversation(
         self,
@@ -651,7 +571,6 @@ class ChatManager:
         """异步保存对话历史（仅维护会话 JSON 历史）"""
 
         try:
-            # 维护会话 JSON 历史（串行避免竞态）
             lock = self._history_locks.setdefault(session_id, asyncio.Lock())
             async with lock:
                 now = datetime.now().isoformat()
@@ -671,13 +590,10 @@ class ChatManager:
         """清空会话历史"""
 
         await ChatSession.clear_history_json(session_id=session_id)
-
-        # 清空聊天室历史
         try:
             _ = self.ltm.clear(session_id)
         except Exception:
             pass
-
         logger.info(f"[AI Chat] 清空会话历史: {session_id}")
 
     async def set_persona(self, session_id: str, persona_name: str):
@@ -690,8 +606,7 @@ class ChatManager:
     async def set_session_active(self, session_id: str, is_active: bool):
         """设置会话启用状态"""
 
-        updated = await ChatSession.update_active_status(session_id=session_id, is_active=is_active)
-        # 无需额外处理
+        _ = await ChatSession.update_active_status(session_id=session_id, is_active=is_active)
 
     async def get_session_info(self, session_id: str) -> Optional[ChatSession]:
         """获取会话信息"""
@@ -702,3 +617,4 @@ class ChatManager:
 # ==================== 全局实例 ====================
 
 chat_manager = ChatManager()
+

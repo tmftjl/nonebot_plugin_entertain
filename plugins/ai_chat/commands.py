@@ -377,13 +377,7 @@ async def handle_api_list(event: MessageEvent):
     active = getattr(getattr(cfg, "session", None), "api_active", "") or ""
     lines = []
     for name, item in providers.items():
-        try:
-            model = getattr(item, "model", "")
-            base_url = getattr(item, "base_url", "")
-        except Exception:
-            # 兼容配置为原始 dict 的情形
-            model = (item or {}).get("model", "")  # type: ignore[assignment]
-            base_url = (item or {}).get("base_url", "")  # type: ignore[assignment]
+        model = getattr(item, "model", "")
         mark = "（当前）" if name == active else ""
         lines.append(f"- {name}{mark} | 模型: {model}")
 
@@ -416,7 +410,6 @@ async def handle_switch_api(event: MessageEvent):
         available = ", ".join(names) if names else ""
         await switch_api_cmd.finish(f"服务商不存在\n可用: {available}")
 
-    # 更新当前使用的服务商并持久化
     cfg.session.api_active = target
     save_config(cfg)
     chat_manager.reset_client()
@@ -527,4 +520,3 @@ async def handle_tts_on(event: MessageEvent):
             cfg.output.tts_enable = False
             save_config(cfg)
             await tts_on_cmd.finish("✓ TTS 已成功关闭")
-

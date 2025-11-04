@@ -38,7 +38,6 @@ async def _tts_openai(*, session_id: str, text: str, manager: Any) -> Optional[s
         logger.warning("[AI Chat][TTS] OpenAI 客户端未初始化")
         return None
     try:
-        # 优先使用 streaming 接口
         async with manager.client.audio.speech.with_streaming_response.create(  # type: ignore[attr-defined]
             model=model,
             voice=voice,
@@ -47,31 +46,9 @@ async def _tts_openai(*, session_id: str, text: str, manager: Any) -> Optional[s
         ) as response:
             await response.stream_to_file(file_path)
         return file_path
-    except Exception:
-        try:
-            resp = await manager.client.audio.speech.create(  # type: ignore[attr-defined]
-                model=model,
-                voice=voice,
-                input=text,
-                format=fmt,
-            )
-            content = getattr(resp, "content", None)
-            if isinstance(content, (bytes, bytearray)):
-                data = content
-            else:
-                data = None
-                if hasattr(resp, "to_bytes"):
-                    data = resp.to_bytes()
-                elif hasattr(resp, "read"):
-                    data = resp.read()
-            if data:
-                with open(file_path, "wb") as f:
-                    f.write(data)
-                return file_path
-        except Exception as e:
-            logger.error(f"[AI Chat][TTS] OpenAI TTS 失败: {e}")
-            return None
-    return None
+    except Exception as e:
+        logger.error(f"[AI Chat][TTS] OpenAI TTS 失败: {e}")
+        return None
 
 
 async def _tts_http(*, session_id: str, text: str) -> Optional[str]:
@@ -164,4 +141,3 @@ async def run_tts(*, session_id: str, text: str, manager: Any) -> Optional[str]:
         return await _tts_command(session_id=session_id, text=text)
     logger.warning(f"[AI Chat][TTS] 未知 TTS 提供方 {provider}")
     return None
-
