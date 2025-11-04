@@ -1,8 +1,8 @@
-"""AI 对话配置与人格文件管理
+"""AI 对话配置与人格文件管理（UTF-8）
 
 - 统一落盘目录：config/ai_chat/
-- 人格改为“目录化”管理：config/ai_chat/personas 下的 .md/.txt/.docx 文件
-- 始终从磁盘读取人格，避免缓存导致的“重复/删不掉/404”等问题
+- 人格“目录化”管理：config/ai_chat/personas 下的 .md/.txt/.docx 文件
+- 始终从磁盘读取人格，避免缓存导致的更新不生效问题
 """
 from __future__ import annotations
 
@@ -41,17 +41,56 @@ class SessionConfig(BaseModel):
     active_reply_probability: float = Field(default=0.1, description="主动回复概率 0~1")
     active_reply_prompt_suffix: str = Field(
         default=(
-            "请根据以下消息进行自然回复：`{message}`，并保持简洁清晰。"
-            "只需回复结果，不要解释过程。"
+            "请根据以下消息进行自然回复：`{message}`，并保持简洁清晰。\n"
+            "只需回复结果，不要解释过程。\n"
         ),
-        description="主动回复附加提示，支持 {message}/{prompt} 占位符",
+        description="主动回复附加提示，支持 {message}/{prompt} 占位",
     )
+
+
+class MCPServerItem(BaseModel):
+    name: str = Field(description="MCP 服务器名")
+    command: str = Field(description="启动命令")
+    args: list[str] = Field(default_factory=list, description="命令参数")
+    env: Dict[str, str] = Field(default_factory=dict, description="环境变量")
 
 
 class ToolsConfig(BaseModel):
     enabled: bool = Field(default=False, description="是否启用工具调用")
     max_iterations: int = Field(default=3, description="最多工具往返次数")
     builtin_tools: list[str] = Field(default_factory=lambda: ["get_time", "get_weather"], description="内置工具")
+    # MCP（可选）
+    mcp_enabled: bool = Field(default=False, description="启用 MCP 动态工具")
+    mcp_servers: list[MCPServerItem] = Field(default_factory=list, description="MCP 服务器配置列表")
+
+
+class OutputConfig(BaseModel):
+    tts_enable: bool = Field(default=False, description="是否开启 TTS 语音回复")
+    # 统一 TTS 提供方：openai | http | command
+    tts_provider: str = Field(default="openai", description="TTS 提供方：openai/http/command")
+    # OpenAI TTS 相关
+    tts_model: str = Field(default="gpt-4o-mini-tts", description="TTS 模型（OpenAI）")
+    tts_voice: str = Field(default="alloy", description="TTS 发音（OpenAI）")
+    tts_format: str = Field(default="mp3", description="TTS 音频格式：mp3/wav 等")
+    # HTTP 本地/自建 TTS（返回音频字节或 JSON(base64)）
+    tts_http_url: str = Field(default="", description="HTTP TTS 接口 URL")
+    tts_http_method: str = Field(default="POST", description="HTTP 方法：POST/GET")
+    tts_http_headers: Dict[str, str] = Field(default_factory=dict, description="HTTP 头")
+    tts_http_response_type: str = Field(default="bytes", description="响应类型：bytes/base64")
+    tts_http_base64_field: str = Field(default="audio", description="当响应 JSON+base64 时的字段名")
+    # 命令行 TTS：在本地执行命令把音频写入指定输出路径；占位符：{text}/{voice}/{format}/{out}
+    tts_command: str = Field(default="", description="命令行 TTS 模板（需包含 {out} 输出路径占位符）")
+
+
+class InputConfig(BaseModel):
+    image_max_side: int = Field(default=1280, description="输入图片最长边像素上限（>0 开启压缩）")
+    image_jpeg_quality: int = Field(default=85, description="输入图片 JPEG 质量（1-95）")
+
+
+class MemoryConfig(BaseModel):
+    enable_summarize: bool = Field(default=False, description="开启长期记忆摘要")
+    summarize_min_rounds: int = Field(default=12, description="达到多少轮后开始摘要")
+    summarize_interval_rounds: int = Field(default=8, description="每隔多少轮更新一次摘要")
 
 
 class AIChatConfig(BaseModel):
@@ -59,6 +98,9 @@ class AIChatConfig(BaseModel):
     api: Dict[str, APIItem] = Field(default_factory=dict)
     session: SessionConfig = Field(default_factory=SessionConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
+    output: OutputConfig = Field(default_factory=OutputConfig)
+    input: InputConfig = Field(default_factory=InputConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
 
 
 class PersonaConfig(BaseModel):
@@ -78,8 +120,8 @@ DEFAULTS: Dict[str, Any] = {
         "chatroom_history_max_lines": 200,
         "active_reply_enable": False,
         "active_reply_prompt_suffix": (
-            "请根据以下消息进行自然回复：`{message}`，并保持简洁清晰。"
-            "只需回复结果，不要解释过程。"
+            "请根据以下消息进行自然回复：`{message}`，并保持简洁清晰。\n"
+            "只需回复结果，不要解释过程。\n"
         ),
         "active_reply_probability": 0.1,
     },
@@ -87,6 +129,30 @@ DEFAULTS: Dict[str, Any] = {
         "enabled": False,
         "max_iterations": 3,
         "builtin_tools": ["get_time", "get_weather"],
+        "mcp_enabled": False,
+        "mcp_servers": [],
+    },
+    "output": {
+        "tts_enable": False,
+        "tts_provider": "openai",
+        "tts_model": "gpt-4o-mini-tts",
+        "tts_voice": "alloy",
+        "tts_format": "mp3",
+        "tts_http_url": "",
+        "tts_http_method": "POST",
+        "tts_http_headers": {},
+        "tts_http_response_type": "bytes",
+        "tts_http_base64_field": "audio",
+        "tts_command": "",
+    },
+    "input": {
+        "image_max_side": 1280,
+        "image_jpeg_quality": 85,
+    },
+    "memory": {
+        "enable_summarize": False,
+        "summarize_min_rounds": 12,
+        "summarize_interval_rounds": 8,
     },
 }
 
@@ -102,7 +168,7 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
         "api": {
             "type": "object",
             "title": "服务商（字典，键为名称）",
-            "description": "键为服务商名称，值为该服务商配置。",
+            "description": "键为服务商名称，值为该服务商配置",
             "x-order": 1,
             "additionalProperties": {
                 "type": "object",
@@ -138,6 +204,61 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
                 "enabled": {"type": "boolean", "title": "启用工具", "x-order": 1},
                 "max_iterations": {"type": "integer", "title": "最多工具往返次数", "minimum": 1, "maximum": 10, "x-order": 2},
                 "builtin_tools": {"type": "array", "title": "内置工具", "items": {"type": "string"}, "x-order": 3},
+                "mcp_enabled": {"type": "boolean", "title": "启用 MCP 动态工具", "x-order": 4},
+                "mcp_servers": {
+                    "type": "array",
+                    "title": "MCP 服务器",
+                    "x-order": 5,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "title": "名称", "x-order": 1},
+                            "command": {"type": "string", "title": "命令", "x-order": 2},
+                            "args": {"type": "array", "items": {"type": "string"}, "title": "参数", "x-order": 3},
+                            "env": {"type": "object", "additionalProperties": {"type": "string"}, "title": "环境变量", "x-order": 4},
+                        },
+                    },
+                },
+            },
+        },
+        "output": {
+            "type": "object",
+            "title": "输出",
+            "x-order": 7,
+            "x-collapse": True,
+            "properties": {
+                "tts_enable": {"type": "boolean", "title": "启用 TTS 语音回复", "x-order": 1},
+                "tts_provider": {"type": "string", "title": "TTS 提供方（openai/http/command）", "x-order": 2},
+                "tts_model": {"type": "string", "title": "TTS 模型（OpenAI）", "x-order": 3},
+                "tts_voice": {"type": "string", "title": "TTS 发音（OpenAI）", "x-order": 4},
+                "tts_format": {"type": "string", "title": "TTS 音频格式", "x-order": 5},
+                "tts_http_url": {"type": "string", "title": "HTTP TTS 地址", "x-order": 6},
+                "tts_http_method": {"type": "string", "title": "HTTP 方法", "x-order": 7},
+                "tts_http_headers": {"type": "object", "title": "HTTP 头", "additionalProperties": {"type": "string"}, "x-order": 8},
+                "tts_http_response_type": {"type": "string", "title": "HTTP 响应类型（bytes/base64）", "x-order": 9},
+                "tts_http_base64_field": {"type": "string", "title": "base64 字段名（JSON 响应）", "x-order": 10},
+                "tts_command": {"type": "string", "title": "命令行模板（含 {out}）", "x-order": 11},
+            },
+        },
+        "input": {
+            "type": "object",
+            "title": "输入",
+            "x-order": 8,
+            "x-collapse": True,
+            "properties": {
+                "image_max_side": {"type": "integer", "title": "图片最长边像素上限", "minimum": 0, "maximum": 4096, "x-order": 1},
+                "image_jpeg_quality": {"type": "integer", "title": "图片 JPEG 质量", "minimum": 1, "maximum": 95, "x-order": 2},
+            },
+        },
+        "memory": {
+            "type": "object",
+            "title": "长期记忆",
+            "x-order": 9,
+            "x-collapse": True,
+            "properties": {
+                "enable_summarize": {"type": "boolean", "title": "开启摘要", "x-order": 1},
+                "summarize_min_rounds": {"type": "integer", "title": "开始摘要的轮数阈值", "minimum": 2, "maximum": 100, "x-order": 2},
+                "summarize_interval_rounds": {"type": "integer", "title": "摘要间隔轮数", "minimum": 2, "maximum": 100, "x-order": 3},
             },
         },
     },
@@ -277,7 +398,6 @@ def load_config() -> AIChatConfig:
                 active = (_config.session.api_active or "").strip()
                 if not active or active not in apis:
                     _config.session.api_active = names[0]
-                    # 持久化规范化后的配置
                     CFG.save(_config.model_dump())
         except Exception:
             pass
@@ -307,12 +427,10 @@ def get_active_api() -> APIItem:
     cfg = get_config()
     apis: Dict[str, APIItem] = dict(getattr(cfg, "api", {}) or {})
     if not apis:
-        # 返回一个空的 APIItem（无 api_key），上层将据此禁用对话能力
         return APIItem()
     active_name = getattr(cfg.session, "api_active", None) or ""
     if active_name in apis:
         return apis[active_name]
-    # fallback: 取第一个
     first_key = next(iter(apis.keys()))
     return apis[first_key]
 
@@ -321,7 +439,7 @@ def get_active_api() -> APIItem:
 
 
 def load_personas() -> Dict[str, PersonaConfig]:
-    """扫描 config/ai_chat/personas 目录，返回 {key: PersonaConfig}。
+    """扫描 config/ai_chat/personas 目录，返回 {key: PersonaConfig}
 
     - 支持 .md/.txt/.docx，优先选择 .md（若同名多扩展）
     - 读取 Front Matter 的 name/description；未提供 name 时用文件名；details 为正文
@@ -338,7 +456,6 @@ def load_personas() -> Dict[str, PersonaConfig]:
         logger.info("[AI Chat] 人格目录为空，写入示例人格")
         _ensure_default_personas(dir_path)
 
-    # 排序以保证优先级：.md < .txt < .docx
     rank = {".md": 0, ".txt": 1, ".docx": 2}
     files = [f for f in dir_path.glob("*") if f.is_file() and f.suffix.lower() in SUPPORTED_PERSONA_EXTS]
     files.sort(key=lambda p: (p.stem, rank.get(p.suffix.lower(), 9), p.name))
@@ -347,7 +464,6 @@ def load_personas() -> Dict[str, PersonaConfig]:
     for fp in files:
         key = fp.stem
         if key in personas:
-            # 已有同名（更高优先级扩展已放入），跳过
             continue
         try:
             if fp.suffix.lower() == ".docx":
@@ -370,9 +486,7 @@ def load_personas() -> Dict[str, PersonaConfig]:
         personas = {
             "default": PersonaConfig(
                 name="默认助手",
-                details=(
-                    "你是一个友好、耐心且乐于助人的 AI 助手。回答简洁清晰，有同理心。"
-                ),
+                details=("你是一个友好、耐心且乐于助人的 AI 助手。回答简洁清晰，有同理心。"),
             )
         }
 
@@ -382,7 +496,7 @@ def load_personas() -> Dict[str, PersonaConfig]:
 
 
 def save_personas(personas: Dict[str, PersonaConfig]) -> None:
-    """将 personas 写入 personas 目录（.md，带 front matter）"""
+    """将 personas 写入 personas 目录为 .md，带 front matter"""
     dir_path = get_personas_dir()
     try:
         for key, p in personas.items():
@@ -395,7 +509,7 @@ def save_personas(personas: Dict[str, PersonaConfig]) -> None:
 
 
 def get_personas() -> Dict[str, PersonaConfig]:
-    """总是重载，确保与文件一致。"""
+    """总是重载，确保与文件一致"""
     return load_personas()
 
 

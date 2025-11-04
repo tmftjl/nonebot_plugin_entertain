@@ -205,3 +205,34 @@ class ChatSession(BaseIDModel, table=True):
         session.add(row)
         await session.flush()
         return True
+
+    # ==================== 会话配置 JSON 维护 ====================
+
+    @classmethod
+    @with_session
+    async def get_config_json(cls, session: AsyncSession, session_id: str) -> Dict:
+        row = await cls.get_by_session_id(session=session, session_id=session_id)
+        if not row:
+            return {}
+        try:
+            import json
+            data = json.loads(row.config_json or "{}")
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+
+    @classmethod
+    @with_session
+    async def set_config_json(cls, session: AsyncSession, session_id: str, data: Dict) -> bool:
+        row = await cls.get_by_session_id(session=session, session_id=session_id)
+        if not row:
+            return False
+        try:
+            import json
+            row.config_json = json.dumps(data, ensure_ascii=False)
+            row.updated_at = datetime.now().isoformat()
+            session.add(row)
+            await session.flush()
+            return True
+        except Exception:
+            return False

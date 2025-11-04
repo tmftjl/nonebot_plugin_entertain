@@ -1,4 +1,4 @@
-"""AI 对话命令处理（去除好感度 + 前后钩子已在 manager 中提供）
+﻿"""AI 对话命令处理（去除好感度 + 前后钩子已在 manager 中提供）
 
 包含所有命令的处理逻辑：
 - 对话触发（@ 机器人或主动回复）
@@ -11,10 +11,10 @@
 from __future__ import annotations
 
 import re
-from typing import Optional
+from typing import Optional, List
 
 from nonebot import Bot
-from nonebot.adapters.onebot.v11 import GroupMessageEvent, PrivateMessageEvent, MessageEvent, Message
+from nonebot.adapters.onebot.v11 import GroupMessageEvent, PrivateMessageEvent, MessageEvent, Message, MessageSegment
 from nonebot.params import RegexMatched
 from nonebot.log import logger
 
@@ -23,6 +23,8 @@ from ...core.framework.perm import _is_superuser, _uid, _has_group_role, PermLev
 from .manager import chat_manager
 from .config import get_config, get_personas, reload_all, save_config, CFG
 from .tools import list_tools as ai_list_tools
+import base64
+import mimetypes
 
 
 P = Plugin(name="ai_chat", display_name="AI 对话", enabled=True, level=PermLevel.LOW, scene=PermScene.ALL)
@@ -85,6 +87,68 @@ def extract_plain_text(message: Message) -> str:
     return " ".join(text_parts).strip()
 
 
+async def extract_image_data_uris(bot: Bot, message: Message) -> List[str]:
+    images: List[str] = []
+    for seg in message:
+        try:
+            if seg.type != "image":
+                continue
+            data = seg.data or {}
+            url = data.get("url")
+            if isinstance(url, str) and (url.startswith("http://") or url.startswith("https://") or url.startswith("data:")):
+                images.append(url)
+                continue
+            file_id = data.get("file") or data.get("image")
+            if file_id:
+                try:
+                    info = await bot.call_api("get_image", file=file_id)
+                    path = (info.get("file") or info.get("path") or "").strip()
+                    if path:
+                        try:
+                            # 鍙€夊帇缂╋細鏍规嵁閰嶇疆缂╂斁鍒版渶闀胯竟闄愬畾锛屽苟浠?JPEG 杈撳嚭
+                            from .config import get_config
+                            cfg = get_config()
+                            max_side = int(getattr(getattr(cfg, "input", None), "image_max_side", 0) or 0)
+                            quality = int(getattr(getattr(cfg, "input", None), "image_jpeg_quality", 85) or 85)
+                            if max_side > 0:
+                                try:
+                                    from PIL import Image
+                                    import io
+                                    with Image.open(path) as im:
+                                        w, h = im.size
+                                        scale = 1.0
+                                        m = max(w, h)
+                                        if m > max_side:
+                                            scale = max_side / float(m)
+                                        if scale < 1.0:
+                                            nw, nh = int(w * scale), int(h * scale)
+                                            im = im.convert("RGB")
+                                            im = im.resize((nw, nh))
+                                        else:
+                                            im = im.convert("RGB")
+                                        buf = io.BytesIO()
+                                        im.save(buf, format="JPEG", quality=max(1, min(95, quality)))
+                                        b = buf.getvalue()
+                                        mime = "image/jpeg"
+                                except Exception:
+                                    with open(path, "rb") as f:
+                                        b = f.read()
+                                    mime = mimetypes.guess_type(path)[0] or "image/jpeg"
+                            else:
+                                with open(path, "rb") as f:
+                                    b = f.read()
+                                mime = mimetypes.guess_type(path)[0] or "image/jpeg"
+                            b64 = base64.b64encode(b).decode("ascii")
+                            images.append(f"data:{mime};base64,{b64}")
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+        except Exception:
+            continue
+    return images
+
+
 async def check_admin(event: MessageEvent) -> bool:
     user_id = _uid(event)
     if _is_superuser(user_id):
@@ -122,7 +186,8 @@ async def handle_chat_auto(bot: Bot, event: MessageEvent):
         return
 
     message = extract_plain_text(event.message)
-    if not message:
+    images = await extract_image_data_uris(bot, event.message)
+    if not message and not images:
         return
 
     session_type = "group" if isinstance(event, GroupMessageEvent) else "private"
@@ -147,17 +212,33 @@ async def handle_chat_auto(bot: Bot, event: MessageEvent):
                     "Now, a new message is coming: `{message}`. Please react to it. Only output your response and do not output any other information.",
                 )
             ),
+            images=images or None,
         )
 
         if response:
-            response = response.lstrip("\r\n")
-            if session_type == "group":
-                cfg = get_config()
-                await at_cmd.send(response)
+            # 兼容：可能返回 dict（包含多模态）或 str（纯文本）
+            if isinstance(response, dict):
+                text = str(response.get("text") or "").lstrip("\r\n")
+                images = list(response.get("images") or [])
+                tts_path = response.get("tts_path")
+                if text:
+                    await at_cmd.send(MessageSegment.text(text))
+                for img in images:
+                    try:
+                        await at_cmd.send(MessageSegment.image(img))
+                    except Exception:
+                        # 忽略失败的图片发送
+                        pass
+                if tts_path:
+                    try:
+                        await at_cmd.send(MessageSegment.record(file=str(tts_path)))
+                    except Exception:
+                        pass
             else:
+                response = str(response).lstrip("\r\n")
                 await at_cmd.send(response)
     except Exception as e:
-        logger.exception(f"[AI Chat] 对话处理失败: {e}")
+        logger.exception(f"[AI Chat] 瀵硅瘽澶勭悊澶辫触: {e}")
 
 
 # ==================== 会话管理 ====================
@@ -248,6 +329,7 @@ async def handle_persona_list(event: MessageEvent):
 
     session_id = get_session_id(event)
     session = await chat_manager.get_session_info(session_id)
+    if not session:
     if not session:
         await persona_list_cmd.finish("未找到当前会话")
 
@@ -448,4 +530,34 @@ async def handle_tool_off(event: MessageEvent):
     cfg.tools.builtin_tools = sorted(enabled_list)
     save_config(cfg)
     await tool_off_cmd.finish(f"已关闭工具：{tool_name}")
+
+
+# ==================== 杈撳嚭閰嶇疆锛圱TS锛?====================
+# 寮€鍚?TTS锛堣秴绾х敤鎴凤級
+tts_on_cmd = P.on_regex(r"^#寮€鍚疶TS$", name="ai_tts_on", display_name="会话信息", priority=5, block=True, level=PermLevel.SUPERUSER)
+@tts_on_cmd.handle()
+async def handle_tts_on(event: MessageEvent):
+    cfg = get_config()
+    if not getattr(cfg, "output", None):
+        await tts_on_cmd.finish("杈撳嚭閰嶇疆鏈垵濮嬪寲")
+    cfg.output.tts_enable = True
+    save_config(cfg)
+    await tts_on_cmd.finish("宸插紑鍚?TTS 璇煶鍥炲")
+
+
+# 鍏抽棴 TTS锛堣秴绾х敤鎴凤級
+tts_off_cmd = P.on_regex(r"^#鍏抽棴TTS$", name="ai_tts_off", display_name="会话信息", priority=5, block=True, level=PermLevel.SUPERUSER)
+@tts_off_cmd.handle()
+async def handle_tts_off(event: MessageEvent):
+    cfg = get_config()
+    if not getattr(cfg, "output", None):
+        await tts_off_cmd.finish("杈撳嚭閰嶇疆鏈垵濮嬪寲")
+    cfg.output.tts_enable = False
+    save_config(cfg)
+    await tts_off_cmd.finish("宸插叧闂?TTS 璇煶鍥炲")
+
+
+# ==================== 蹇€熸ā寮?====================
+fast_on_cmd = P.on_regex(r"^#蹇€熸ā寮忓紑$", name="ai_fast_on", display_name="会话信息", priority=5, block=True, level=PermLevel.SUPERUSER)
+
 

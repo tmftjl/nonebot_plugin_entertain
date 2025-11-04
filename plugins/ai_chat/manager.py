@@ -229,8 +229,13 @@ class ChatManager:
         *,
         active_reply: bool = False,
         active_reply_suffix: Optional[str] = None,
-    ) -> str:
-        """处理用户消息（串行同会话，支持工具调用与前后钩子）"""
+        images: Optional[List[str]] = None,
+    ) -> Any:
+        """处理用户消息（串行同会话，支持工具调用与前后钩子，多模态输入/输出）
+
+        返回：优先返回 dict：{"text": str, "images": [str], "tts_path": Optional[str]}；
+        为兼容历史逻辑，必要时可返回纯文本 str。
+        """
 
         if not self.client:
             return "AI 未配置或暂不可用"
@@ -262,6 +267,11 @@ class ChatManager:
                     history = []
 
                 # 3. 构建消息列表
+                # 3.0 可选长期记忆摘要（降低上下文体积）
+                try:
+                    await self._maybe_update_summary(session, history)
+                except Exception:
+                    pass
                 messages = self._build_messages(
                     session,
                     history,
@@ -271,15 +281,26 @@ class ChatManager:
                     chatroom_history=chatroom_history,
                     active_reply=active_reply,
                     active_reply_suffix=active_reply_suffix,
+                    images=images,
                 )
 
                 # 3.1 默认参数（可被 pre 钩子覆盖）
                 cfg = get_config()
-                default_tools = (
-                    get_enabled_tools(cfg.tools.builtin_tools)
-                    if getattr(cfg, "tools", None) and cfg.tools.enabled
-                    else None
-                )
+                # 工具（包含可用的 MCP 动态工具）
+                default_tools = None
+                try:
+                    if getattr(cfg, "tools", None) and cfg.tools.enabled:
+                        default_tools = get_enabled_tools(cfg.tools.builtin_tools)
+                        try:
+                            from .mcp import mcp_manager
+                            await mcp_manager.ensure_started()
+                            mcp_schemas = mcp_manager.get_tool_schemas_for_names(cfg.tools.builtin_tools)
+                            if mcp_schemas:
+                                default_tools = (default_tools or []) + mcp_schemas
+                        except Exception:
+                            pass
+                except Exception:
+                    default_tools = None
                 default_model = get_active_api().model or "gpt-4o-mini"
                 default_temperature = cfg.session.default_temperature
 
@@ -328,20 +349,31 @@ class ChatManager:
                 # 最终输出清洗（移除 <thinking> 等内部标签）
                 response = self._sanitize_response(response)
 
+                # 输出多模态处理：提取图片并生成 TTS（可选）
+                clean_text, out_images = self._extract_output_media(response)
+                tts_path: Optional[str] = None
+                try:
+                    cfg2 = get_config()
+                    if getattr(cfg2, "output", None) and cfg2.output.tts_enable and clean_text:
+                        from .tts import run_tts
+                        tts_path = await run_tts(session_id=session_id, text=clean_text, manager=self)
+                except Exception:
+                    tts_path = None
+
                 # 5. 异步持久化（不阻塞回复）
                 max_msgs = max(0, 2 * int(get_config().session.max_rounds))
                 asyncio.create_task(
-                    self._save_conversation(session_id, user_name, message, response, max_msgs)
+                    self._save_conversation(session_id, user_name, message, clean_text, max_msgs)
                 )
 
                 # 6. 记录机器人回复到“聊天室历史”
-                if session_type == "group" and response:
+                if session_type == "group" and clean_text:
                     try:
-                        self.ltm.record_bot(session_id, response)
+                        self.ltm.record_bot(session_id, clean_text)
                     except Exception:
                         pass
 
-                return response
+                return {"text": clean_text, "images": out_images, "tts_path": tts_path}
 
             except Exception as e:
                 logger.exception(f"[AI Chat] 处理消息失败: {e}")
@@ -358,6 +390,7 @@ class ChatManager:
         chatroom_history: str = "",
         active_reply: bool = False,
         active_reply_suffix: Optional[str] = None,
+        images: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """构建发送给 AI 的消息列表"""
 
@@ -377,6 +410,15 @@ class ChatManager:
                     "\nYou are now in a chatroom. The chat history is as follows:\n" + chatroom_history
                 )
 
+        # 注入长期记忆摘要（如有）
+        try:
+            import json as _json
+            cfg_json = _json.loads(getattr(session, "config_json", "{}") or "{}")
+            summary = cfg_json.get("memory_summary")
+            if summary:
+                system_prompt += "\n\n[长期记忆摘要]\n" + str(summary)
+        except Exception:
+            pass
         messages.append({"role": "system", "content": system_prompt})
         _active_reply = bool(active_reply)
         _ar_suffix = (active_reply_suffix or "")
@@ -391,9 +433,20 @@ class ChatManager:
                 content = f"{uname}: {content}"
             messages.append({"role": role, "content": content})
 
-        # 3) 当前用户消息
-        current_content = f"{user_name}: {message}" if session_type == "group" else message
-        messages.append({"role": "user", "content": current_content})
+        # 3) 当前用户消息（多模态支持）
+        current_text = f"{user_name}: {message}" if session_type == "group" else message
+        if images:
+            parts: List[Dict[str, Any]] = []
+            if current_text:
+                parts.append({"type": "text", "text": current_text})
+            for uri in images:
+                try:
+                    parts.append({"type": "image_url", "image_url": {"url": uri}})
+                except Exception:
+                    pass
+            messages.append({"role": "user", "content": parts})
+        else:
+            messages.append({"role": "user", "content": current_text})
         if _active_reply and _ar_suffix:
             try:
                 suffix_use = _ar_suffix.replace("{message}", message).replace("{prompt}", message)
@@ -402,6 +455,54 @@ class ChatManager:
             messages.append({"role": "user", "content": suffix_use})
 
         return messages
+
+    # ==================== 长期记忆摘要 ====================
+
+    def _count_rounds(self, history: List[Dict[str, Any]]) -> int:
+        u = sum(1 for h in history if (h.get("role") if isinstance(h, dict) else getattr(h, "role", "")) == "user")
+        a = sum(1 for h in history if (h.get("role") if isinstance(h, dict) else getattr(h, "role", "")) == "assistant")
+        return min(u, a)
+
+    async def _maybe_update_summary(self, session: ChatSession, history: List[Dict[str, Any]]) -> None:
+        cfg = get_config()
+        mem = getattr(cfg, "memory", None)
+        if not mem or not mem.enable_summarize:
+            return
+        rounds = self._count_rounds(history)
+        if rounds < int(mem.summarize_min_rounds):
+            return
+        # 读取上次摘要轮数
+        try:
+            import json as _json
+            cfg_json = _json.loads(getattr(session, "config_json", "{}") or "{}")
+        except Exception:
+            cfg_json = {}
+        last_rounds = int(cfg_json.get("summary_rounds", 0) or 0)
+        if rounds - last_rounds < int(mem.summarize_interval_rounds):
+            return
+        # 生成摘要
+        try:
+            # 取最近 2*max_rounds 的对话生成摘要
+            max_pairs = max(8, int(get_config().session.max_rounds) * 2)
+            context = []
+            for msg in history[-max_pairs * 2:]:
+                role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", "")
+                content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", "")
+                context.append({"role": role, "content": content})
+            sys_prompt = "请用中文将以下对话要点进行简洁摘要，50-150 字，突出人物、事件、事实，不要赘述。"
+            msgs = [{"role": "system", "content": sys_prompt}] + context
+            # 使用当前激活服务商的默认模型
+            model_s = get_active_api().model or "gpt-4o-mini"
+            temp_s = get_config().session.default_temperature
+            resp = await self.client.chat.completions.create(model=model_s, messages=msgs, temperature=temp_s)
+            summary = resp.choices[0].message.content or ""
+            import json as _json2
+            cfg_json["memory_summary"] = summary
+            cfg_json["summary_rounds"] = rounds
+            # 持久化
+            asyncio.create_task(ChatSession.set_config_json(session_id=session.session_id, data=cfg_json))
+        except Exception:
+            pass
 
     async def _call_ai(
         self,
@@ -467,18 +568,22 @@ class ChatManager:
                 }
             )
 
-            # 执行工具调用
+            # 并发执行工具调用后合并结果
+            tasks = []
+            parsed_args: List[Dict[str, Any]] = []
             for tc in tool_calls:
-                tool_name = tc.function.name
                 try:
-                    tool_args = json.loads(tc.function.arguments or "{}")
+                    args = json.loads(tc.function.arguments or "{}")
                 except Exception:
-                    tool_args = {}
-
-                tool_result = await execute_tool(tool_name, tool_args)
-
-                # 添加工具结果消息
-                messages.append({"role": "tool", "tool_call_id": tc.id, "content": tool_result})
+                    args = {}
+                parsed_args.append(args)
+                tasks.append(execute_tool(tc.function.name, args))
+            results = []
+            if tasks:
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+            for tc, res in zip(tool_calls, results or []):
+                content = str(res) if not isinstance(res, Exception) else f"工具执行异常: {res}"
+                messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
 
             # 再次调用 AI 继续对话
             current_response = await self.client.chat.completions.create(
@@ -492,6 +597,103 @@ class ChatManager:
 
         # 返回最终回复
         return current_response.choices[0].message.content or ""
+
+    # ==================== 输出多模态处理 ====================
+
+    def _extract_output_media(self, text: str) -> tuple[str, List[str]]:
+        """从模型输出文本中提取图片 URL，并返回（清洗后的文本, 图片URL列表）。
+
+        识别：
+        - Markdown 图片：![](...)
+        - 直接图片链接：http/https 结尾为常见图片扩展
+        - data:image/...;base64,...
+        """
+        if not text:
+            return "", []
+        try:
+            imgs: List[str] = []
+            cleaned = text
+            # 1) Markdown 图片
+            import re as _re
+            md_img = _re.compile(r"!\[[^\]]*\]\(([^)\s]+)\)")
+            def _md_sub(m):
+                url = m.group(1)
+                imgs.append(url)
+                return ""
+            cleaned = md_img.sub(_md_sub, cleaned)
+            # 2) 直接图片链接
+            url_pat = _re.compile(r"(https?://\S+?\.(?:png|jpe?g|gif|webp|bmp))(?!\S)", _re.IGNORECASE)
+            def _url_sub(m):
+                url = m.group(1)
+                imgs.append(url)
+                return url
+            cleaned = url_pat.sub(_url_sub, cleaned)
+            # 3) data:image
+            data_pat = _re.compile(r"data:image/[^;]+;base64,[A-Za-z0-9+/=]+")
+            for m in data_pat.finditer(cleaned):
+                imgs.append(m.group(0))
+            # 文本规范
+            cleaned = cleaned.strip()
+            return cleaned, imgs
+        except Exception:
+            return text, []
+
+    async def _tts_synthesize(self, session_id: str, text: str) -> Optional[str]:
+        """根据配置将文本合成为语音文件，返回本地文件路径。
+
+        优先使用 OpenAI TTS（audio.speech），失败则返回 None。
+        """
+        try:
+            cfg = get_config()
+            out_cfg = cfg.output
+            if not out_cfg.tts_enable:
+                return None
+            fmt = (out_cfg.tts_format or "mp3").lower()
+            voice = out_cfg.tts_voice or "alloy"
+            model = out_cfg.tts_model or "gpt-4o-mini-tts"
+            # 输出路径
+            base = plugin_data_dir("ai_chat") / "tts"
+            base.mkdir(parents=True, exist_ok=True)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            file_path = base / f"{session_id}_{ts}.{fmt}"
+
+            # 使用 OpenAI 异步 TTS
+            try:
+                # 新接口：with_streaming_response
+                async with self.client.audio.speech.with_streaming_response.create(  # type: ignore[attr-defined]
+                    model=model,
+                    voice=voice,
+                    input=text,
+                    format=fmt,
+                ) as response:
+                    await response.stream_to_file(str(file_path))
+                return str(file_path)
+            except Exception:
+                # 回退接口
+                try:
+                    resp = await self.client.audio.speech.create(  # type: ignore[attr-defined]
+                        model=model,
+                        voice=voice,
+                        input=text,
+                        format=fmt,
+                    )
+                    content = getattr(resp, "content", None)
+                    if isinstance(content, (bytes, bytearray)):
+                        data = content
+                    else:
+                        data = None
+                        if hasattr(resp, "to_bytes"):
+                            data = resp.to_bytes()
+                        elif hasattr(resp, "read"):
+                            data = resp.read()
+                    if data:
+                        with open(file_path, "wb") as f:
+                            f.write(data)
+                        return str(file_path)
+                except Exception:
+                    return None
+        except Exception:
+            return None
 
     async def _save_conversation(
         self,

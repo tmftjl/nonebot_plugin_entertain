@@ -10,6 +10,12 @@ from typing import Any, Callable, Dict, Optional
 
 from nonebot.log import logger
 
+# 可选导入 MCP 桥接
+try:
+    from .mcp import mcp_manager
+except Exception:
+    mcp_manager = None  # type: ignore
+
 
 # 全局工具注册表：name -> { schema..., handler }
 _tool_registry: Dict[str, Dict[str, Any]] = {}
@@ -73,20 +79,42 @@ def get_tool_schema(name: str) -> Optional[Dict[str, Any]]:
 
 
 def get_enabled_tools(tool_names: list[str]) -> list[Dict[str, Any]]:
-    """获取启用的工具列表（OpenAI 格式）"""
+    """获取启用的工具列表（OpenAI 格式）
+
+    - 同时尝试合并 MCP 动态工具（若 mcp_manager 可用）
+    """
 
     schemas: list[Dict[str, Any]] = []
     for name in tool_names:
         schema = get_tool_schema(name)
         if schema:
             schemas.append(schema)
+
+    try:
+        if mcp_manager is not None:
+            mcp_schemas = mcp_manager.get_tool_schemas_for_names(tool_names)
+            if mcp_schemas:
+                schemas.extend(mcp_schemas)
+    except Exception:
+        pass
     return schemas
 
 
 def list_tools() -> list[str]:
-    """列出所有已注册的工具名称"""
+    """列出所有已注册的工具名称（含 MCP 动态工具，若可用）"""
 
-    return list(_tool_registry.keys())
+    names = list(_tool_registry.keys())
+    try:
+        if mcp_manager is not None:
+            names.extend(mcp_manager.list_tool_names())
+    except Exception:
+        pass
+    # 去重
+    try:
+        names = sorted(set(names))
+    except Exception:
+        pass
+    return names
 
 
 # ==================== 内置工具 ====================
@@ -137,6 +165,16 @@ async def execute_tool(name: str, args: Dict[str, Any]) -> str:
     Returns:
         工具执行结果（字符串）
     """
+
+    # MCP 工具名规范：mcp:<server>:<tool>
+    if name.startswith("mcp:"):
+        try:
+            if mcp_manager is None:
+                return "MCP 未启用或不可用"
+            return await mcp_manager.execute_tool(name, args)
+        except Exception as e:
+            logger.error(f"[AI Chat] MCP 工具执行失败 {name}: {e}")
+            return f"MCP 工具执行失败: {str(e)}"
 
     handler = get_tool_handler(name)
     if not handler:

@@ -1,124 +1,157 @@
-**AI 对话（ai_chat）**
-- 基于 NoneBot2 的高性能 AI 对话插件，支持多会话管理、人格切换、OpenAI Function Calling 工具调用，以及可插拔的前后置钩子。
+﻿AI 对话（ai_chat）
 
-**功能亮点**
-- 多会话管理：按会话 ID 管理历史与状态（群聊/私聊），支持开关会话与清空历史。
-- 人格系统：内置多个人格，可通过命令切换，会话级生效。
-- 工具调用：支持 OpenAI Function Calling，内置时间/天气示例工具，可热切换启用列表。
-- 前后置钩子：提供 pre/post AI 调用钩子，可在业务侧自定义消息改写、响应后处理等。
-- 聊天室记忆：群聊中维护轻量“聊天室历史”（内存环形缓冲），更贴近群聊语境。
-- 多服务商配置：支持在配置中维护多组 base_url/api_key/model，并通过命令切换。
+简介
+- 基于 NoneBot2 的高性能 AI 对话插件，支持多模态输入/输出、工具调用（Function Calling + MCP）、多会话管理、人设系统与可插拔钩子。
 
-**安装与依赖**
-- 依赖 openai>=1.0、pydantic>=2、sqlalchemy>=2、sqlmodel、aiosqlite 等（见 `requirements.txt`）。
-- 运行于 NoneBot2 + OneBot v11 适配器。
-- 数据库存储使用 SQLite（自动建表，路径参见框架 `data/` 目录）。
+核心特性
+- 多模态输入：支持图片+文本输入（自动拼接为 Chat Completions 的 content parts）。
+- 多模态输出：
+  - 解析模型输出中的 Markdown 图片与图片链接，自动以图片消息发送；
+  - 可配置开启 TTS 语音回复（OpenAI TTS）。
+- 工具调用（完全体）：
+  - 内置装饰器式工具注册，OpenAI Function Calling JSON Schema 对齐；
+  - 可选启用 MCP 动态工具桥接，以 `mcp:<server>:<tool>` 形式暴露给模型；
+  - 循环处理工具往返至停止或达迭代上限。
+- 会话管理：按会话 ID 维护历史与状态，支持启停、清空历史、切换人格；
+- 钩子扩展：pre/post 两类钩子可动态改写 messages、model、temperature、tools 或最终响应文本；
+- 多服务商配置：在配置中维护多个 base_url/api_key/model，并可通过命令切换。
 
-**配置文件**
-- 位置：`config/ai_chat/config.json` 与 `config/ai_chat/personas/`（由 `NPE_CONFIG_DIR` 可整体重定向，参考 `core/framework/utils.py`）。
-- 注册默认配置与 schema：`plugins/ai_chat/config.py`。
+安装与依赖
+- 依赖见仓库 `requirements.txt`（openai>=1.0、pydantic>=2、sqlalchemy>=2、sqlmodel、aiosqlite 等）。
+- 运行环境：NoneBot2 + OneBot v11 适配器。
+- 语音 TTS：需使用支持的 OpenAI TTS 模型（默认 `gpt-4o-mini-tts`）。
+- MCP（可选）：如需使用，需安装 MCP Python SDK 并配置 MCP 服务器命令。
 
-配置项（`config.json`）
-- `api`：字典，键为服务商名称，值包含 `base_url`、`api_key`、`model`、`timeout`。
-- `session`：会话行为。
-  - `api_active`：当前使用的服务商名（匹配 `api` 的键）。
-  - `default_temperature`：默认温度。
-  - `max_rounds`：对话上下文“轮数”（user+assistant 记一轮）。
-  - `chatroom_history_max_lines`：群聊“聊天室历史”内存上限行数。
-  - `active_reply_enable`：是否启用群聊“主动回复”。
-  - `active_reply_probability`：主动回复触发概率（0~1）。
-  - `active_reply_prompt_suffix`：主动回复追加到 messages 的提示（支持 `{message}`/`{prompt}` 占位）。
-- `tools`：工具调用。
-  - `enabled`：全局开关。
-  - `max_iterations`：工具调用最多迭代轮次。
-  - `builtin_tools`：启用的工具名列表（如 `get_time`、`get_weather`）。
+配置文件
+- 位置：`config/ai_chat/config.json` 与 `config/ai_chat/personas/`（可用 `NPE_CONFIG_DIR` 重定向，见 `core/framework/utils.py`）。
+- Schema 注册位置：`plugins/ai_chat/config.py`。
 
-人格文件（`personas/` 目录）
-- 支持 `.txt`、`.md`、`.docx` 三种文本格式；文件名（不含扩展名）作为人格代号。
-- `.txt/.md` 可在顶部使用极简 Front Matter（可选）：
-  ```
-  ---
-  name: 显示名
-  description: 描述
-  ---
+配置示例（节选）
+```
+{
+  "api": {
+    "openai": {"base_url": "https://api.openai.com/v1", "api_key": "sk-...", "model": "gpt-4o-mini", "timeout": 60}
+  },
+  "session": {
+    "api_active": "openai",
+    "default_temperature": 0.7,
+    "max_rounds": 8,
+    "chatroom_history_max_lines": 200,
+    "active_reply_enable": false,
+    "active_reply_probability": 0.1,
+    "active_reply_prompt_suffix": "请参考以下消息进行自然回复：`{message}`。"
+  },
+  "tools": {
+    "enabled": true,
+    "max_iterations": 3,
+    "builtin_tools": ["get_time", "get_weather", "mcp:*"],
+    "mcp_enabled": true,
+    "mcp_servers": [
+      {"name": "calc", "command": "your-mcp-server", "args": [], "env": {}}
+    ]
+  },
+  "output": {
+    "tts_enable": false,
+    "tts_model": "gpt-4o-mini-tts",
+    "tts_voice": "alloy",
+    "tts_format": "mp3"
+  }
+}
+```
 
-  这里是系统提示(system prompt)正文...
-  ```
-- 若未提供 Front Matter，则 `name` 默认为文件名，`description` 取正文首行摘要。
+人格文件（personas/）
+- 支持 `.txt`、`.md`、`.docx`，优先选择同名 `.md`；
+- `.txt/.md` 可使用极简 Front Matter：
+```
+---
+name: 默认助手
+description: 一个友好的 AI 助手
+---
 
-**使用方式**
+这里是系统提示词正文...
+```
+
+使用方法
 - 对话触发：
-  - 群聊：需 @ 机器人或命中“主动回复”（概率触发）；
-  - 私聊：直接发送文本即可。
+  - 群聊需 @ 机器人或命中“主动回复”；
+  - 私聊直接发送文本/图片；
+  - 支持仅图片消息（无文本）。
 - 会话管理：
-  - `#清空会话` 清空当前会话历史。
-  - `#会话信息` 查看当前会话状态与人格等。
-  - `#开启AI` / `#关闭AI` 管理当前会话可用性（管理员）。
-- 人格相关：
-  - `#人格` 查看当前人格。
-  - `#人格列表` 查看可用人格列表。
-  - `#切换人格 <代号>` 切换当前会话人格（管理员）。
-- 服务商管理：
-  - `#服务商列表` 查看当前配置的服务商、默认模型与地址。
-  - `#切换服务商 <name>` 切换 `session.api_active` 并重建客户端（管理员）。
+  - `#清空会话` 清空历史；`#会话信息` 查看状态；`#开启AI`/`#关闭AI` 启停会话（管理员）。
+- 人格管理：
+  - `#人格列表` 查看可用人格；`#切换人格 <代号>` 切换人格（管理员）。
 - 工具管理：
-  - `#工具列表` 查看所有注册工具及启用状态。
-  - `#启用工具 <name>` 将工具加入启用列表并打开全局开关（管理员）。
-  - `#关闭工具 <name>` 从启用列表移除工具（管理员）。
+  - `#工具列表` 查看工具与启用状态；
+  - `#开启工具 <name>` 将工具加入启用列表并打开总开关；
+  - `#关闭工具 <name>` 从启用列表移除（管理员）。
+  - `#开启TTS` / `#关闭TTS` 开关语音回复（超管）。
+- 服务商管理：
+  - `#服务商列表`、`#切换服务商 <name>`。
 - 配置重载：
-- `#重载AI配置` 重新加载 `config.json` 和 `personas/` 并重建客户端（超管）。
+  - `#重载AI配置` 重新加载配置与人格并重建客户端（超管）。
 
-命令注册位置
-- 见 `plugins/ai_chat/commands.py:111` 起始的“通用触发”与后续各管理命令。
+多模态说明
+- 输入图片：自动将 `text + image(s)` 组织为 OpenAI chat 的 content 数组；
+- 输出图片：自动解析模型输出中的 Markdown 图片/图片链接并逐条发送；
+- 语音 TTS：当 `output.tts_enable = true` 时，生成语音文件并通过 `record` 语音消息发送（OneBot v11）。
 
-**实现要点**
-- 会话与历史
-  - 会话模型：`plugins/ai_chat/models.py` 中 `ChatSession`（表名 `ai_chat_sessions`）。
-  - 会话历史：仅维护 JSON 字段 `history_json`，读写由 `append_history_items` 和 `clear_history_json` 完成。
-  - 迁移保障：启动首次调用时通过 `ensure_history_column()` 确保列存在（SQLite PRAGMA）。
-- 对话核心
-  - 入口：`plugins/ai_chat/manager.py` `ChatManager.process_message()`。
-  - 构造 messages：`_build_messages()` 注入人格 System Prompt、历史消息、群聊用户名前缀、主动回复后缀等。
-  - OpenAI 调用：`_call_ai()` 走 `client.chat.completions.create()`，并按需处理 `tool_calls`（Function Calling 循环调用）。
-  - 钩子：`hooks.py` 提供 `register_pre_ai_hook` 与 `register_post_ai_hook`，在调用前后可动态改写 messages/model/temperature/tools 或响应文本。
-- 群聊“聊天室历史”
-  - 内存环形缓冲：`ChatroomMemory` 通过 `chatroom_history_max_lines` 控制大小，不落库。
-  - 在主动回复模式下会以 System Prompt 追加带入。
+本地 TTS 接入
+- 统一接口：通过 `output.tts_provider` 选择提供方（`openai`/`http`/`command`）。
+- HTTP 模式：
+  - 配置 `output.tts_provider = "http"`
+  - 配置 `output.tts_http_url`（默认 POST，载荷 JSON：`{"text": 文本, "voice": 发音, "format": 格式}`）
+  - `output.tts_http_response_type` 选择 `bytes`（响应体即音频字节）或 `base64`（JSON 返回 base64，字段名由 `output.tts_http_base64_field` 指定，默认 `audio`）。
+- 命令行模式：
+  - 配置 `output.tts_provider = "command"`
+  - 配置 `output.tts_command`，命令模板支持占位符：`{text}`、`{voice}`、`{format}`、`{out}`（输出文件路径）
+  - 你的命令需把合成后的音频写入 `{out}` 指定的路径并退出（返回码 0）
 
-**二次开发**
-- 自定义钩子（pre/post）：
-  - 引入：`from nonebot_plugin_entertain.plugins.ai_chat.hooks import register_pre_ai_hook, register_post_ai_hook`。
-  - pre 示例：
-    - 返回 dict 可覆盖参数：`{"temperature": 0.2, "model": "gpt-4o-mini", "messages": [...], "tools": [...]}`。
-  - post 示例：
-    - 返回 str 可直接替换最终响应。
-- 自定义工具：
-  - 参考 `plugins/ai_chat/tools.py` 的装饰器 `register_tool(name, description, parameters)` 注册；
-  - 函数签名与 `parameters` 中的 JSON Schema 对齐；
-  - 由 `execute_tool(name, args)` 异步调用，并写入 `tool` 角色消息返回。
+示例（本地 TTS）
+```
+{
+  "output": {
+    "tts_enable": true,
+    "tts_provider": "http",
+    "tts_http_url": "http://127.0.0.1:5000/tts",
+    "tts_http_response_type": "bytes",
+    "tts_format": "mp3",
+    "tts_voice": "xiaoyan"
+  }
+}
+```
 
-**常见问题与注意事项**
-- API Key：必须在 `config/ai_chat/config.json` 的 `api` 字典中，`session.api_active` 对应项设置 `api_key`，否则插件会禁用对话能力（见 `plugins/ai_chat/__init__.py`）。
-- 主动回复：该功能会在群聊中“随机”触发回复，默认概率 0.1，可能造成群内较高活跃/干扰，建议谨慎开启或降低概率，并结合权限白名单使用。
-- 上下文成本：`max_rounds` 越大，调用成本越高；同时 `chatroom_history_max_lines` 过大会增加 System Prompt 体积，注意平衡。
-- SQLite 迁移：`ensure_history_column()` 仅对 SQLite 生效；如更换数据库，需要自行迁移该列。
-- 并发与锁：同一会话串行处理（会话锁），历史写入有独立锁，避免竞态；不同会话可并行处理。
-- 模型兼容：默认 `gpt-4o-mini`，确保所选模型支持 Function Calling（若启用工具）。
+```
+{
+  "output": {
+    "tts_enable": true,
+    "tts_provider": "command",
+    "tts_command": "my_tts.exe --text \"{text}\" --voice {voice} --format {format} --out \"{out}\"",
+    "tts_format": "wav",
+    "tts_voice": "zh-CN"
+  }
+}
+```
 
-**改动与差异点**
-- 移除了“好感度”等历史逻辑，改为纯会话+JSON 历史持久化（轻量可靠）。
-- 增加 pre/post 钩子能力，便于在业务层扩展。
-- 新增“聊天室历史”内存缓冲，提升群聊语境理解。
+MCP 工具桥接
+- 在 `tools` 中开启 `mcp_enabled` 并配置 `mcp_servers`；
+- 在 `builtin_tools` 中加入 `mcp:*`（全部启用）或指定 `mcp:<server>:<tool>`；
+- 工具执行结果以 `tool` 角色消息写回给模型，继续对话。
 
-**改进建议**
-- 流式回复：可增加流式输出/撤回合并优化体验。
-- 回复引用：在群聊中引用被回复消息，减少误解。
-- 细化主动回复：增加按群白名单、时间段、关键词等触发策略。
-- 工具权限：为工具级别增加启用权限与参数校验。
-- 错误提示：针对常见错误（超时/配额/未配置）返回更友好的中文提示。
+二次开发
+- 钩子：`plugins/ai_chat/hooks.py` 中注册 `register_pre_ai_hook` / `register_post_ai_hook`；
+- 自定义工具：使用 `plugins/ai_chat/tools.py` 中的 `@register_tool(...)` 装饰器；
+- 重要位置：命令 `plugins/ai_chat/commands.py`，核心 `plugins/ai_chat/manager.py`，配置与人格 `plugins/ai_chat/config.py`，工具与 MCP `plugins/ai_chat/tools.py`、`plugins/ai_chat/mcp.py`。
 
-**相关代码位置**
-- 触发与命令：`plugins/ai_chat/commands.py:111`、`plugins/ai_chat/commands.py:169`、`plugins/ai_chat/commands.py:184` 等。
-- 核心管理：`plugins/ai_chat/manager.py`（OpenAI 调用、历史维护、会话并发控制）。
-- 配置与人格：`plugins/ai_chat/config.py:276`、`plugins/ai_chat/config.py:325`、`plugins/ai_chat/config.py:386`。
-- 工具与钩子：`plugins/ai_chat/tools.py`、`plugins/ai_chat/hooks.py`。
+注意事项
+- 请确保为当前激活服务商配置有效 API Key；
+- TTS 调用需要模型支持，如不可用将自动降级为仅文本；
+- MCP 需正确安装 SDK 并配置服务器命令，初始化失败时会自动跳过。
+
+进阶能力与优化建议
+- 图片压缩：对本地图片按最长边与 JPEG 质量压缩，降低上传体积，提升响应速度。
+- 长期记忆：可开启摘要，定期归纳历史并注入 System Prompt，有效降低上下文体积。
+- 并发工具：对同批次 Function Calling 的多个工具并发执行，减少工具往返耗时。
+- 流式输出（建议）：可选改造为流式分段发送，提升“首字符时间”，遇接口限制可退化为分段发送。
+- RAG（建议）：接入向量检索，把外部知识/文档透传进模型，提升专业问答质量与可追溯性。
+- 多提供商容错（建议）：对 429/超时自动切换到备选模型或重试，提高可用性。
+- 质量评估（建议）：对生成结果做自评与重写（短路规则），兼顾速度与质量。
