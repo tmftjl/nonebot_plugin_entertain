@@ -11,11 +11,10 @@
 from __future__ import annotations
 
 import re
-from typing import Optional, List
+from typing import List
 
 from nonebot import Bot
 from nonebot.adapters.onebot.v11 import GroupMessageEvent, PrivateMessageEvent, MessageEvent, Message, MessageSegment
-from nonebot.params import RegexMatched
 from nonebot.log import logger
 
 from ...core.framework.registry import Plugin
@@ -148,21 +147,6 @@ async def extract_image_data_uris(bot: Bot, message: Message) -> List[str]:
             continue
     return images
 
-
-async def check_admin(event: MessageEvent) -> bool:
-    user_id = _uid(event)
-    if _is_superuser(user_id):
-        return True
-    if isinstance(event, GroupMessageEvent):
-        return _has_group_role(event, "admin") or _has_group_role(event, "owner")
-    return False
-
-
-async def check_superuser(event: MessageEvent) -> bool:
-    user_id = _uid(event)
-    return _is_superuser(user_id)
-
-
 # ==================== 对话触发 ====================
 # 群聊需 @ 机器人或命中“主动回复”；私聊直接触发
 at_cmd = P.on_regex(
@@ -284,38 +268,18 @@ async def handle_info(event: MessageEvent):
 
 
 # 开启 AI（管理员）
-enable_cmd = P.on_regex(
-    r"^#开启AI$",
-    name="ai_enable",
-    display_name="开启 AI",
-    priority=5,
-    block=True,
-    level=PermLevel.ADMIN,
-)
+enable_cmd = P.on_regex(r"^#(开启|关闭)AI$", name="ai_enable", display_name="开启 AI", priority=5, block=True, level=PermLevel.ADMIN)
 @enable_cmd.handle()
 async def handle_enable(event: MessageEvent):
-    if not await check_admin(event):
-        await enable_cmd.finish("仅管理员可用")
-    session_id = get_session_id(event)
-    await chat_manager.set_session_active(session_id, True)
-    await enable_cmd.finish("✓ 已开启 AI")
-
-# 关闭 AI（管理员）
-disable_cmd = P.on_regex(
-    r"^#关闭AI$",
-    name="ai_disable",
-    display_name="关闭 AI",
-    priority=5,
-    block=True,
-    level=PermLevel.ADMIN,
-)
-@disable_cmd.handle()
-async def handle_disable(event: MessageEvent):
-    if not await check_admin(event):
-        await disable_cmd.finish("仅管理员可用")
-    session_id = get_session_id(event)
-    await chat_manager.set_session_active(session_id, False)
-    await disable_cmd.finish("✓ 已关闭 AI")
+    msg_text = event.get_plaintext().strip()
+    if "开启" in msg_text:
+        session_id = get_session_id(event)
+        await chat_manager.set_session_active(session_id, True)
+        await enable_cmd.finish("✓ 已开启 AI")
+    else:
+        session_id = get_session_id(event)
+        await chat_manager.set_session_active(session_id, False)
+        await enable_cmd.finish("✓ 已关闭 AI")
 
 
 # ==================== 人格系统 ====================
@@ -329,7 +293,6 @@ async def handle_persona_list(event: MessageEvent):
 
     session_id = get_session_id(event)
     session = await chat_manager.get_session_info(session_id)
-    if not session:
     if not session:
         await persona_list_cmd.finish("未找到当前会话")
 
@@ -454,9 +417,6 @@ reload_cmd = P.on_regex(
 )
 @reload_cmd.handle()
 async def handle_reload(event: MessageEvent):
-    if not await check_superuser(event):
-        await reload_cmd.finish("仅超级用户可用")
-
     reload_all()
     chat_manager.reset_client()
     await reload_cmd.finish("✓ 已重载所有配置并清空缓存")
@@ -482,82 +442,58 @@ async def handle_tool_list(event: MessageEvent):
     await tool_list_cmd.finish("\n".join(lines))
 
 
-# 开启工具（管理员，且开启总开关）
-tool_on_cmd = P.on_regex(r"^#开启工具\s*(\S+)$", name="ai_tool_on", display_name="开启工具", priority=5, block=True,level=PermLevel.SUPERUSER)
+# 工具开关
+tool_on_cmd = P.on_regex(r"^#(开启|关闭)工具\s*(\S+)$", name="ai_tool_on", display_name="开启工具", priority=5, block=True,level=PermLevel.SUPERUSER)
 @tool_on_cmd.handle()
 async def handle_tool_on(event: MessageEvent):
-    if not await check_admin(event):
-        await tool_on_cmd.finish("仅管理员可用")
     plain_text = event.get_plaintext()
-    m = re.search(r"^#开启工具\s*(\S+)$", plain_text)
-    if not m:
-        await tool_on_cmd.finish("格式错误：请使用 #开启工具 工具名")
-    tool_name = m.group(1).strip()
-    all_tools = set(ai_list_tools())
-    if tool_name not in all_tools:
-        await tool_on_cmd.finish(f"工具不存在：{tool_name}")
+    m = re.search(r"^#(开启|关闭)工具\s*(\S+)$", plain_text)   
+    action = m.group(1).strip()  # "开启" 或 "关闭"
+    tool_name = m.group(2).strip() # 工具名
     cfg = get_config()
     if not getattr(cfg, "tools", None):
         await tool_on_cmd.finish("工具配置未初始化")
     enabled_list = set(cfg.tools.builtin_tools or [])
-    if tool_name in enabled_list and cfg.tools.enabled:
-        await tool_on_cmd.finish(f"工具已启用：{tool_name}")
-    enabled_list.add(tool_name)
-    cfg.tools.builtin_tools = sorted(enabled_list)
-    cfg.tools.enabled = True
-    save_config(cfg)
-    await tool_on_cmd.finish(f"已开启工具：{tool_name}")
+    if action == "开启":
+        all_tools = set(ai_list_tools())
+        if tool_name not in all_tools:
+            await tool_on_cmd.finish(f"工具不存在：{tool_name}")    
+        if tool_name in enabled_list:
+            await tool_on_cmd.finish(f"工具已启用：{tool_name}")
+        enabled_list.add(tool_name)
+        cfg.tools.builtin_tools = sorted(enabled_list)
+        save_config(cfg)
+        await tool_on_cmd.finish(f"已开启工具：{tool_name}") 
+    elif action == "关闭":
+        if tool_name not in enabled_list:
+            await tool_on_cmd.finish(f"工具未启用：{tool_name}")
+        enabled_list.discard(tool_name)
+        cfg.tools.builtin_tools = sorted(enabled_list)
+        save_config(cfg)
+        await tool_on_cmd.finish(f"已关闭工具：{tool_name}")
 
 
-# 关闭工具（管理员，仅从启用列表移除，不改全局开关）
-tool_off_cmd = P.on_regex(r"^#关闭工具\s*(\S+)$", name="ai_tool_off", display_name="关闭工具", priority=5, block=True,level=PermLevel.SUPERUSER)
-@tool_off_cmd.handle()
-async def handle_tool_off(event: MessageEvent):
-    if not await check_admin(event):
-        await tool_off_cmd.finish("仅管理员可用")
-    plain_text = event.get_plaintext()
-    m = re.search(r"^#关闭工具\s*(\S+)$", plain_text)
-    if not m:
-        await tool_off_cmd.finish("格式错误：请使用 #关闭工具 工具名")
-    tool_name = m.group(1).strip()
-    cfg = get_config()
-    if not getattr(cfg, "tools", None):
-        await tool_off_cmd.finish("工具配置未初始化")
-    enabled_list = set(cfg.tools.builtin_tools or [])
-    if tool_name not in enabled_list:
-        await tool_off_cmd.finish(f"工具未启用：{tool_name}")
-    enabled_list.discard(tool_name)
-    cfg.tools.builtin_tools = sorted(enabled_list)
-    save_config(cfg)
-    await tool_off_cmd.finish(f"已关闭工具：{tool_name}")
-
-
-# ==================== 杈撳嚭閰嶇疆锛圱TS锛?====================
-# 寮€鍚?TTS锛堣秴绾х敤鎴凤級
-tts_on_cmd = P.on_regex(r"^#寮€鍚疶TS$", name="ai_tts_on", display_name="会话信息", priority=5, block=True, level=PermLevel.SUPERUSER)
+# TTS开关
+tts_on_cmd = P.on_regex(r"^#(开启|关闭)TTS$", name="ai_tts_on", display_name="开关TTS", priority=5, block=True, level=PermLevel.SUPERUSER)
 @tts_on_cmd.handle()
 async def handle_tts_on(event: MessageEvent):
     cfg = get_config()
     if not getattr(cfg, "output", None):
-        await tts_on_cmd.finish("杈撳嚭閰嶇疆鏈垵濮嬪寲")
-    cfg.output.tts_enable = True
-    save_config(cfg)
-    await tts_on_cmd.finish("宸插紑鍚?TTS 璇煶鍥炲")
-
-
-# 鍏抽棴 TTS锛堣秴绾х敤鎴凤級
-tts_off_cmd = P.on_regex(r"^#鍏抽棴TTS$", name="ai_tts_off", display_name="会话信息", priority=5, block=True, level=PermLevel.SUPERUSER)
-@tts_off_cmd.handle()
-async def handle_tts_off(event: MessageEvent):
-    cfg = get_config()
-    if not getattr(cfg, "output", None):
-        await tts_off_cmd.finish("杈撳嚭閰嶇疆鏈垵濮嬪寲")
-    cfg.output.tts_enable = False
-    save_config(cfg)
-    await tts_off_cmd.finish("宸插叧闂?TTS 璇煶鍥炲")
-
-
-# ==================== 蹇€熸ā寮?====================
-fast_on_cmd = P.on_regex(r"^#蹇€熸ā寮忓紑$", name="ai_fast_on", display_name="会话信息", priority=5, block=True, level=PermLevel.SUPERUSER)
-
-
+        await tts_on_cmd.finish("TTS未配置")
+    msg_text = event.get_plaintext().strip()
+    
+    if msg_text == "#开启TTS":
+        if cfg.output.tts_enable:
+            await tts_on_cmd.finish("TTS已经是开启状态，无需重复操作")
+        else:
+            cfg.output.tts_enable = True
+            save_config(cfg)
+            await tts_on_cmd.finish("TTS已成功开启")
+            
+    elif msg_text == "#关闭TTS":
+        if not cfg.output.tts_enable:
+            await tts_on_cmd.finish("TTS已经是关闭状态，无需重复操作")
+        else:
+            cfg.output.tts_enable = False
+            save_config(cfg)
+            await tts_on_cmd.finish("TTS已成功关闭")

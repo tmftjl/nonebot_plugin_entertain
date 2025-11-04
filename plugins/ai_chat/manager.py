@@ -289,7 +289,7 @@ class ChatManager:
                 # 工具（包含可用的 MCP 动态工具）
                 default_tools = None
                 try:
-                    if getattr(cfg, "tools", None) and cfg.tools.enabled:
+                    if getattr(cfg, "tools", None):
                         default_tools = get_enabled_tools(cfg.tools.builtin_tools)
                         try:
                             from .mcp import mcp_manager
@@ -522,7 +522,7 @@ class ChatManager:
         if tools is None:
             tools = (
                 get_enabled_tools(cfg.tools.builtin_tools)
-                if getattr(cfg, "tools", None) and cfg.tools.enabled
+                if getattr(cfg, "tools", None)
                 else None
             )
         if model is None:
