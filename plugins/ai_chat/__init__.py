@@ -11,7 +11,7 @@ require("nonebot_plugin_entertain")
 # 注册并加载配置与人格
 from . import config as _config  # noqa: F401
 from .config import load_config, load_personas, get_config_path, get_active_api
-from .ai.manager import chat_manager  # noqa: F401
+from .manager import chat_manager  # noqa: F401
 
 # 导入命令（注册所有命令处理器）
 from . import commands  # noqa: F401

@@ -14,23 +14,15 @@ import re
 from typing import Optional
 
 from nonebot import Bot
-from nonebot.adapters.onebot.v11 import (
-    GroupMessageEvent,
-    PrivateMessageEvent,
-    MessageEvent,
-    Message,
-    MessageSegment,
-)
+from nonebot.adapters.onebot.v11 import GroupMessageEvent, PrivateMessageEvent, MessageEvent, Message
 from nonebot.params import RegexMatched
 from nonebot.log import logger
 
 from ...core.framework.registry import Plugin
 from ...core.framework.perm import _is_superuser, _uid, _has_group_role, PermLevel, PermScene
-from .ai.manager import chat_manager
+from .manager import chat_manager
 from .config import get_config, get_personas, reload_all, save_config, CFG
-from .ai.tools import list_tools as ai_list_tools
-from .ai.io.extractors import extract_text_and_images
-from .ai.multimodal.response_parser import parse_response_to_chatresult
+from .tools import list_tools as ai_list_tools
 
 
 P = Plugin(name="ai_chat", display_name="AI 对话", enabled=True, level=PermLevel.LOW, scene=PermScene.ALL)
@@ -85,8 +77,12 @@ def _is_at_bot_robust(bot: Bot, event: MessageEvent) -> bool:
     return False
 
 
-def _extract_multimodal(message: Message):
-    return extract_text_and_images(message)
+def extract_plain_text(message: Message) -> str:
+    text_parts = []
+    for seg in message:
+        if seg.type == "text":
+            text_parts.append(seg.data.get("text", "").strip())
+    return " ".join(text_parts).strip()
 
 
 async def check_admin(event: MessageEvent) -> bool:
@@ -106,7 +102,7 @@ async def check_superuser(event: MessageEvent) -> bool:
 # ==================== 对话触发 ====================
 # 群聊需 @ 机器人或命中“主动回复”；私聊直接触发
 at_cmd = P.on_regex(
-    r"^([\s\S]*)$",
+    r"^(.+)$",
     name="ai_chat_at",
     display_name="@ 机器人对话",
     priority=100,
@@ -125,8 +121,8 @@ async def handle_chat_auto(bot: Bot, event: MessageEvent):
     ):
         return
 
-    message, images = _extract_multimodal(event.message)
-    if not message and not images:
+    message = extract_plain_text(event.message)
+    if not message:
         return
 
     session_type = "group" if isinstance(event, GroupMessageEvent) else "private"
@@ -151,27 +147,17 @@ async def handle_chat_auto(bot: Bot, event: MessageEvent):
                     "Now, a new message is coming: `{message}`. Please react to it. Only output your response and do not output any other information.",
                 )
             ),
-            images=images,
         )
 
         if response:
             response = response.lstrip("\r\n")
-            result = parse_response_to_chatresult(response)
-            if result.text:
-                await at_cmd.send(result.text)
-            for img in result.images:
-                try:
-                    await at_cmd.send(MessageSegment.image(img))
-                except Exception:
-                    # 无法发送图片时，回退为文本链接
-                    await at_cmd.send(f"[图片] {img}")
+            if session_type == "group":
+                cfg = get_config()
+                await at_cmd.send(response)
+            else:
+                await at_cmd.send(response)
     except Exception as e:
         logger.exception(f"[AI Chat] 对话处理失败: {e}")
-
-
-# 处理只包含图片（或无纯文本）的多模态消息
-# 纯图片消息场景：由于 at_cmd 覆盖任意文本（含空），此处无需单独 matcher；
-# 在 at_cmd 中会抽取图片并处理，无文本但有图片也会进入流程。
 
 
 # ==================== 会话管理 ====================

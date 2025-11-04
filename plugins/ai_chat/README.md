@@ -93,7 +93,7 @@
   - post 示例：
     - 返回 str 可直接替换最终响应。
 - 自定义工具：
-  - 参考 `plugins/ai_chat/ai/tools/__init__.py` 的装饰器 `register_tool(name, description, parameters)` 注册；
+  - 参考 `plugins/ai_chat/tools.py` 的装饰器 `register_tool(name, description, parameters)` 注册；
   - 函数签名与 `parameters` 中的 JSON Schema 对齐；
   - 由 `execute_tool(name, args)` 异步调用，并写入 `tool` 角色消息返回。
 
@@ -121,4 +121,4 @@
 - 触发与命令：`plugins/ai_chat/commands.py:111`、`plugins/ai_chat/commands.py:169`、`plugins/ai_chat/commands.py:184` 等。
 - 核心管理：`plugins/ai_chat/manager.py`（OpenAI 调用、历史维护、会话并发控制）。
 - 配置与人格：`plugins/ai_chat/config.py:276`、`plugins/ai_chat/config.py:325`、`plugins/ai_chat/config.py:386`。
-- 工具与钩子：`plugins/ai_chat/ai/tools/`、`plugins/ai_chat/ai/hooks.py`。
+- 工具与钩子：`plugins/ai_chat/tools.py`、`plugins/ai_chat/hooks.py`。
