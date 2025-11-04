@@ -82,7 +82,7 @@ async def _tts_http(*, session_id: str, text: str) -> Optional[str]:
         logger.warning("[AI Chat][TTS] HTTP TTS 未配置 url")
         return None
     method = (cfg.tts_http_method or "POST").upper()
-    headers = dict(cfg.tts_http_headers or {})
+    headers: Dict[str, str] = dict(cfg.tts_http_headers or {})
     file_path = _output_path(session_id, fmt)
     payload = {"text": text, "voice": cfg.tts_voice or "", "format": fmt}
     try:
@@ -122,12 +122,11 @@ async def _tts_command(*, session_id: str, text: str) -> Optional[str]:
     fmt = (cfg.tts_format or "mp3").lower()
     cmd_tpl = (cfg.tts_command or "").strip()
     if not cmd_tpl or "{out}" not in cmd_tpl:
-        logger.warning("[AI Chat][TTS] 命令行 TTS 未配置或未包含 {out}")
+        logger.warning("[AI Chat][TTS] 命令式 TTS 未配置或未包含 {out}")
         return None
     voice = cfg.tts_voice or ""
     out_path = _output_path(session_id, fmt)
-    # 简单占位符替换（注意：如文本很长且含空格/特殊符号，建议你的命令行实现从文件读取）
-    # 这里做最小替换，复杂场景请在外部命令中处理转义。
+    # 简单占位符替换（复杂转义请在外部命令中处理）
     cmd = (
         cmd_tpl
         .replace("{text}", text)
@@ -140,7 +139,6 @@ async def _tts_command(*, session_id: str, text: str) -> Optional[str]:
         await proc.communicate()
         if proc.returncode == 0:
             try:
-                # 简单校验输出文件是否存在且非空
                 import os
                 if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
                     return out_path
@@ -164,6 +162,6 @@ async def run_tts(*, session_id: str, text: str, manager: Any) -> Optional[str]:
         return await _tts_http(session_id=session_id, text=text)
     if provider == "command":
         return await _tts_command(session_id=session_id, text=text)
-    logger.warning(f"[AI Chat][TTS] 未知 TTS 提供方: {provider}")
+    logger.warning(f"[AI Chat][TTS] 未知 TTS 提供方 {provider}")
     return None
 

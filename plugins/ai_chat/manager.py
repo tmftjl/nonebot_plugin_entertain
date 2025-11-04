@@ -638,62 +638,7 @@ class ChatManager:
         except Exception:
             return text, []
 
-    async def _tts_synthesize(self, session_id: str, text: str) -> Optional[str]:
-        """根据配置将文本合成为语音文件，返回本地文件路径。
-
-        优先使用 OpenAI TTS（audio.speech），失败则返回 None。
-        """
-        try:
-            cfg = get_config()
-            out_cfg = cfg.output
-            if not out_cfg.tts_enable:
-                return None
-            fmt = (out_cfg.tts_format or "mp3").lower()
-            voice = out_cfg.tts_voice or "alloy"
-            model = out_cfg.tts_model or "gpt-4o-mini-tts"
-            # 输出路径
-            base = plugin_data_dir("ai_chat") / "tts"
-            base.mkdir(parents=True, exist_ok=True)
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            file_path = base / f"{session_id}_{ts}.{fmt}"
-
-            # 使用 OpenAI 异步 TTS
-            try:
-                # 新接口：with_streaming_response
-                async with self.client.audio.speech.with_streaming_response.create(  # type: ignore[attr-defined]
-                    model=model,
-                    voice=voice,
-                    input=text,
-                    format=fmt,
-                ) as response:
-                    await response.stream_to_file(str(file_path))
-                return str(file_path)
-            except Exception:
-                # 回退接口
-                try:
-                    resp = await self.client.audio.speech.create(  # type: ignore[attr-defined]
-                        model=model,
-                        voice=voice,
-                        input=text,
-                        format=fmt,
-                    )
-                    content = getattr(resp, "content", None)
-                    if isinstance(content, (bytes, bytearray)):
-                        data = content
-                    else:
-                        data = None
-                        if hasattr(resp, "to_bytes"):
-                            data = resp.to_bytes()
-                        elif hasattr(resp, "read"):
-                            data = resp.read()
-                    if data:
-                        with open(file_path, "wb") as f:
-                            f.write(data)
-                        return str(file_path)
-                except Exception:
-                    return None
-        except Exception:
-            return None
+    # 统一改由 plugins.ai_chat.tts.run_tts 提供 TTS 能力；此处移除旧实现
 
     async def _save_conversation(
         self,

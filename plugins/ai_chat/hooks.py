@@ -4,14 +4,14 @@
 - 预处理钩子：可修改 messages/model/temperature/tools 等参数
 - 后处理钩子：可修改最终 response
 
-用法：
+用法示例：
     from nonebot_plugin_entertain.plugins.ai_chat.hooks import (
         register_pre_ai_hook, register_post_ai_hook,
     )
 
     @register_pre_ai_hook
     async def my_pre(session, messages, model, temperature, tools, **ctx):
-        # 可直接修改并返回需要覆盖的字段
+        # 可直接返回需要覆盖的字段
         return {"temperature": 0.2}
 
     @register_post_ai_hook
@@ -20,7 +20,7 @@
 """
 from __future__ import annotations
 
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 import inspect
 
 from nonebot.log import logger
@@ -42,7 +42,7 @@ def register_pre_ai_hook(func: PreHook) -> PreHook:
     - model: str | None
     - temperature: float | None
     - tools: list[dict] | None
-    - 以及其他上下文（如 user_id/group_id 等）通过 **ctx 传入
+    - 以及其他上下文通过 **ctx 传入
 
     返回：可为 None 或 dict，包含需要覆盖的键：messages/model/temperature/tools
     """
@@ -62,7 +62,7 @@ def register_post_ai_hook(func: PostHook) -> PostHook:
     - response: str
     - 以及其他上下文通过 **ctx 传入
 
-    返回：可为 None 或 str，新 response。
+    返回：可为 None 或 str，新 response
     """
     try:
         _post_ai_hooks.append(func)

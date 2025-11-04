@@ -25,9 +25,13 @@ __plugin_usage__ = (
     "会话管理:\n"
     "  #清空会话 / #会话信息 / #开启AI / #关闭AI\n"
     "人格系统:\n"
-    "  #人格 / #人格列表 / #切换人格 <名字>\n"
+    "  #人格列表 / #切换人格 <名字>\n"
+    "服务商:\n"
+    "  #服务商列表 / #切换服务商 <名字>\n"
     "系统管理:\n"
-    "  #重载AI配置 / #服务商列表 / #切换服务商 <名>\n"
+    "  #重载AI配置\n"
+    "工具管理:\n"
+    "  #工具列表 / #开启工具 <name> / #关闭工具 <name> / #开启TTS / #关闭TTS\n"
 )
 
 try:
@@ -43,13 +47,13 @@ try:
     active_api = get_active_api()
     if not active_api.api_key:
         logger.warning(
-            "[AI Chat] ⚠️ 未配置 OpenAI API 密钥，请在配置文件中为 api 字典中 session.api_active 对应项设置 api_key，并确保已选择有效的 session.api_active\n"
+            "[AI Chat] ⚠️ 未配置 OpenAI API 密钥，请在配置文件中 api 字典与 session.api_active 对应项设置 api_key，并确保已选择有效的 session.api_active\n"
             f"配置文件位置: {get_config_path()}"
         )
     else:
         logger.info("[AI Chat] OpenAI API 已配置")
 
-    logger.success("[AI Chat] ✅ AI 对话插件加载成功")
+    logger.success("[AI Chat] ✓ AI 对话插件加载成功")
 
 except Exception as e:
     logger.exception(f"[AI Chat] 插件初始化失败: {e}")

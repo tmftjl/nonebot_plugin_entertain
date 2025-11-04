@@ -1,6 +1,7 @@
 """AI 对话工具注册与调用
 
 使用装饰器注册工具，支持 OpenAI Function Calling 格式。
+可选集成 MCP（Model Context Protocol）以提供动态工具。
 """
 from __future__ import annotations
 
@@ -13,7 +14,7 @@ from nonebot.log import logger
 # 可选导入 MCP 桥接
 try:
     from .mcp import mcp_manager
-except Exception:
+except Exception:  # pragma: no cover
     mcp_manager = None  # type: ignore
 
 
@@ -80,7 +81,6 @@ def get_tool_schema(name: str) -> Optional[Dict[str, Any]]:
 
 def get_enabled_tools(tool_names: list[str]) -> list[Dict[str, Any]]:
     """获取启用的工具列表（OpenAI 格式）
-
     - 同时尝试合并 MCP 动态工具（若 mcp_manager 可用）
     """
 
@@ -109,7 +109,6 @@ def list_tools() -> list[str]:
             names.extend(mcp_manager.list_tool_names())
     except Exception:
         pass
-    # 去重
     try:
         names = sorted(set(names))
     except Exception:
@@ -181,7 +180,6 @@ async def execute_tool(name: str, args: Dict[str, Any]) -> str:
         return f"错误：工具 {name} 不存在"
 
     try:
-        # 执行工具
         result = await handler(**args)
         logger.info(f"[AI Chat] 工具调用成功: {name}({args}) -> {result}")
         return str(result)
