@@ -9,12 +9,9 @@ from nonebot.log import logger
 require("nonebot_plugin_entertain")
 
 # 注册并加载配置与人格
-from . import config as _config  # noqa: F401
-from .config import load_config, load_personas, get_config_path, get_active_api
-from .manager import chat_manager  # noqa: F401
-
+from .config import get_config_path, get_active_api
 # 导入命令（注册所有命令处理器）
-from . import commands  # noqa: F401
+from . import commands
 
 __plugin_name__ = "AI 对话"
 __plugin_usage__ = (
@@ -35,14 +32,6 @@ __plugin_usage__ = (
 )
 
 try:
-    # 加载配置
-    config = load_config()
-    logger.info("[AI Chat] 配置加载完成")
-
-    # 加载人格
-    personas = load_personas()
-    logger.info(f"[AI Chat] 人格加载完成，共 {len(personas)} 个")
-
     # 检查 API 密钥（按当前启用服务商）
     active_api = get_active_api()
     if not active_api.api_key:

@@ -510,7 +510,10 @@ def save_personas(personas: Dict[str, PersonaConfig]) -> None:
 
 def get_personas() -> Dict[str, PersonaConfig]:
     """总是重载，确保与文件一致"""
-    return load_personas()
+    global _personas
+    if not _personas:
+        _personas = load_personas()
+    return _personas
 
 
 def reload_all() -> None:
