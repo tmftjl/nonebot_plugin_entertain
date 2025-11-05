@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+# 说明：本文件负责“权限检查器”的实现与缓存管理
+# - 仅使用 UTF-8 编码；所有注释均为中文
+# - 权限结构：全局(top) → 子插件(sub_plugins.<插件>.top) → 命令(commands.<命令>)
+# - 检查顺序：开关(enabled) → 白/黑名单 → 场景(群/私) → 角色等级
+
 from typing import Any, Dict, Optional, Tuple
 import json
 from pathlib import Path
@@ -17,16 +22,18 @@ from .utils import config_dir
 from .cache import KeyValueCache
 
 
-# ----- Lightweight permissions store -----
+# ----- 轻量级权限存储（内存缓存 + JSON 文件） -----
 
 
 class PermissionsStore:
     def __init__(self) -> None:
+        # 权限文件保存路径：config/permissions.json
         self._path: Path = config_dir() / "permissions.json"
         self._data: Dict[str, Any] = {}
         self._loaded: bool = False
 
     def _reload(self) -> None:
+        # 从磁盘读取并更新内存缓存；失败时保留旧数据
         try:
             text = self._path.read_text(encoding="utf-8")
             data = json.loads(text)
@@ -34,34 +41,39 @@ class PermissionsStore:
                 self._data = data
                 self._loaded = True
         except Exception:
-            # keep previous data on error
+            # 读取失败时忽略，保留已有数据
             pass
 
     def ensure_loaded(self) -> None:
+        # 首次访问时加载一次
         if not self._loaded:
             self._reload()
 
     def get(self) -> Dict[str, Any]:
+        # 获取当前权限数据（内存缓存）
         self.ensure_loaded()
         return self._data or {}
 
     def reload(self) -> None:
+        # 主动触发从磁盘重载
         self._reload()
 
 
 permissions_store = PermissionsStore()
-# Do not auto-expire; rely on explicit reload to invalidate
+# 不设置自动过期；依赖显式重载来失效缓存
 _eff_perm_cache = KeyValueCache(ttl=None)
 
 
-# ----- Config loading (flat schema) -----
+# ----- 读取与合并默认配置（展平后的结构） -----
 
 
 def _default_config() -> Dict[str, Any]:
+    # 生成默认的权限结构（扫描子插件与命令）
     return _permissions_default()
 
 
 def _deep_fill(user: Dict[str, Any] | None, defaults: Dict[str, Any] | None) -> Dict[str, Any]:
+    # 用默认值递归补齐缺失键（避免直接引用导致的修改）
     if not isinstance(user, dict):
         return json.loads(json.dumps(defaults or {}))
     if not isinstance(defaults, dict):
@@ -77,24 +89,25 @@ def _deep_fill(user: Dict[str, Any] | None, defaults: Dict[str, Any] | None) -> 
 
 
 def _load_cfg() -> Dict[str, Any]:
-    # Runtime path: strictly read from in-memory cache
+    # 运行时仅从内存缓存读取（由重载函数负责更新）
     eff = _eff_perm_cache.get("effective")
     return eff or {}
 
 
-# ----- Enums -----
+# ----- 枚举：权限等级与场景 -----
 
 
 class PermLevel(IntEnum):
-    LOW = 0          # all (lowest; not default)
-    MEMBER = 1       # member (default)
-    ADMIN = 2        # admin
-    OWNER = 3        # owner
-    BOT_ADMIN = 4    # bot_admin
-    SUPERUSER = 5    # superuser
+    LOW = 0          # 所有人（最低，不作为默认值）
+    MEMBER = 1       # 群员（默认）
+    ADMIN = 2        # 群管理
+    OWNER = 3        # 群主
+    BOT_ADMIN = 4    # 机器人管理员（在 permissions.json 中配置）
+    SUPERUSER = 5    # NoneBot 超级用户
 
     @staticmethod
     def from_str(s: Optional[str]) -> "PermLevel":
+        # 将字符串映射为内部等级枚举
         k = str(s or "member").strip().lower()
         if k == "all":
             return PermLevel.LOW
@@ -112,12 +125,13 @@ class PermLevel(IntEnum):
 
 
 class PermScene(Enum):
-    ALL = "all"
-    GROUP = "group"
-    PRIVATE = "private"
+    ALL = "all"        # 群聊 / 私聊均可
+    GROUP = "group"     # 仅群聊
+    PRIVATE = "private"  # 仅私聊
 
     @staticmethod
     def from_str(s: Optional[str]) -> "PermScene":
+        # 将字符串映射为内部场景枚举
         k = str(s or "all").strip().lower()
         if k == "group":
             return PermScene.GROUP
@@ -126,18 +140,21 @@ class PermScene(Enum):
         return PermScene.ALL
 
 
-# ----- Helpers -----
+# ----- 辅助函数：事件与用户/群信息提取 -----
 
 
 def _uid(event) -> Optional[str]:
+    # 提取用户 ID（字符串）
     return str(getattr(event, "user_id", "")) or None
 
 
 def _gid(event) -> Optional[str]:
+    # 提取群 ID（字符串）
     return str(getattr(event, "group_id", "")) or None
 
 
 def _is_superuser(uid: Optional[str]) -> bool:
+    # 判断是否为 NoneBot 超级用户
     try:
         from nonebot import get_driver
 
@@ -148,6 +165,7 @@ def _is_superuser(uid: Optional[str]) -> bool:
 
 
 def _has_group_role(event, role: str) -> bool:
+    # 判断群消息事件中，发送者是否具有指定群内角色
     if not isinstance(event, GroupMessageEvent):
         return False
     try:
@@ -158,7 +176,7 @@ def _has_group_role(event, role: str) -> bool:
 
 
 def _get_bot_admin_ids() -> set[str]:
-    # Read bot admin IDs from permissions.json (key: bot_admins)
+    # 从 permissions.json 中读取机器人管理员 ID（全局/顶层）
     try:
         cfg = _load_cfg() or {}
         ids: list[str] = []
@@ -175,7 +193,7 @@ def _get_bot_admin_ids() -> set[str]:
 
 
 def _user_level_rank(event) -> PermLevel:
-    # Compute actual level of current user for this event
+    # 计算当前事件对应用户的实际权限等级
     uid = _uid(event)
     if _is_superuser(uid):
         return PermLevel.SUPERUSER
@@ -196,6 +214,7 @@ def _user_level_rank(event) -> PermLevel:
 
 
 def _match_id_list(event, id_list: Any, kind: str) -> bool:
+    # 在白/黑名单中匹配用户或群 ID
     if not isinstance(id_list, (list, tuple, set)):
         return False
     if kind == "user":
@@ -208,21 +227,21 @@ def _match_id_list(event, id_list: Any, kind: str) -> bool:
 
 
 def _is_allowed_by_lists(event, wl: Dict[str, Any] | None, bl: Dict[str, Any] | None) -> Optional[bool]:
+    # 先白名单（命中则放行），再黑名单（命中则拦截），都未命中返回 None
     wl = wl or {}
     bl = bl or {}
-    # whitelist first: users/groups
+    # 白名单：users/groups
     if _match_id_list(event, wl.get("users"), "user") or _match_id_list(event, wl.get("groups"), "group"):
         return True
-    # blacklist blocks: users/groups
+    # 黑名单：users/groups
     if _match_id_list(event, bl.get("users"), "user") or _match_id_list(event, bl.get("groups"), "group"):
         return False
     return None
 
 
 def _check_level(level: str, event) -> bool:
-    # required level (enum, via string mapping)
+    # 角色等级校验；私聊中不要求群内角色（admin/owner 视作最低）
     req = PermLevel.from_str(level)
-    # in private chat, do not require group roles; degrade admin/owner to LOW
     if isinstance(event, PrivateMessageEvent) and req in {PermLevel.ADMIN, PermLevel.OWNER}:
         req = PermLevel.LOW
     try:
@@ -233,7 +252,7 @@ def _check_level(level: str, event) -> bool:
 
 
 def _check_scene(scene, event) -> bool:
-    # scene enum check (accept enum or string)
+    # 场景校验（接受枚举或字符串）
     if isinstance(scene, PermScene):
         s = scene
     else:
@@ -248,9 +267,10 @@ def _check_scene(scene, event) -> bool:
 
 
 def _checker_factory(feature: str, *, category: str = "sub"):
-    # Permission checker factory for three layers: global / sub-plugin / command
+    # 构造权限检查器：依次检查 全局 / 子插件 / 命令 三层
 
     def _parse_layers(name: str) -> Tuple[Optional[str], Optional[str]]:
+        # 解析传入的标识：形如 "plugin:command" 或 "plugin"
         plugin: Optional[str] = None
         cmd: Optional[str] = None
         try:
@@ -264,77 +284,87 @@ def _checker_factory(feature: str, *, category: str = "sub"):
         return plugin or None, cmd or None
 
     def _eval_layer(layer_cfg: Dict[str, Any] | None, event, *, layer_name: str) -> Optional[bool]:
+        # 评估单层配置：若返回 False 则直接拦截；True 表示通过；None 表示未命中配置
         if not isinstance(layer_cfg, dict) or not layer_cfg:
             return None
 
-        # 1) switch (enabled)
+        # 1) 开关（enabled）
         if not bool(layer_cfg.get("enabled", True)):
             return False
 
-        # 2) whitelist / blacklist
+        # 2) 白/黑名单
         force_f = _is_allowed_by_lists(event, layer_cfg.get("whitelist"), layer_cfg.get("blacklist"))
         if force_f is True:
             return True
         if force_f is False:
             return False
 
-        # 3) scene (group / private)
+        # 3) 场景（群/私）
         scene = str(layer_cfg.get("scene", "all"))
         if not _check_scene(scene, event):
             return False
 
-        # 4) level (user role)
+        # 4) 角色等级
         level = str(layer_cfg.get("level", "member"))
         if not _check_level(level, event):
             return False
         return True
 
     async def _checker(bot, event) -> bool:
+        # 核心检查流程：全局 → 插件总开关 → 命令开关/规则
         cfg = _load_cfg()
         if not cfg:
+            # 未加载到配置时，默认放行（避免误杀）
             return True
 
         sub_name, cmd_name = _parse_layers(feature)
 
         if category == "sub":
-            # structure: top -> sub_plugins.<plugin>.top -> commands
+            # 结构：top → sub_plugins.<plugin>.top → sub_plugins.<plugin>.commands.<command>
             g_top = cfg.get("top") if isinstance(cfg.get("top"), dict) else None
             g_res = _eval_layer(g_top, event, layer_name="global")
             if g_res is False:
                 return False
+
             if sub_name:
-                sp = (cfg.get("sub_plugins") or {}).get(sub_name) or {}
-                if sp:
-                    p_res = _eval_layer(sp.get("top"), event, layer_name="sub-plugin")
-                    if p_res is False:
+                sp_map = cfg.get("sub_plugins") if isinstance(cfg.get("sub_plugins"), dict) else {}
+                sp = sp_map.get(sub_name) if isinstance(sp_map.get(sub_name), dict) else {}
+
+                # 修正：务必检查“插件的总开关”（top），即使节点为空也不跳过
+                p_res = _eval_layer((sp or {}).get("top"), event, layer_name="sub-plugin")
+                if p_res is False:
+                    return False
+
+                if cmd_name:
+                    c_cfg = ((sp or {}).get("commands") or {}).get(cmd_name)
+                    c_res = _eval_layer(c_cfg, event, layer_name="command")
+                    if c_res is False:
                         return False
-                    if cmd_name:
-                        c_cfg = (sp.get("commands") or {}).get(cmd_name)
-                        c_res = _eval_layer(c_cfg, event, layer_name="command")
-                        if c_res is False:
-                            return False
             return True
         else:
-            # non-sub categories (e.g., system) are not controlled here
+            # 非 sub 类别（例如 system）不在此受控
             return True
 
     return _checker
 
 
 def permission_for(feature: str, *, category: str = "sub") -> Permission:
+    # 返回通用的权限对象（feature 可为 "plugin" 或 "plugin:command"）
     return Permission(_checker_factory(feature, category=category))
 
 
 def permission_for_plugin(plugin: str, *, category: str = "sub") -> Permission:
+    # 返回“插件级别”的权限对象（受“插件总开关”控制）
     return Permission(_checker_factory(f"{plugin}", category=category))
 
 
 def permission_for_cmd(plugin: str, command: str, *, category: str = "sub") -> Permission:
+    # 返回“命令级别”的权限对象（受全局/插件/命令三层控制）
     return Permission(_checker_factory(f"{plugin}:{command}", category=category))
 
 
 def reload_permissions() -> None:
-    # Lightweight reload from disk into cache
+    # 轻量重载：从磁盘更新内存缓存（控制台保存后调用）
     try:
         permissions_store.reload()
         current = permissions_store.get()
@@ -346,7 +376,7 @@ def reload_permissions() -> None:
 
 
 def prime_permissions_cache() -> None:
-    # One-shot init: ensure file exists, merge defaults, persist, warm cache
+    # 启动时预热：确保文件存在 → 读取当前 → 与默认结构补齐 → 写回 → 缓存生效
     try:
         ensure_permissions_file()
     except Exception:
@@ -369,7 +399,7 @@ def prime_permissions_cache() -> None:
     except Exception:
         merged = current or {}
 
-    # Persist and update cache
+    # 持久化并刷新缓存
     try:
         save_permissions(merged)
         permissions_store.reload()

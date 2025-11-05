@@ -151,7 +151,7 @@ _LOCAL_PIC = P.on_regex(
     r"^#?(?:来张|看看|随机)\s*(\S+)$",
     name="pictures_local",
     priority=5,
-    block=False,
+    block=True,
     display_name="随机本地表情",
 )
 
@@ -187,9 +187,7 @@ async def _(matcher: Matcher):
 
 # ---------- 戳一戳 ----------
 
-_POKE = on_notice(priority=12, block=False, permission=P.permission_cmd("poke"))
-
-
+_POKE = on_notice(priority=12, block=True, permission=P.permission_cmd("poke"))
 @_POKE.handle()
 async def _(bot: Bot, event: PokeNotifyEvent):  # type: ignore[override]
     full_cfg = load_cfg()

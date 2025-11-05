@@ -75,7 +75,6 @@ class OutputConfig(BaseModel):
     # HTTP 本地/自建 TTS（返回音频字节或 JSON(base64)）
     tts_http_url: str = Field(default="", description="HTTP TTS 接口 URL")
     tts_http_method: str = Field(default="POST", description="HTTP 方法：POST/GET")
-    tts_http_headers: Dict[str, str] = Field(default_factory=dict, description="HTTP 头")
     tts_http_response_type: str = Field(default="bytes", description="响应类型：bytes/base64")
     tts_http_base64_field: str = Field(default="audio", description="当响应 JSON+base64 时的字段名")
     # 命令行 TTS：在本地执行命令把音频写入指定输出路径；占位符：{text}/{voice}/{format}/{out}
@@ -140,7 +139,6 @@ DEFAULTS: Dict[str, Any] = {
         "tts_format": "mp3",
         "tts_http_url": "",
         "tts_http_method": "POST",
-        "tts_http_headers": {},
         "tts_http_response_type": "bytes",
         "tts_http_base64_field": "audio",
         "tts_command": "",
@@ -234,7 +232,6 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
                 "tts_format": {"type": "string", "title": "TTS 音频格式", "x-order": 5},
                 "tts_http_url": {"type": "string", "title": "HTTP TTS 地址", "x-order": 6},
                 "tts_http_method": {"type": "string", "title": "HTTP 方法", "x-order": 7},
-                "tts_http_headers": {"type": "object", "title": "HTTP 头", "additionalProperties": {"type": "string"}, "x-order": 8},
                 "tts_http_response_type": {"type": "string", "title": "HTTP 响应类型（bytes/base64）", "x-order": 9},
                 "tts_http_base64_field": {"type": "string", "title": "base64 字段名（JSON 响应）", "x-order": 10},
                 "tts_command": {"type": "string", "title": "命令行模板（含 {out}）", "x-order": 11},

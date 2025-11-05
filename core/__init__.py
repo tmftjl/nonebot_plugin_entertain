@@ -12,6 +12,13 @@ async def _mount_web_console() -> None:
     try:
         from ..console.server import setup_web_console as _setup
 
+        # Prime permissions cache so permission toggles apply on startup
+        try:
+            from .framework.perm import prime_permissions_cache  # type: ignore
+            prime_permissions_cache()
+        except Exception:
+            pass
+
         _setup()
     except Exception as e:
         logger.warning(f"membership Web 控制台挂载失败: {e}")

@@ -64,7 +64,7 @@ async def _tts_http(*, session_id: str, text: str) -> Optional[str]:
         logger.warning("[AI Chat][TTS] HTTP TTS 未配置 url")
         return None
     method = (cfg.tts_http_method or "POST").upper()
-    headers: Dict[str, str] = dict(cfg.tts_http_headers or {})
+    headers: Dict[str, str] = dict({})
     file_path = _output_path(session_id, fmt)
     payload = {"text": text, "voice": cfg.tts_voice or "", "format": fmt}
     try:

@@ -1,214 +1,172 @@
-﻿## 项目概述
+# nonebot-plugin-entertain 使用与开发文档
 
-这是 **nonebot-plugin-entertain**，一个通过 OneBot v11 适配器为 QQ 群提供娱乐和实用功能的 NoneBot2 插件集合。项目使用自定义框架，具有统一的权限和配置管理。
+nonebot-plugin-entertain 是基于 NoneBot2（OneBot v11）的多功能插件合集，提供娱乐、群管、帮助图、AI 对话、会员到期管理与 Web 控制台等能力。项目在权限与配置上做了统一封装，适合规模化维护与二次开发。
 
-## 核心架构
+## 功能总览
 
-### 插件加载系统
+- 娱乐（plugins/entertain）
+  - 今日运势、doro 抽卡、点歌（QQ/网易云/酷狗）、每日打卡、欢迎图、注册时间查询、表情盒子等。
+- 群管（plugins/group_admin）
+  - 禁言/解禁/全体禁言、撤回、精华、设/撤管理员、踢人拉黑、违禁词（开关、增删清、拦截动作）。
+- 帮助图（plugins/help）
+  - Playwright 渲染帮助图，失败时回退到 PIL 文本图。
+- AI 对话（plugins/ai_chat）
+  - 多模态聊天（文本/图片）、工具调用（Function Calling + MCP）、会话与人格系统、TTS 语音、摘要记忆、主动回复。
+- 会员系统与控制台（commands/membership + console）
+  - 到期提醒/自动退群、续费码生成与兑换、定时任务、FastAPI Web 控制台（/member_renewal）。
+- DF（plugins/df）
+  - 戳一戳图库管理（Git 克隆/更新）、随机图片、转发给主人等。
 
-项目通过 NoneBot2 的 `load_plugins()` 加载两类插件：
+## 目录结构与核心组件
 
-1. **子插件** (`plugins/`)：外部娱乐功能（如运势、doro 抽卡、点歌等）
-2. **系统命令** (`commands/`)：内置功能（如会员管理）
+- 核心（core/）
+  - `core/api.py`：对外统一 API（Plugin、权限、配置、缓存、目录等）。
+  - `core/framework/`：注册器（registry）、权限（perm）、配置（config）、缓存（cache）、工具（utils）。
+  - `core/system_config.py`：系统级配置项（控制台/调度/续费码等）及 JSON Schema。
+  - `core/http.py`：共享 httpx AsyncClient、统一超时与重试。
+  - `core/__init__.py`：启动挂载 Web 控制台、关闭共享 HTTP 客户端。
+- 子插件（plugins/）：按域拆分（entertain / group_admin / help / ai_chat / df）。
+- 系统命令（commands/）：例如会员相关系统命令。
+- Web 控制台（console/）：路由、静态资源与页面。
+- 数据库（db/）：SQLModel + SQLite（默认 `data/entertain.db`）。
+- 运行目录
+  - 配置：`config/`（支持 `NPE_CONFIG_DIR` 环境变量覆盖目录）
+  - 数据：`data/<plugin>/`
+  - 资源：`plugins/<plugin>/resource/`
 
-两者都在 `__init__.py` 启动时自动加载。
+## 安装与环境
 
-### 权限系统（三层架构）
+1) 安装依赖
 
-权限通过单一文件管理：`config/permissions.json`
-
-**子插件结构：**
-- 全局层：`top` - 影响所有子插件
-- 插件层：`sub_plugins.<插件名>.top` - 影响特定插件
-- 命令层：`sub_plugins.<插件名>.commands.<命令名>` - 单命令控制
-
-**系统命令结构：**
-- 扁平结构：`system.commands.<命令名>` - 不受全局 `top` 影响
-
-每个条目包含：
-- `enabled`：布尔开关
-- `level`：`"all"` | `"member"` | `"admin"` | `"owner"` | `"bot_admin"` | `"superuser"`
-- `scene`：`"all"` | `"group"` | `"private"`
-- `whitelist`：`{users: [], groups: []}`
-- `blacklist`：`{users: [], groups: []}`
-
-**权限评估顺序：**
-1. 白名单/黑名单（立即允许/拒绝）
-2. 场景检查（群聊 vs 私聊）
-3. 等级检查（用户角色）
-
-权限检查级联：全局 → 插件 → 命令（每层可拒绝但不能覆盖拒绝）。
-
-### 注册模式（`core/framework/registry.py`）
-
-**创建插件（代码中使用枚举）：**
-```python
-from nonebot_plugin_entertain.core.framework.registry import Plugin
-from nonebot_plugin_entertain.core.framework.perm import PermLevel
-
-P = Plugin(enabled=True, level=PermLevel.LOW, scene="all")
+```bash
+pip install -r requirements.txt
+# 可选：帮助图用 Playwright
+python -m playwright install chromium
 ```
 
-- 从模块路径自动检测插件名（位于 `plugins/<名称>/` 下）
-- `category="sub"` 用于子插件，`"system"` 用于内置命令
-- 首次运行时自动将默认值写入 `permissions.json`
+2) 环境依赖（可选/按需）
 
-**注册命令：**
+- OneBot v11 连接端：如 go-cqhttp
+- FFmpeg：点歌音频转码，需在系统 PATH 中
+- Git：DF 图库 `git clone/pull`
+
+3) 集成到 NoneBot 项目
+
+在你的 NoneBot 项目中加载本插件：
+
 ```python
-cmd = P.on_regex(
-    r"^#?<模式>$",
-    name="command_name",  # 必需，用于 permissions.json 跟踪
-    priority=13,
-    block=True
-)
+nonebot.load_plugin("nonebot_plugin_entertain")
 ```
 
-- `name` 参数是必需的 - 用作 permissions.json 中的键
-- 如果未明确提供，自动绑定 `permission=P.permission_cmd(name)`
-- 附加日志处理器以跟踪命令触发
+首次启动将自动：
+- 创建/补齐 `config/permissions.json`
+- 写入各插件默认配置（缺失时）
+- 初始化 SQLite 数据库（`data/entertain.db`）
+- 挂载 Web 控制台（若启用）
 
-### 配置系统（`core/framework/config.py`）
+## 权限与配置
 
-**配置文件位置（优先级顺序）：**
-1. 环境变量：`NPE_CONFIG_DIR`
-2. 包根目录：`<package>/config/`（可写，首选）
-3. 工作目录：`./config/`
+### 权限（config/permissions.json）
 
-**单插件配置：**
+- 结构：
+  - `top`（全局）→ `sub_plugins.<插件>.top` → `sub_plugins.<插件>.commands.<命令>`
+- 字段：
+  - `enabled`、`level`（all/member/admin/owner/bot_admin/superuser）、`scene`（all/group/private）、`whitelist/blacklist`（users/groups）
+- 检查顺序：开关 → 白/黑名单 → 场景（群/私）→ 角色等级
+- 修改后热生效：调用 `reload_permissions()`（控制台保存后会自动触发）
+
+### 插件配置
+
+- 通过 `core/framework/config.py` 注册与管理，默认值写入磁盘，缺失键自动补齐并回写。
+- 支持命名空间配置（同一文件多段配置）。
+- 控制台可批量查看与保存，并统一热重载。
+
+### 系统配置
+
+- `config/system/config.json`：控制台开关、调度时间、续费码规则等。
+- 提供 JSON Schema，便于前端渲染表单与校验。
+
+## Web 控制台
+
+- 前缀：`/member_renewal`
+- 入口：`/member_renewal/console`（需 token）
+- 启用：系统配置 `member_renewal_console_enable: true`
+- 获取访问地址：私聊发送 `今汐登录`（SUPERUSER）获取带 token 的 URL（默认指向 `member_renewal_console_host`）。
+- 能力：会员编辑、续费码生成、权限与插件配置的查看与保存（保存后自动热重载）。
+
+## 常用命令速查（示例）
+
+- 控制台/会员
+  - `今汐登录`（私聊，超管）→ 控制台地址
+  - `ww生成续费<数字><天|月|年>`（超管，私聊）
+  - `ww续费<数字><天|月|年>-<随机码>`（群聊）
+  - `ww到期` 查看本群状态
+- AI 对话
+  - `#清空会话`、`#会话信息`、`#开启AI`、`#关闭AI`
+  - `#人格列表`、`#切换人格 <key>`
+  - `#服务商列表`、`#切换服务商 <name>`
+  - `#工具列表`、`#开启工具 <name>`、`#关闭工具 <name>`
+  - `#开启TTS`、`#关闭TTS`、`#重载AI配置`
+- 娱乐与群管
+  - `#点歌 关键词`、`#1`（选择第 1 首）
+  - `#十连doro抽卡`、`#百连doro抽卡`
+  - `#今日运势`、`#签`、`#注册时间 [@或QQ号]`
+  - `#开启违禁词`、`#添加违禁词 <词>`、`#违禁词列表`、`#关闭违禁词`
+- DF 图库
+  - `#DF安装图库`、`#DF更新图库`、`#DF强制更新图库`
+
+## 开发指引
+
+### 注册命令（统一权限与命名）
+
 ```python
-from nonebot_plugin_entertain.core.framework.config import register_plugin_config
+from nonebot_plugin_entertain.core.api import Plugin
+from nonebot_plugin_entertain.core.framework.perm import PermLevel, PermScene
 
-cfg_proxy = register_plugin_config("plugin_name", defaults={...})
-cfg = cfg_proxy.load()  # 自动从默认值填充缺失键
-cfg_proxy.save(new_cfg)
-```
-
-**命名空间配置（共享文件）：**
-```python
-from nonebot_plugin_entertain.core.framework.config import register_namespaced_config
-
-proxy = register_namespaced_config("entertain", "fortune", defaults={...})
-cfg = proxy.load()  # 加载 entertain/config.json -> fortune 部分
-```
-
-**系统配置：** `config/system/config.json` 通过 `core/system_config.py` 管理
-
-**配置管理函数：**
-- `bootstrap_configs()`：启动时调用以确保文件存在
-- `upsert_plugin_defaults()`：更新插件级权限默认值
-- `upsert_command_defaults()`：更新命令级默认值（子插件）
-- `upsert_system_command_defaults()`：更新命令级默认值（系统）
-
-### 权限辅助函数（`core/framework/perm.py`）
-
-- `permission_for_plugin(name, category="sub")`：插件级权限
-- `permission_for_cmd(plugin, command, category="sub")`：命令级权限
-- `reload_permissions()`：强制从磁盘重新加载 + 使缓存失效
-
-**运行时权限检查：**
-- 权限缓存在 `KeyValueCache` 中，无 TTL（仅手动失效）
-- 更新 `permissions.json` 后调用 `reload_permissions()` 以应用更改
-
-## 主要功能
-
-### 会员系统（`commands/membership/`）
-
-内置群组会员管理，包含：
-- 续费码生成，可配置最大使用次数和过期时间
-- 每个群组的到期跟踪
-- 定时检查（如果安装了 `nonebot-plugin-apscheduler`）
-- Web 控制台位于 `/member_renewal/console`（启用时）
-
-**命令：**
-- `控制台登录`：获取 web 控制台访问链接（超级用户，私聊）
-- `ww生成续费<数字><天|月|年>`：生成续费码
-- `ww续费<code>`：对群组应用续费码
-- `ww到期`：检查到期状态
-- `ww检查会员`：手动会员检查（管理员）
-
-### Web 控制台（`console/server.py`）
-
-基于 FastAPI 的管理界面：
-- 群组会员管理（延长、提醒、退出）
-- 续费码生成和列表
-- 系统配置编辑器
-- 权限编辑器，带实时重载
-- 调度器控制
-
-通过系统配置中的 `member_renewal_console_enable: true` 启用。
-
-## 开发命令
-
-**测试插件：**
-这是一个 NoneBot2 插件，需要在机器人实例中加载。没有独立的测试套件。测试方法：
-1. 在 NoneBot2 项目中安装：`pip install -e .` 或通过 `nonebot.load_plugin()` 加载
-2. 配置 bot.py 以加载插件
-3. 运行机器人并通过 OneBot v11 客户端（如 go-cqhttp）交互
-
-**依赖项：**
-通过以下方式安装：`pip install -r requirements.txt`
-
-核心依赖：
-- `httpx>=0.24`、`aiohttp>=3.8` - HTTP 客户端
-- `aiofiles>=23.0` - 异步文件 I/O
-- `Pillow>=9.2` - 图像处理
-- `pydantic>=2` - 数据验证（NoneBot2 v11 要求）
-
-**编码：**
-所有源文件使用 UTF-8 编码。注释和消息使用中文。
-
-## 常见模式
-
-### 添加新命令（代码中使用枚举）
-
-1. 在插件的 `__init__.py` 中创建命令：
-```python
-from nonebot_plugin_entertain.core.framework.registry import Plugin
-from nonebot_plugin_entertain.core.framework.perm import PermLevel
-
-P = Plugin(enabled=True, level=PermLevel.LOW, scene="all")
-
-cmd = P.on_regex(r"^#?<模式>$", name="my_command", priority=13, block=True)
+P = Plugin(name="your_plugin", display_name="中文名", enabled=True, level=PermLevel.LOW, scene=PermScene.ALL)
+cmd = P.on_regex(r"^#你的命令$", name="internal_name", display_name="中文显示名", priority=5, block=True)
 
 @cmd.handle()
-async def handle_cmd(event: GroupMessageEvent):
-    # 实现
-    pass
+async def _(event):
+    ...
 ```
-
-2. 框架自动：
-   - 在 `permissions.json` 中注册命令
-   - 应用权限检查
-   - 记录命令触发
 
 ### 配置管理
 
-配置在首次加载时自动从默认值填充并持久化。修改默认值需要删除配置文件或手动合并。
-
-### 处理权限更改
-
-修改 `permissions.json` 后：
 ```python
-from nonebot_plugin_entertain.core.framework.perm import reload_permissions
-reload_permissions()  # 无需重启即应用更改
+from nonebot_plugin_entertain.core.api import (
+    register_plugin_config, register_namespaced_config, register_reload_callback,
+)
+
+proxy = register_plugin_config("plugin", defaults={"k": 1})
+cfg = proxy.load()
+proxy.save({"k": 2})
+
+ns = register_namespaced_config("plugin", "section", defaults={"a": 1})
+sec_cfg = ns.load()
+
+def on_reload():
+    pass
+register_reload_callback("plugin", on_reload)
 ```
 
-或使用 web 控制台的权限编辑器，它会自动重载。
+### 目录与工具
 
-## 文件组织
+```python
+from nonebot_plugin_entertain.core.api import (
+  plugin_resource_dir, plugin_data_dir, config_dir,
+)
+res = plugin_resource_dir("plugin")
+data = plugin_data_dir("plugin")
+cfg_dir = config_dir("plugin")
+```
 
-- `__init__.py`：入口点，加载子插件和系统命令
-- `core/framework/`：核心抽象（注册表、权限、配置、缓存）
-- `core/api.py`：共享 API 工具
-- `core/system_config.py`：系统范围配置助手
-- `plugins/`：子插件实现（每个在自己的目录中）
-- `commands/`：系统命令（内置功能）
-- `console/`：Web 管理界面
-- `config/`：运行时配置文件（gitignored，自动生成）
+### HTTP 与缓存
 
-## 重要说明
+```python
+from nonebot_plugin_entertain.core.http import get_shared_async_client
+from nonebot_plugin_entertain.core.constants import DEFAULT_HTTP_TIMEOUT
 
-- **首次运行行为：** 首次加载时，通过扫描所有插件的命令自动生成 `permissions.json`。此文件随后被保留 - 框架不会覆盖手动编辑。
-- **权限继承：** 任何级别（全局 → 插件 → 命令）的拒绝都不能被更低级别覆盖。
-- **系统命令隔离：** `system` 类别中的命令不受全局 `top` 权限影响 - 它们具有扁平结构和独立默认值。
-- **缓存失效：** 权限缓存没有 TTL，一直持续到调用 `reload_permissions()` 为止。
+client = await get_shared_async_client()
+r = await client.get("https://example.com", timeout=DEFAULT_HTTP_TIMEOUT)
+```
