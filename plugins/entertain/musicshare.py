@@ -38,6 +38,10 @@ except Exception:  # pragma: no cover - allow import without adapter during stat
     MessageSegment = _Dummy  # type: ignore
 
 from PIL import Image, ImageDraw, ImageFont
+from ...core.http import get_shared_async_client
+
+# Limit ffmpeg conversions to avoid resource contention
+_FFMPEG_SEM = asyncio.Semaphore(2)
 
 
 Platform = Literal["qq", "kugou", "wangyiyun"]
@@ -109,30 +113,30 @@ async def _lv_search_songs(platform: Platform, keyword: str) -> List[Song]:
     api_base = str(mcfg.get("api_base") or "https://api.vkeys.cn").rstrip("/")
     num = int(mcfg.get("search_num") or 20)
     prov = _lv_provider_from_platform(platform)
-    async with httpx.AsyncClient(timeout=DEFAULT_HTTP_TIMEOUT) as client:
-        url = f"{api_base}/v2/music/{prov}?word={quote_plus(keyword)}&num={num}"
-        r = await client.get(url)
-        r.raise_for_status()
-        data = r.json()
-        items = data.get("data")
-        if isinstance(items, dict):
-            items = [items]
-        items = items or []
-        results: List[Song] = []
-        for item in items:
-            name = item.get("song") or "未知歌曲"
-            artist = item.get("singer") or "未知歌手"
-            mid = item.get("mid")
-            sid = item.get("id")
-            cover = item.get("cover")
-            link = item.get("link")
-            if not link:
-                if prov == "tencent" and mid:
-                    link = f"https://i.y.qq.com/v8/playsong.html?songmid={mid}"
-                elif prov == "netease" and sid:
-                    link = f"https://music.163.com/#/song?id={sid}"
-            results.append(Song(id=str(sid or mid or name), name=str(name), artist=str(artist), cover=cover, link=link, mid=mid))
-        return results
+    client = await get_shared_async_client()
+    url = f"{api_base}/v2/music/{prov}?word={quote_plus(keyword)}&num={num}"
+    r = await client.get(url, timeout=DEFAULT_HTTP_TIMEOUT)
+    r.raise_for_status()
+    data = r.json()
+    items = data.get("data")
+    if isinstance(items, dict):
+        items = [items]
+    items = items or []
+    results: List[Song] = []
+    for item in items:
+        name = item.get("song") or "未知歌曲"
+        artist = item.get("singer") or "未知歌手"
+        mid = item.get("mid")
+        sid = item.get("id")
+        cover = item.get("cover")
+        link = item.get("link")
+        if not link:
+            if prov == "tencent" and mid:
+                link = f"https://i.y.qq.com/v8/playsong.html?songmid={mid}"
+            elif prov == "netease" and sid:
+                link = f"https://music.163.com/#/song?id={sid}"
+        results.append(Song(id=str(sid or mid or name), name=str(name), artist=str(artist), cover=cover, link=link, mid=mid))
+    return results
 
 
 async def _lv_resolve_audio_url(platform: Platform, song: Song) -> Optional[str]:
@@ -144,27 +148,27 @@ async def _lv_resolve_audio_url(platform: Platform, song: Song) -> Optional[str]
         quality = max(1, min(9, quality))
     else:
         quality = max(0, min(16, quality))
-    async with httpx.AsyncClient(timeout=DEFAULT_HTTP_TIMEOUT) as client:
-        try:
-            params = f"quality={quality}"
-            if prov == "tencent":
-                if song.mid:
-                    url = f"{api_base}/v2/music/{prov}?mid={quote_plus(song.mid)}&{params}"
-                else:
-                    url = f"{api_base}/v2/music/{prov}?id={quote_plus(song.id)}&{params}"
+    client = await get_shared_async_client()
+    try:
+        params = f"quality={quality}"
+        if prov == "tencent":
+            if song.mid:
+                url = f"{api_base}/v2/music/{prov}?mid={quote_plus(song.mid)}&{params}"
             else:
                 url = f"{api_base}/v2/music/{prov}?id={quote_plus(song.id)}&{params}"
-            r = await client.get(url)
-            r.raise_for_status()
-            j = r.json()
-            data = j.get("data") or {}
-            audio_url = data.get("url")
-            if audio_url:
-                return audio_url
-            return data.get("link")
-        except Exception:
-            logger.exception("resolve audio url failed")
-            return None
+        else:
+            url = f"{api_base}/v2/music/{prov}?id={quote_plus(song.id)}&{params}"
+        r = await client.get(url, timeout=DEFAULT_HTTP_TIMEOUT)
+        r.raise_for_status()
+        j = r.json()
+        data = j.get("data") or {}
+        audio_url = data.get("url")
+        if audio_url:
+            return audio_url
+        return data.get("link")
+    except Exception:
+        logger.exception("resolve audio url failed")
+        return None
 
 async def _resolve_audio_url(platform: Platform, song: Song) -> Optional[str]:
     return await _lv_resolve_audio_url(platform, song)
@@ -239,11 +243,16 @@ async def _download_audio_via_ffmpeg(url: str, name_hint: str) -> Optional[Path]
     logger.debug(f"Executing ffmpeg command to create file at: {host_out_path}")
 
     try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120.0)
-        if proc.returncode == 0 and host_out_path.exists() and host_out_path.stat().st_size > 1024:
+        async with _FFMPEG_SEM:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120.0)
+        if (
+            proc.returncode == 0
+            and host_out_path.exists()
+            and host_out_path.stat().st_size > 1024
+        ):
             if container_base_path:
                 container_return_path = container_base_path / host_out_path.name
                 logger.success(
@@ -272,6 +281,17 @@ async def _download_audio_via_ffmpeg(url: str, name_hint: str) -> Optional[Path]
         logger.error("FFmpeg process timed out after 120 seconds.")
         try:
             proc.kill()
+        except Exception:
+            pass
+        try:
+            await proc.wait()
+        except Exception:
+            pass
+        try:
+            if proc.stdout:
+                proc.stdout.close()
+            if proc.stderr:
+                proc.stderr.close()
         except Exception:
             pass
         return None
@@ -506,3 +526,4 @@ async def _(matcher: Matcher, event: MessageEvent, groups: Tuple[str] = RegexGro
         await matcher.finish(f"{song.name} - {song.artist}\n{fallback}")
     else:
         await matcher.finish("播放失败：未能获取歌曲播放地址。")
+

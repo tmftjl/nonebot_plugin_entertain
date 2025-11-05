@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 from ...core.constants import DEFAULT_HTTP_TIMEOUT
+from ...core.http import get_shared_async_client
 
 
 import httpx
@@ -27,10 +28,10 @@ async def _(matcher: Matcher, event: MessageEvent):
     url = str(urls.get("sick_quote_api"))
 
     try:
-        async with httpx.AsyncClient(timeout=DEFAULT_HTTP_TIMEOUT) as client:
-            res = await client.get(url)
-            res.raise_for_status()
-            data = res.json()
+        client = await get_shared_async_client()
+        res = await client.get(url, timeout=DEFAULT_HTTP_TIMEOUT)
+        res.raise_for_status()
+        data = res.json()
     except Exception:
         await matcher.finish("获取发病语录失败，请稍后重试")
         return

@@ -1,4 +1,4 @@
-"""AI 对话核心管理（去除好感度，加入前后钩子）
+﻿"""AI 对话核心管理（去除好感度，加入前后钩子）
 
 - 去除了所有好感度逻辑与持久化
 - 新增 pre/post 钩子，便于在调用 AI 前后自定义修改
@@ -14,6 +14,14 @@ from collections import defaultdict
 
 from nonebot.log import logger
 from openai import AsyncOpenAI
+
+# Track background tasks to prevent unbounded growth
+_BG_TASKS: set[asyncio.Task] = set()
+
+
+def _track_bg(task: asyncio.Task) -> None:
+    _BG_TASKS.add(task)
+    task.add_done_callback(lambda t: _BG_TASKS.discard(t))
 
 from .config import get_config, get_personas, get_active_api
 from .models import ChatSession
@@ -318,9 +326,9 @@ class ChatManager:
                     tts_path = None
 
                 max_msgs = max(0, 2 * int(get_config().session.max_rounds))
-                asyncio.create_task(
+                _track_bg(asyncio.create_task(
                     self._save_conversation(session_id, user_name, message, clean_text, max_msgs)
-                )
+                ))
 
                 if session_type == "group" and clean_text:
                     try:
@@ -442,7 +450,7 @@ class ChatManager:
             import json as _json2
             cfg_json["memory_summary"] = summary
             cfg_json["summary_rounds"] = rounds
-            asyncio.create_task(ChatSession.set_config_json(session_id=session.session_id, data=cfg_json))
+            _track_bg(asyncio.create_task(ChatSession.set_config_json(session_id=session.session_id, data=cfg_json)))
         except Exception:
             pass
 
@@ -617,4 +625,6 @@ class ChatManager:
 # ==================== 全局实例 ====================
 
 chat_manager = ChatManager()
+
+
 

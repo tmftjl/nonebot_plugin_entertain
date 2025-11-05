@@ -152,7 +152,7 @@ cfg = proxy.load()  # 加载 entertain/config.json -> fortune 部分
 - `httpx>=0.24`、`aiohttp>=3.8` - HTTP 客户端
 - `aiofiles>=23.0` - 异步文件 I/O
 - `Pillow>=9.2` - 图像处理
-- `pydantic<2.0` - 数据验证（NoneBot2 v11 要求）
+- `pydantic>=2` - 数据验证（NoneBot2 v11 要求）
 
 **编码：**
 所有源文件使用 UTF-8 编码。注释和消息使用中文。

@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 from ...core.constants import DEFAULT_HTTP_TIMEOUT
+from ...core.http import get_shared_async_client
 
 
 from typing import Any, Dict, Optional
@@ -69,10 +70,10 @@ async def _(matcher: Matcher, event: MessageEvent, groups: tuple = RegexGroup())
         auth = base64.b64encode(raw.encode()).decode()
         headers["Authorization"] = "Basic {}".format(auth)
     try:
-        async with httpx.AsyncClient(timeout=DEFAULT_HTTP_TIMEOUT) as client:
-            resp = await client.get(url, headers=headers)
-            resp.raise_for_status()
-            data = resp.json()
+        client = await get_shared_async_client()
+        resp = await client.get(url, headers=headers, timeout=DEFAULT_HTTP_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
     except httpx.HTTPError as e:
         await matcher.finish("请求API失败: {}".format(e))
         return

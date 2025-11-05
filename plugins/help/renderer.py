@@ -2,11 +2,19 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+import asyncio
 
-from playwright.async_api import async_playwright
+from nonebot import get_driver
+from nonebot.log import logger
+from playwright.async_api import async_playwright, Browser
 
 
 RES_DIR = Path(__file__).parent / "resources"
+
+# Global Playwright resources (lazy)
+_PW = None  # type: ignore[var-annotated]
+_BROWSER: Optional[Browser] = None
+_RENDER_SEM = asyncio.Semaphore(2)
 
 
 def _data_uri(path: Path, mime: str) -> str:
@@ -136,14 +144,76 @@ async def render_help_image(
 
     html = _build_html(title=title, sub_title=sub_title, groups=groups, col_count=col_count, bg_file=bg, footer=footer)
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch()
-        page = await browser.new_page(device_scale_factor=scale)
-        await page.set_content(html, wait_until="load")
-        el = await page.query_selector(".container")
-        if el:
-            buf = await el.screenshot(type="png")
-        else:
-            buf = await page.screenshot(type="png", full_page=True)
-        await browser.close()
-    return buf
+    # Ensure singleton browser
+    async def _ensure_browser() -> Browser:
+        global _PW, _BROWSER
+        if _BROWSER is not None:
+            return _BROWSER
+        _PW = await async_playwright().start()
+        _BROWSER = await _PW.chromium.launch()
+        return _BROWSER
+
+    try:
+        async with _RENDER_SEM:
+            browser = await _ensure_browser()
+            page = await browser.new_page(device_scale_factor=scale)
+            await asyncio.wait_for(page.set_content(html, wait_until="load"), timeout=15.0)
+            el = await page.query_selector(".container")
+            if el:
+                buf = await asyncio.wait_for(el.screenshot(type="png"), timeout=15.0)
+            else:
+                buf = await asyncio.wait_for(page.screenshot(type="png", full_page=True), timeout=15.0)
+            await page.close()
+        return buf
+    except Exception as e:
+        logger.warning(f"[help][renderer] Playwright 渲染失败，回退到 PIL: {e}")
+        # Minimal fallback: render a simple text image
+        try:
+            from PIL import Image, ImageDraw, ImageFont
+
+            W, H = 1200, 800
+            im = Image.new("RGB", (W, H), (245, 247, 250))
+            draw = ImageDraw.Draw(im)
+            try:
+                font_title = ImageFont.truetype(str(RES_DIR / "common" / "font" / "FZB.ttf"), 48)
+                font_sub = ImageFont.truetype(str(RES_DIR / "common" / "font" / "FZB.ttf"), 28)
+            except Exception:
+                font_title = ImageFont.load_default()
+                font_sub = ImageFont.load_default()
+            draw.text((50, 60), title, fill=(30, 30, 30), font=font_title)
+            draw.text((50, 120), sub_title, fill=(80, 80, 80), font=font_sub)
+            y = 180
+            for g in groups[:10]:
+                name = str(g.get("group", ""))
+                draw.text((50, y), f"- {name}", fill=(40, 40, 40), font=font_sub)
+                y += 40
+            import io as _io
+            buf = _io.BytesIO()
+            im.save(buf, format="PNG")
+            return buf.getvalue()
+        except Exception:
+            # Last resort
+            return b""
+
+
+# Cleanup on bot shutdown
+_driver = get_driver()
+
+
+@_driver.on_shutdown
+async def _shutdown_renderer() -> None:
+    global _PW, _BROWSER
+    try:
+        if _BROWSER is not None:
+            await _BROWSER.close()
+    except Exception:
+        pass
+    finally:
+        _BROWSER = None
+    try:
+        if _PW is not None:
+            await _PW.stop()  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    finally:
+        _PW = None

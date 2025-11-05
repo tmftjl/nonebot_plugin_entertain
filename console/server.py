@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 from ..core.constants import DEFAULT_HTTP_TIMEOUT
+from ..core.http import get_shared_async_client
 
 
 from datetime import datetime, timezone
@@ -298,10 +299,10 @@ def setup_web_console() -> None:
         async def api_stats_today(_: dict = Depends(_auth)):
             stats_api_url = str(load_cfg().get("member_renewal_stats_api_url")).rstrip("/")
             try:
-                async with httpx.AsyncClient() as client:
-                    resp = await client.get(f"{stats_api_url}/stats/today", timeout=DEFAULT_HTTP_TIMEOUT)
-                    resp.raise_for_status()
-                    return resp.json()
+                client = await get_shared_async_client()
+                resp = await client.get(f"{stats_api_url}/stats/today", timeout=DEFAULT_HTTP_TIMEOUT)
+                resp.raise_for_status()
+                return resp.json()
             except Exception as e:
                 logger.error(f"获取统计失败: {e}")
                 raise HTTPException(500, f"获取统计失败: {e}")

@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 from ...core.constants import DEFAULT_HTTP_TIMEOUT
+from ...core.http import get_shared_async_client
 
 
 import json
@@ -106,11 +107,11 @@ async def _image_bytes(bot: Bot, seg: MessageSegment) -> Optional[bytes]:
                 return None
         # url
         url = data.get("url")
-        if isinstance(url, str) and url.startswith("http"): 
-            async with httpx.AsyncClient(timeout=DEFAULT_HTTP_TIMEOUT) as client:
-                resp = await client.get(url)
-                resp.raise_for_status()
-                return resp.content
+        if isinstance(url, str) and url.startswith("http"):
+            client = await get_shared_async_client()
+            resp = await client.get(url, timeout=DEFAULT_HTTP_TIMEOUT)
+            resp.raise_for_status()
+            return resp.content
         # onebot local cache by file id
         if file_val:
             try:
@@ -335,4 +336,5 @@ async def _(event: GroupIncreaseNoticeEvent):
         return
     at = MessageSegment.at(event.user_id)
     await welcome_notice.finish(at + Message(" ") + _render_welcome_content(key, content_str))
+
 

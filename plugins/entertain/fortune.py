@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 from ...core.constants import DEFAULT_HTTP_TIMEOUT
+from ...core.http import http_get
 
 
 import base64
@@ -117,14 +118,16 @@ def _num_to_chinese(num: int) -> str:
 
 async def _get_background_image() -> Image.Image | None:
     # Optional local API for random background
-    from .config import cfg_api_urls, cfg_api_timeouts
+    from .config import cfg_api_urls
+
     urls = cfg_api_urls()
-    local_api_url = str(urls.get("background_api") )
+    local_api_url = str(urls.get("background_api") or "").strip()
+    if not local_api_url:
+        return None
     try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(local_api_url, timeout=float(timeout))
-            resp.raise_for_status()
-            return Image.open(io.BytesIO(resp.content)).convert("RGBA")
+        resp = await http_get(local_api_url, timeout=DEFAULT_HTTP_TIMEOUT)
+        resp.raise_for_status()
+        return Image.open(io.BytesIO(resp.content)).convert("RGBA")
     except Exception:
         return None
 

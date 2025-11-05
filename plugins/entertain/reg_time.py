@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 from ...core.constants import DEFAULT_HTTP_TIMEOUT
+from ...core.http import get_shared_async_client
 
 
 from datetime import datetime
@@ -51,13 +52,13 @@ async def _query_registration(qq: str) -> Optional[str]:
         return None
 
     params = {"qq": qq, "key": api_key}
-    async with httpx.AsyncClient(timeout=DEFAULT_HTTP_TIMEOUT) as client:
-        r = await client.get(api_url, params=params)
-        r.raise_for_status()
-        text = r.text
-        if not text or "注册时间" not in text:
-            return None
-        return text
+    client = await get_shared_async_client()
+    r = await client.get(api_url, params=params, timeout=DEFAULT_HTTP_TIMEOUT)
+    r.raise_for_status()
+    text = r.text
+    if not text or "注册时间" not in text:
+        return None
+    return text
 
 
 def _build_text_message(raw: str, qq: str) -> str:
@@ -92,3 +93,4 @@ async def _(matcher: Matcher, event: MessageEvent, groups: tuple = RegexGroup())
         await matcher.finish("查询失败，请检查账号有效性或API状态")
         return
     await matcher.finish(_build_text_message(text, qq))
+

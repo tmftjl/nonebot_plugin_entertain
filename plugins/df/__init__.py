@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 from ...core.constants import DEFAULT_HTTP_TIMEOUT
+from ...core.http import get_shared_async_client
 
 
 import asyncio
@@ -52,27 +53,27 @@ def _api_handlers() -> List[Tuple[str, Any]]:
     handlers.append((r"黑丝", _hs))
 
     async def _bs():
-        async with httpx.AsyncClient(timeout=DEFAULT_HTTP_TIMEOUT) as client:
-            r = await client.get("https://v2.api-m.com/api/baisi")
-            r.raise_for_status()
-            link = r.text.replace("\\", "/")
+        client = await get_shared_async_client()
+        r = await client.get("https://v2.api-m.com/api/baisi", timeout=DEFAULT_HTTP_TIMEOUT)
+        r.raise_for_status()
+        link = r.text.replace("\\", "/")
         return Message(MessageSegment.text("白丝来咯~") + MessageSegment.image(link))
 
     handlers.append((r"白丝", _bs))
 
     async def _cos():
-        async with httpx.AsyncClient(timeout=DEFAULT_HTTP_TIMEOUT) as client:
-            r = await client.get("https://api.suyanw.cn/api/cos.php?type=json")
-            link = r.text.replace("\\", "/")
+        client = await get_shared_async_client()
+        r = await client.get("https://api.suyanw.cn/api/cos.php?type=json", timeout=DEFAULT_HTTP_TIMEOUT)
+        link = r.text.replace("\\", "/")
         return Message(MessageSegment.text("COS 来咯~") + MessageSegment.image(link))
 
     handlers.append((r"cos", _cos))
 
     async def _leg():
-        async with httpx.AsyncClient(timeout=DEFAULT_HTTP_TIMEOUT) as client:
-            r = await client.get("https://api.suyanw.cn/api/meitui.php")
-            m = re.search(r"https?://[^ ]+", r.text)
-            link = m.group(0) if m else ""
+        client = await get_shared_async_client()
+        r = await client.get("https://api.suyanw.cn/api/meitui.php", timeout=DEFAULT_HTTP_TIMEOUT)
+        m = re.search(r"https?://[^ ]+", r.text)
+        link = m.group(0) if m else ""
         return Message(MessageSegment.text("美腿来咯~") + (MessageSegment.image(link) if link else MessageSegment.text("")))
 
     handlers.append((r"(?:腿|美腿)", _leg))
@@ -104,10 +105,10 @@ async def _hitokoto(api: str) -> Optional[str]:
     cfg = load_cfg()
 
     try:
-        async with httpx.AsyncClient(timeout=DEFAULT_HTTP_TIMEOUT) as client:
-            r = await client.get(api)
-            r.raise_for_status()
-            return r.text.strip()
+        client = await get_shared_async_client()
+        r = await client.get(api, timeout=DEFAULT_HTTP_TIMEOUT)
+        r.raise_for_status()
+        return r.text.strip()
     except Exception as e:
         logger.debug(f"hitokoto error: {e}")
         return None

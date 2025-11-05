@@ -13,6 +13,7 @@ from nonebot.params import RegexGroup
 from ...core.api import Plugin
 from .config import cfg_box
 from ...core.constants import DEFAULT_HTTP_TIMEOUT
+from ...core.http import get_shared_async_client
 
 from PIL import Image
 
@@ -158,10 +159,10 @@ async def _get_avatar_bytes(user_id: str) -> Optional[bytes]:
     url = url_template.format(user_id=user_id)
 
     try:
-        async with httpx.AsyncClient(timeout=DEFAULT_HTTP_TIMEOUT) as client:
-            r = await client.get(url)
-            r.raise_for_status()
-            return r.content
+        client = await get_shared_async_client()
+        r = await client.get(url, timeout=DEFAULT_HTTP_TIMEOUT)
+        r.raise_for_status()
+        return r.content
     except Exception as e:
         logger.warning(f"下载头像失败: {e}")
         return None
