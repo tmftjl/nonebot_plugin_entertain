@@ -11,9 +11,9 @@ from .config import cfg_cached, cfg_api_urls
 P = Plugin(name="entertain", display_name="娱乐")
 
 _DORO = P.on_regex(
-    r"^#?(?:抽取|来个)?(?:随机)?doro卡$",
+    r"^#?(?:抽取|随机)?(?:今日)?doro结局$",
     name="draw",
-    display_name="doro卡",
+    display_name="doro结局",
     priority=5,
     block=True,
 )
@@ -32,7 +32,7 @@ async def _(matcher: Matcher, event: MessageEvent):
     desc = data.get("description", "")
     img = data.get("image")
 
-    text_seg = MessageSegment.text(f"今日doro抽取：\n\n{title}\n\n{desc}\n")
+    text_seg = MessageSegment.text(f"今日doro结局：\n\n{title}\n\n{desc}\n")
     if img:
         await matcher.finish(Message(text_seg + MessageSegment.image(img)))
     else:
