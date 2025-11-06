@@ -261,6 +261,20 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
     },
 }
 
+try:
+    _api_props = AI_CHAT_SCHEMA["properties"]["api"]["additionalProperties"]["properties"]
+    _api_props.setdefault(
+        "support_tools",
+        {"type": "boolean", "title": "支持工具调用", "default": True, "x-order": 5},
+    )
+    _api_props.setdefault(
+        "support_vision",
+        {"type": "boolean", "title": "支持识别图片", "default": True, "x-order": 6},
+    )
+except Exception:
+    # Schema 扩展失败不影响功能
+    pass
+
 register_plugin_schema("ai_chat", AI_CHAT_SCHEMA)
 
 
