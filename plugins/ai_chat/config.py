@@ -407,7 +407,25 @@ def load_config() -> AIChatConfig:
 
 def save_config(config: AIChatConfig) -> None:
     try:
-        CFG.save(config.model_dump())
+        # Preserve unknown provider fields (e.g., capability flags) on save
+        try:
+            existing = CFG.load() or {}
+        except Exception:
+            existing = {}
+        new_data = config.model_dump()
+        try:
+            raw_apis = dict((existing or {}).get("api") or {})
+            new_apis = dict((new_data or {}).get("api") or {})
+            for name, raw in raw_apis.items():
+                if name in new_apis and isinstance(raw, dict) and isinstance(new_apis[name], dict):
+                    # Known capability flags to preserve even if schema doesn't include them
+                    for k in ("support_tools", "support_vision"):
+                        if k in raw and k not in new_apis[name]:
+                            new_apis[name][k] = raw[k]
+            new_data["api"] = new_apis
+        except Exception:
+            pass
+        CFG.save(new_data)
         logger.info("[AI Chat] 配置保存成功")
     except Exception as e:
         logger.error(f"[AI Chat] 配置保存失败: {e}")

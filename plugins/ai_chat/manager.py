@@ -23,7 +23,7 @@ def _track_bg(task: asyncio.Task) -> None:
     _BG_TASKS.add(task)
     task.add_done_callback(lambda t: _BG_TASKS.discard(t))
 
-from .config import get_config, get_personas, get_active_api
+from .config import get_config, get_personas, get_active_api, CFG
 from .models import ChatSession
 from .tools import get_enabled_tools, execute_tool
 from .hooks import run_pre_ai_hooks, run_post_ai_hooks
@@ -114,6 +114,27 @@ class ChatManager:
         if session_id not in self._session_locks:
             self._session_locks[session_id] = asyncio.Lock()
         return self._session_locks[session_id]
+
+    def _get_active_api_flags(self) -> tuple[bool, bool]:
+        """Return (support_tools, support_vision) for current active API.
+
+        Falls back to (True, True) when not configured.
+        """
+        try:
+            # Load raw config to preserve unknown keys
+            raw = CFG.load() or {}
+            apis = dict(raw.get("api") or {})
+            cfg = get_config()
+            active = (getattr(cfg.session, "api_active", "") or "").strip()
+            if not active or active not in apis:
+                if apis:
+                    active = next(iter(apis.keys()))
+            provider = dict(apis.get(active) or {})
+            support_tools = bool(provider.get("support_tools", True))
+            support_vision = bool(provider.get("support_vision", True))
+            return support_tools, support_vision
+        except Exception:
+            return True, True
 
     # ==================== 数据加载 ====================
 
@@ -256,6 +277,10 @@ class ChatManager:
                     await self._maybe_update_summary(session, history)
                 except Exception:
                     pass
+                # Capability-based input gating
+                support_tools, support_vision = self._get_active_api_flags()
+                if (images and not support_vision) and (not message or not str(message).strip()):
+                    return "当前模型不支持识别图片"
                 messages = self._build_messages(
                     session,
                     history,
@@ -265,11 +290,13 @@ class ChatManager:
                     chatroom_history=chatroom_history,
                     active_reply=active_reply,
                     active_reply_suffix=active_reply_suffix,
-                    images=images,
+                    images=(images if (images and support_vision) else None),
                 )
 
                 cfg = get_config()
-                default_tools = get_enabled_tools(cfg.tools.builtin_tools) if getattr(cfg, "tools", None) else None
+                default_tools = None
+                if getattr(cfg, "tools", None) and cfg.tools.enabled and support_tools:
+                    default_tools = get_enabled_tools(cfg.tools.builtin_tools)
                 default_model = get_active_api().model or "gpt-4o-mini"
                 default_temperature = cfg.session.default_temperature
 
@@ -469,21 +496,29 @@ class ChatManager:
             return "AI 未配置或暂不可用"
 
         cfg = get_config()
+        # Determine capability gating
+        support_tools, _ = self._get_active_api_flags()
         if tools is None:
-            tools = get_enabled_tools(cfg.tools.builtin_tools) if getattr(cfg, "tools", None) else None
+            if getattr(cfg, "tools", None) and cfg.tools.enabled and support_tools:
+                tools = get_enabled_tools(cfg.tools.builtin_tools)
+            else:
+                tools = None
         if model is None:
             model = get_active_api().model or "gpt-4o-mini"
         if temperature is None:
             temperature = cfg.session.default_temperature
 
-        current_response = await self.client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=temperature,
-            tools=tools,
-        )
+        # Build kwargs and avoid passing unsupported params
+        _kwargs: Dict[str, Any] = {"model": model, "messages": messages, "temperature": temperature}
+        if tools and getattr(cfg, "tools", None) and cfg.tools.enabled and support_tools:
+            _kwargs["tools"] = tools
+        current_response = await self.client.chat.completions.create(**_kwargs)
 
-        max_iterations = (cfg.tools.max_iterations if getattr(cfg, "tools", None) else 2)
+        max_iterations = (
+            cfg.tools.max_iterations
+            if (getattr(cfg, "tools", None) and cfg.tools.enabled and support_tools)
+            else 0
+        )
         iteration = 0
         while iteration < max_iterations:
             choice = current_response.choices[0]
@@ -522,12 +557,10 @@ class ChatManager:
                 content = str(res) if not isinstance(res, Exception) else f"工具执行异常: {res}"
                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
 
-            current_response = await self.client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                tools=tools,
-            )
+            _kwargs2: Dict[str, Any] = {"model": model, "messages": messages, "temperature": temperature}
+            if tools and getattr(cfg, "tools", None) and cfg.tools.enabled and support_tools:
+                _kwargs2["tools"] = tools
+            current_response = await self.client.chat.completions.create(**_kwargs2)
 
             iteration += 1
 
