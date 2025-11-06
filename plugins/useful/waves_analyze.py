@@ -3,9 +3,9 @@ from __future__ import annotations
 import asyncio
 import base64
 from typing import Iterable, List, Optional, Tuple, Union
+import re
 
 from nonebot.matcher import Matcher
-from nonebot.params import RegexGroup
 from nonebot.adapters.onebot.v11 import (
     Bot,
     Message,
@@ -96,22 +96,30 @@ async def _post_score(images_b64: List[str], command_str: str) -> Tuple[Optional
         return None, f"结果图片解析失败: {e}"
 
 
-def _extract_image_sources(msg: Message) -> List[str]:
-    """从消息段提取图片来源（url/base64/file）。"""
+async def _extract_sources_with_bot(bot: Bot, msg: Message) -> List[str]:
+    """从消息段提取图片来源（url 或经 get_image 解析后的本地路径）。"""
     out: List[str] = []
     try:
         for seg in msg:
             if seg.type != "image":
                 continue
             data = seg.data or {}
-            url = (data.get("url") or "").strip()
+            url = str((data.get("url") or "")).strip()
             if url:
                 out.append(url)
                 continue
-            file_ = (data.get("file") or "").strip()
+            file_ = str((data.get("file") or "")).strip()
             if file_:
-                # 可能是 base64:// / 也可能是路径 / go-cqhttp 内部路径
-                out.append(file_)
+                # 使用 OneBot get_image API 将文件 id 转换为实际路径
+                try:
+                    resp = await bot.get_image(file=file_)  # type: ignore[arg-type]
+                    path = resp.get("file") if isinstance(resp, dict) else None
+                    if path:
+                        out.append(str(path))
+                        continue
+                except Exception:
+                    # 兜底：直接当成本地路径尝试
+                    out.append(file_)
     except Exception:
         pass
     return out
@@ -120,7 +128,7 @@ def _extract_image_sources(msg: Message) -> List[str]:
 async def _get_images_from_event_or_reply(bot: Bot, event: MessageEvent) -> List[str]:
     """优先从当前消息取图；没有则尝试从被引用的消息中取图。"""
     # 1) 当前消息
-    current = _extract_image_sources(event.get_message())
+    current = await _extract_sources_with_bot(bot, event.get_message())
     if current:
         return current
 
@@ -131,9 +139,9 @@ async def _get_images_from_event_or_reply(bot: Bot, event: MessageEvent) -> List
             return []
         data = await bot.get_msg(message_id=mid)  # type: ignore[arg-type]
         raw = data.get("message") if isinstance(data, dict) else None
-        if isinstance(raw, str) and raw:
+        if isinstance(raw, (str, list)) and raw:
             quoted_msg = Message(raw)
-            return _extract_image_sources(quoted_msg)
+            return await _extract_sources_with_bot(bot, quoted_msg)
     except Exception:
         return []
     return []
@@ -144,21 +152,39 @@ async def _handle(
     matcher: Matcher,
     bot: Bot,
     event: MessageEvent,
-    groups: tuple = RegexGroup(),
 ):
-    # 解析命令参数
-    try:
-        command_str = (groups[0] or "").strip() if groups else ""
-    except Exception:
-        command_str = ""
+    # 使用 plain_text 手动解析参数
+    plain_text = event.get_plaintext().strip()
+    m = re.search(r"^ww(?:分析|评分)(?:\s+(.*))?$", plain_text)
+    command_str = (m.group(1).strip() if (m and m.group(1)) else "")
 
     img_src_list = await _get_images_from_event_or_reply(bot, event)
 
-    if (not img_src_list) or (not command_str):
-        msg = MessageSegment.reply(event.message_id) + MessageSegment.text(
-            "请同时发送图片与命令：ww分析土豆 1c"
+    if not img_src_list and not command_str:
+        await matcher.finish(
+            Message(
+                MessageSegment.reply(event.message_id)
+                + MessageSegment.text("请发送图片并附带命令，例如：ww分析 土豆 1c（可直接回复带图消息）")
+            )
         )
-        await matcher.finish(Message(msg))
+        return
+
+    if not img_src_list:
+        await matcher.finish(
+            Message(
+                MessageSegment.reply(event.message_id)
+                + MessageSegment.text("未获取到图片，支持回复/引用带图消息后使用本命令")
+            )
+        )
+        return
+
+    if not command_str:
+        await matcher.finish(
+            Message(
+                MessageSegment.reply(event.message_id)
+                + MessageSegment.text("已获取图片，但未提供命令参数，例如：ww分析 土豆 1c")
+            )
+        )
         return
 
     # 并发读取图片字节
@@ -167,8 +193,12 @@ async def _handle(
     img_bytes_list = [b for b in results if b]
 
     if not img_bytes_list:
-        msg = MessageSegment.reply(event.message_id) + MessageSegment.text("未能读取到有效的图片数据")
-        await matcher.finish(Message(msg))
+        await matcher.finish(
+            Message(
+                MessageSegment.reply(event.message_id)
+                + MessageSegment.text("未能读取到有效的图片数据")
+            )
+        )
         return
 
     images_b64 = _encode_images_to_b64(img_bytes_list)
@@ -176,10 +206,11 @@ async def _handle(
 
     if not result_img:
         text = tip or "分析失败，请重试"
-        await matcher.finish(Message(MessageSegment.reply(event.message_id) + MessageSegment.text(text)))
+        await matcher.finish(
+            Message(MessageSegment.reply(event.message_id) + MessageSegment.text(text))
+        )
         return
 
     await matcher.finish(
         Message(MessageSegment.reply(event.message_id) + MessageSegment.image(result_img))
     )
-
