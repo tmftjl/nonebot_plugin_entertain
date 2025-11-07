@@ -28,6 +28,7 @@ from nonebot.log import logger
 from ...core.framework.registry import Plugin
 from ...core.framework.perm import PermLevel, PermScene
 from .manager import chat_manager
+from .models import ChatSession
 from .config import get_config, get_personas, reload_all, save_config, CFG
 from .tools import list_tools as ai_list_tools
 
@@ -265,10 +266,13 @@ async def handle_info(event: MessageEvent):
     status = "启用" if session.is_active else "停用"
     cfg_now = get_config()
     rounds = int(getattr(cfg_now.session, "max_rounds", 8) or 8)
+    # 提取服务商信息
+    provider = getattr(session, "provider_name", None) or (getattr(getattr(cfg_now, "session", None), "api_active", "") or "(默认)")
     info_text = (
         f"📌 会话信息\n"
         f"会话 ID: {session.session_id}\n"
         f"状态: {status}\n"
+        f"服务商: {provider}\n"
         f"人格: {persona.name if persona else session.persona_name}\n"
         f"记忆轮数: {rounds}\n"
         f"更新时间: {session.updated_at[:10]}"
@@ -373,11 +377,24 @@ async def handle_api_list(event: MessageEvent):
     if not providers:
         await api_list_cmd.finish("暂无服务商配置")
 
-    active = getattr(getattr(cfg, "session", None), "api_active", "") or ""
+    active_default = getattr(getattr(cfg, "session", None), "api_active", "") or ""
+    # 当前会话设置
+    try:
+        session_id = get_session_id(event)
+        sess = await chat_manager.get_session_info(session_id)
+        active_session = getattr(sess, "provider_name", None) or "(默认)"
+    except Exception:
+        active_session = "(未知)"
+
     lines = []
     for name, item in providers.items():
         model = getattr(item, "model", "")
-        mark = "（当前）" if name == active else ""
+        marks = []
+        if name == active_default:
+            marks.append("默认")
+        if name == (active_session if active_session != "(默认)" else active_default):
+            marks.append("本会话")
+        mark = f"（{'，'.join(marks)}）" if marks else ""
         lines.append(f"- {name}{mark} | 模型: {model}")
 
     info_text = "\n".join(["🧰 服务商列表", *lines])
@@ -409,10 +426,103 @@ async def handle_switch_api(event: MessageEvent):
         available = ", ".join(names) if names else ""
         await switch_api_cmd.finish(f"服务商不存在\n可用: {available}")
 
+    # 仅切换本会话
+    session_id = get_session_id(event)
+    ok = await ChatSession.update_provider(session_id=session_id, provider_name=target)
+    if ok:
+        await switch_api_cmd.finish(f"✓ 已将本会话切换到服务商 {target}")
+    else:
+        await switch_api_cmd.finish("× 切换失败：未找到会话")
+
+# 全局切换服务商（超管）：更新默认并将所有会话服务商字段改为该值
+switch_api_global_cmd = P.on_regex(
+    r"^#?全局切换服务商\s*(.+)$",
+    name="ai_switch_api_global",
+    display_name="全局切换服务商",
+    priority=5,
+    block=True,
+    level=PermLevel.SUPERUSER,
+)
+
+
+@switch_api_global_cmd.handle()
+async def handle_switch_api_global(event: MessageEvent):
+    plain_text = event.get_plaintext()
+    m = re.search(r"^#?全局切换服务商\s*(.+)$", plain_text)
+    if not m:
+        await switch_api_global_cmd.finish("内部错误：无法解析服务商名称")
+        return
+    target = m.group(1).strip()
+    cfg = get_config()
+    names = list((getattr(cfg, "api", {}) or {}).keys())
+    if target not in names:
+        available = ", ".join(names) if names else ""
+        await switch_api_global_cmd.finish(f"服务商不存在\n可用: {available}")
+    # 更新默认
     cfg.session.api_active = target
     save_config(cfg)
+    # 更新所有会话
+    _ = await ChatSession.update_provider_for_all(provider_name=target)
     chat_manager.reset_client()
-    await switch_api_cmd.finish(f"✓ 已切换到服务商 {target}")
+    await switch_api_global_cmd.finish(f"✓ 已全局切换服务商为 {target}")
+
+# 指定群切换服务商（格式：切换群<群号>服务商 <名称>），超管
+switch_api_group_cmd = P.on_regex(
+    r"^#?切换群(\d+)服务商\s*(\S+)$",
+    name="ai_switch_api_group",
+    display_name="切换群服务商",
+    priority=5,
+    block=True,
+    level=PermLevel.SUPERUSER,
+)
+
+
+@switch_api_group_cmd.handle()
+async def handle_switch_api_group(event: MessageEvent):
+    plain_text = event.get_plaintext()
+    m = re.search(r"^#?切换群(\d+)服务商\s*(\S+)$", plain_text)
+    if not m:
+        await switch_api_group_cmd.finish("格式：切换群<群号>服务商 <名称>")
+        return
+    gid = m.group(1)
+    target = m.group(2)
+    cfg = get_config()
+    names = list((getattr(cfg, "api", {}) or {}).keys())
+    if target not in names:
+        available = ", ".join(names) if names else ""
+        await switch_api_group_cmd.finish(f"服务商不存在\n可用: {available}")
+    sid = f"group_{gid}"
+    ok = await ChatSession.update_provider(session_id=sid, provider_name=target)
+    await switch_api_group_cmd.finish("✓ 已切换" + (f"群{gid}" if gid else "该群") + f"服务商为 {target}")
+
+# 指定私聊切换服务商（格式：#切换私<QQ>服务商 <名称>），超管
+switch_api_private_cmd = P.on_regex(
+    r"^#?切换私(\d+)服务商\s*(\S+)$",
+    name="ai_switch_api_private",
+    display_name="切换私聊服务商",
+    priority=5,
+    block=True,
+    level=PermLevel.SUPERUSER,
+)
+
+
+@switch_api_private_cmd.handle()
+async def handle_switch_api_private(event: MessageEvent):
+    plain_text = event.get_plaintext()
+    m = re.search(r"^#?切换私(\d+)服务商\s*(\S+)$", plain_text)
+    if not m:
+        await switch_api_private_cmd.finish("格式：#切换私<QQ>服务商 <名称>")
+        return
+    uid = m.group(1)
+    target = m.group(2)
+    cfg = get_config()
+    names = list((getattr(cfg, "api", {}) or {}).keys())
+    if target not in names:
+        available = ", ".join(names) if names else ""
+        await switch_api_private_cmd.finish(f"服务商不存在\n可用: {available}")
+    sid = f"private_{uid}"
+    ok = await ChatSession.update_provider(session_id=sid, provider_name=target)
+    await switch_api_private_cmd.finish(f"✓ 已切换私{uid}服务商为 {target}")
 
 
 # ==================== 系统管理 ====================

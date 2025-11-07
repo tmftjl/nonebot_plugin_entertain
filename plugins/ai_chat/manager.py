@@ -76,7 +76,9 @@ class ChatManager:
     """AI 对话核心管理（去除好感度，加入前后钩子）"""
 
     def __init__(self):
+        # 多服务商客户端缓存：{ provider_name: AsyncOpenAI }
         self.client: Optional[AsyncOpenAI] = None
+        self.clients: Dict[str, AsyncOpenAI] = {}
         self._session_locks: Dict[str, asyncio.Lock] = {}
         self._history_locks: Dict[str, asyncio.Lock] = {}
         self.reset_client()
@@ -86,21 +88,13 @@ class ChatManager:
             self.ltm = ChatroomMemory(max_cnt=200)
 
     def reset_client(self) -> None:
-        """根据当前配置重建 OpenAI 客户端"""
+        """清空客户端缓存，根据会话按需创建。"""
 
         cfg = get_config()
         try:
-            active_api = get_active_api()
-            if not active_api.api_key:
-                self.client = None
-                logger.warning("[AI Chat] OpenAI 未配置 API Key，已禁用对话能力")
-                return
-            self.client = AsyncOpenAI(
-                api_key=active_api.api_key,
-                base_url=active_api.base_url,
-                timeout=active_api.timeout,
-            )
-            logger.debug("[AI Chat] OpenAI 客户端已初始化")
+            self.client = None
+            self.clients = {}
+            logger.debug("[AI Chat] 已清空 OpenAI 客户端缓存")
             try:
                 if hasattr(self, "ltm") and self.ltm:
                     self.ltm.max_cnt = max(1, int(cfg.session.chatroom_history_max_lines))
@@ -108,28 +102,42 @@ class ChatManager:
                 pass
         except Exception as e:
             self.client = None
-            logger.error(f"[AI Chat] OpenAI 客户端初始化失败: {e}")
+            self.clients = {}
+            logger.error(f"[AI Chat] 客户端缓存重置失败: {e}")
+
+    def _get_client_for(self, provider_name: Optional[str]) -> Optional[AsyncOpenAI]:
+        from .config import get_api_by_name
+        try:
+            key = (provider_name or "").strip() or "__default__"
+            if key in self.clients:
+                return self.clients[key]
+            api = get_api_by_name(provider_name)
+            if not api or not api.api_key:
+                return None
+            cli = AsyncOpenAI(api_key=api.api_key, base_url=api.base_url, timeout=api.timeout)
+            self.clients[key] = cli
+            return cli
+        except Exception:
+            return None
 
     def _get_session_lock(self, session_id: str) -> asyncio.Lock:
         if session_id not in self._session_locks:
             self._session_locks[session_id] = asyncio.Lock()
         return self._session_locks[session_id]
 
-    def _get_active_api_flags(self) -> tuple[bool, bool]:
-        """Return (support_tools, support_vision) for current active API.
+    def _get_active_api_flags(self, provider_name: Optional[str]) -> tuple[bool, bool]:
+        """Return (support_tools, support_vision) for given provider.
 
         Falls back to (True, True) when not configured.
         """
         try:
-            # Load raw config to preserve unknown keys
             raw = CFG.load() or {}
             apis = dict(raw.get("api") or {})
-            cfg = get_config()
-            active = (getattr(cfg.session, "api_active", "") or "").strip()
-            if not active or active not in apis:
+            key = (provider_name or "").strip()
+            if not key or key not in apis:
                 if apis:
-                    active = next(iter(apis.keys()))
-            provider = dict(apis.get(active) or {})
+                    key = next(iter(apis.keys()))
+            provider = dict(apis.get(key) or {})
             support_tools = bool(provider.get("support_tools", True))
             support_vision = bool(provider.get("support_vision", True))
             return support_tools, support_vision
@@ -247,8 +255,14 @@ class ChatManager:
         兼容纯文本返回 str。
         """
 
-        if not self.client:
-            return "AI 未配置或暂不可用"
+        # 选择本会话服务商（若未设置则使用默认）
+        cfg_for_provider = get_config()
+        current_provider = None
+        try:
+            # 会话为空则后面从配置与 providers 字典兜底
+            pass
+        except Exception:
+            pass
 
         lock = self._get_session_lock(session_id)
         async with lock:
@@ -277,8 +291,13 @@ class ChatManager:
                     await self._maybe_update_summary(session, history)
                 except Exception:
                     pass
+                # 计算会话服务商与能力
+                current_provider = getattr(session, "provider_name", None) or getattr(get_config().session, "api_active", "")
+                client = self._get_client_for(current_provider)
+                if not client:
+                    return "AI 未配置或暂不可用"
                 # Capability-based input gating
-                support_tools, support_vision = self._get_active_api_flags()
+                support_tools, support_vision = self._get_active_api_flags(current_provider)
                 if (images and not support_vision) and (not message or not str(message).strip()):
                     return "当前模型不支持识别图片"
                 messages = self._build_messages(
@@ -297,7 +316,8 @@ class ChatManager:
                 default_tools = None
                 if getattr(cfg, "tools", None) and cfg.tools.enabled and support_tools:
                     default_tools = get_enabled_tools(cfg.tools.builtin_tools)
-                default_model = get_active_api().model or "gpt-4o-mini"
+                from .config import get_api_by_name
+                default_model = get_api_by_name(current_provider).model or "gpt-4o-mini"
                 default_temperature = cfg.session.default_temperature
 
                 overrides = await run_pre_ai_hooks(
@@ -324,6 +344,7 @@ class ChatManager:
                     model=model,
                     temperature=temperature,
                     tools=tools,
+                    client=client,
                 )
 
                 response = await run_post_ai_hooks(
@@ -470,9 +491,15 @@ class ChatManager:
                 context.append({"role": role, "content": content})
             sys_prompt = "请用中文将以下对话要点进行简洁摘要，50-150 字，突出人物、事件、事实，不要赘述。"
             msgs = [{"role": "system", "content": sys_prompt}] + context
-            model_s = get_active_api().model or "gpt-4o-mini"
+            # 使用该会话服务商进行摘要
+            from .config import get_api_by_name
+            provider_for_session = getattr(session, "provider_name", None)
+            model_s = get_api_by_name(provider_for_session).model or "gpt-4o-mini"
             temp_s = get_config().session.default_temperature
-            resp = await self.client.chat.completions.create(model=model_s, messages=msgs, temperature=temp_s)
+            client_s = self._get_client_for(provider_for_session)
+            if not client_s:
+                return
+            resp = await client_s.chat.completions.create(model=model_s, messages=msgs, temperature=temp_s)
             summary = resp.choices[0].message.content or ""
             import json as _json2
             cfg_json["memory_summary"] = summary
@@ -489,22 +516,24 @@ class ChatManager:
         model: Optional[str] = None,
         temperature: Optional[float] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        client: Optional[AsyncOpenAI] = None,
     ) -> str:
         """调用 OpenAI 聊天接口，包含工具调用处理"""
 
-        if not self.client:
+        if not client:
             return "AI 未配置或暂不可用"
 
         cfg = get_config()
         # Determine capability gating
-        support_tools, _ = self._get_active_api_flags()
+        support_tools, _ = self._get_active_api_flags(getattr(session, "provider_name", None))
         if tools is None:
             if getattr(cfg, "tools", None) and cfg.tools.enabled and support_tools:
                 tools = get_enabled_tools(cfg.tools.builtin_tools)
             else:
                 tools = None
         if model is None:
-            model = get_active_api().model or "gpt-4o-mini"
+            from .config import get_api_by_name
+            model = get_api_by_name(getattr(session, "provider_name", None)).model or "gpt-4o-mini"
         if temperature is None:
             temperature = cfg.session.default_temperature
 
@@ -512,7 +541,7 @@ class ChatManager:
         _kwargs: Dict[str, Any] = {"model": model, "messages": messages, "temperature": temperature}
         if tools and getattr(cfg, "tools", None) and cfg.tools.enabled and support_tools:
             _kwargs["tools"] = tools
-        current_response = await self.client.chat.completions.create(**_kwargs)
+        current_response = await client.chat.completions.create(**_kwargs)
 
         max_iterations = (
             cfg.tools.max_iterations
@@ -560,7 +589,7 @@ class ChatManager:
             _kwargs2: Dict[str, Any] = {"model": model, "messages": messages, "temperature": temperature}
             if tools and getattr(cfg, "tools", None) and cfg.tools.enabled and support_tools:
                 _kwargs2["tools"] = tools
-            current_response = await self.client.chat.completions.create(**_kwargs2)
+            current_response = await client.chat.completions.create(**_kwargs2)
 
             iteration += 1
 

@@ -479,6 +479,19 @@ def get_active_api() -> APIItem:
     return apis[first_key]
 
 
+def get_api_by_name(name: Optional[str]) -> APIItem:
+    """按名称获取服务商配置；名称为空或不存在时返回第一个可用服务商。"""
+    cfg = get_config()
+    apis: Dict[str, APIItem] = dict(getattr(cfg, "api", {}) or {})
+    if not apis:
+        return APIItem()
+    key = (name or "").strip()
+    if key and key in apis:
+        return apis[key]
+    first_key = next(iter(apis.keys()))
+    return apis[first_key]
+
+
 # ==================== 人格：目录化实现 ====================
 
 
