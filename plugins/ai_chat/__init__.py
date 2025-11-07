@@ -36,7 +36,7 @@ try:
     active_api = get_active_api()
     if not active_api.api_key:
         logger.warning(
-            "[AI Chat] ⚠️ 未配置 OpenAI API 密钥，请在配置文件中 api 字典与 session.api_active 对应项设置 api_key，并确保已选择有效的 session.api_active\n"
+            "[AI Chat] ⚠️ 未配置 OpenAI API 密钥，请在配置文件中 api 字典与 session.default_provider 对应项设置 api_key，并确保已选择有效的 session.default_provider\n"
             f"配置文件位置: {get_config_path()}"
         )
     else:

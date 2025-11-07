@@ -33,7 +33,7 @@ class APIItem(BaseModel):
 
 
 class SessionConfig(BaseModel):
-    api_active: str = Field(default="", description="当前服务商（名称）")
+    default_provider: str = Field(default="", description="默认服务商（名称）")
     default_temperature: float = Field(default=0.7, description="默认温度")
     max_rounds: int = Field(default=8, description="最大轮数（user+assistant 计一轮）")
     chatroom_history_max_lines: int = Field(default=200, description="聊天室历史行数上限（内存）")
@@ -113,7 +113,7 @@ class PersonaConfig(BaseModel):
 DEFAULTS: Dict[str, Any] = {
     "api": {},
     "session": {
-        "api_active": "",
+        "default_provider": "",
         "default_temperature": 0.7,
         "max_rounds": 8,
         "chatroom_history_max_lines": 200,
@@ -184,7 +184,7 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
             "x-order": 4,
             "x-collapse": True,
             "properties": {
-                "api_active": {"type": "string", "title": "当前服务商", "x-order": 1},
+                "default_provider": {"type": "string", "title": "默认服务商", "x-order": 1},
                 "default_temperature": {"type": "number", "title": "默认温度", "minimum": 0, "maximum": 2, "x-order": 2},
                 "max_rounds": {"type": "integer", "title": "最大轮数", "minimum": 1, "maximum": 50, "x-order": 3},
                 "chatroom_history_max_lines": {"type": "integer", "title": "聊天室历史行数", "minimum": 1, "maximum": 5000, "x-order": 4},
@@ -416,14 +416,14 @@ def load_config() -> AIChatConfig:
     try:
         data = CFG.load() or {}
         _config = AIChatConfig(**data)
-        # 规范化：若存在服务商但未设置/设置了无效的 api_active，则设置为第一个键
+        # 规范化：若存在服务商但未设置/设置了无效的 default_provider，则设置为第一个键
         try:
             apis = _config.api or {}
             if apis:
                 names = list(apis.keys())
-                active = (_config.session.api_active or "").strip()
+                active = (_config.session.default_provider or "").strip()
                 if not active or active not in apis:
-                    _config.session.api_active = names[0]
+                    _config.session.default_provider = names[0]
                     CFG.save(_config.model_dump())
         except Exception:
             pass
@@ -472,7 +472,7 @@ def get_active_api() -> APIItem:
     apis: Dict[str, APIItem] = dict(getattr(cfg, "api", {}) or {})
     if not apis:
         return APIItem()
-    active_name = getattr(cfg.session, "api_active", None) or ""
+    active_name = getattr(cfg.session, "default_provider", None) or ""
     if active_name in apis:
         return apis[active_name]
     first_key = next(iter(apis.keys()))

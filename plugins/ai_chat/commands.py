@@ -267,7 +267,7 @@ async def handle_info(event: MessageEvent):
     cfg_now = get_config()
     rounds = int(getattr(cfg_now.session, "max_rounds", 8) or 8)
     # 提取服务商信息
-    provider = getattr(session, "provider_name", None) or (getattr(getattr(cfg_now, "session", None), "api_active", "") or "(默认)")
+    provider = getattr(session, "provider_name", None) or (getattr(getattr(cfg_now, "session", None), "default_provider", "") or "(默认)")
     info_text = (
         f"📌 会话信息\n"
         f"会话 ID: {session.session_id}\n"
@@ -377,7 +377,7 @@ async def handle_api_list(event: MessageEvent):
     if not providers:
         await api_list_cmd.finish("暂无服务商配置")
 
-    active_default = getattr(getattr(cfg, "session", None), "api_active", "") or ""
+    active_default = getattr(getattr(cfg, "session", None), "default_provider", "") or ""
     # 当前会话设置
     try:
         session_id = get_session_id(event)
@@ -459,7 +459,7 @@ async def handle_switch_api_global(event: MessageEvent):
         available = ", ".join(names) if names else ""
         await switch_api_global_cmd.finish(f"服务商不存在\n可用: {available}")
     # 更新默认
-    cfg.session.api_active = target
+    cfg.session.default_provider = target
     save_config(cfg)
     # 更新所有会话
     _ = await ChatSession.update_provider_for_all(provider_name=target)

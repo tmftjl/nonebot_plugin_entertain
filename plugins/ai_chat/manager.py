@@ -23,7 +23,7 @@ def _track_bg(task: asyncio.Task) -> None:
     _BG_TASKS.add(task)
     task.add_done_callback(lambda t: _BG_TASKS.discard(t))
 
-from .config import get_config, get_personas, get_active_api, CFG
+from .config import get_config, get_personas, CFG
 from .models import ChatSession
 from .tools import get_enabled_tools, execute_tool
 from .hooks import run_pre_ai_hooks, run_post_ai_hooks
@@ -292,7 +292,7 @@ class ChatManager:
                 except Exception:
                     pass
                 # 计算会话服务商与能力
-                current_provider = getattr(session, "provider_name", None) or getattr(get_config().session, "api_active", "")
+                current_provider = getattr(session, "provider_name", None) or getattr(get_config().session, "default_provider", "")
                 client = self._get_client_for(current_provider)
                 if not client:
                     return "AI 未配置或暂不可用"
