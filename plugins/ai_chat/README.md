@@ -95,7 +95,7 @@ description: 友善、耐心、表达清晰
 
 你是一位友善且表达清晰的 AI 助手，回答简洁、条理分明。
 ```
-- 初次运行目录为空时会写入示例人格：`default.md`、`tsundere.md`、`professional.md`。
+- 初次运行目录为空时仅写入示例人格：`default.md`。
 - 切换人格：`#切换人格 default`（管理员）。
 
 工具调用（Function Calling + MCP）
@@ -202,4 +202,3 @@ TTS 语音输出
 
 开源与贡献
 - 欢迎提交 Issue 与 PR 来完善功能与文档。
-

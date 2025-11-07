@@ -270,9 +270,8 @@ async def handle_info(event: MessageEvent):
         f"会话 ID: {session.session_id}\n"
         f"状态: {status}\n"
         f"人格: {persona.name if persona else session.persona_name}\n"
-        f"记忆轮数: {rounds}（历史保留约 {rounds} 轮）\n"
-        f"创建时间: {session.created_at[:19]}\n"
-        f"更新时间: {session.updated_at[:19]}"
+        f"记忆轮数: {rounds}\n"
+        f"更新时间: {session.updated_at[:10]}"
     )
     await info_cmd.finish(info_text)
 

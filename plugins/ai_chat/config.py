@@ -360,6 +360,21 @@ def _parse_front_matter(text: str) -> Tuple[Dict[str, str], str]:
     return meta, body
 
 
+def _ensure_default_persona_only(dir_path: Path) -> None:
+    """Create only `default.md` when it's missing; no other samples."""
+    try:
+        content = (
+            "---\n"
+            "name: 默认助手\n"
+            "---\n\n"
+            "你是一个友好、耐心且乐于助人的 AI 助手。回答简洁清晰，有同理心"
+        )
+        p = dir_path / "default.md"
+        if not p.exists():
+            p.write_text(content, encoding="utf-8")
+    except Exception:
+        pass
+
 def _ensure_default_personas(dir_path: Path) -> None:
     try:
         samples: Dict[str, str] = {
@@ -483,7 +498,7 @@ def load_personas() -> Dict[str, PersonaConfig]:
         has_supported = False
     if not has_supported:
         logger.info("[AI Chat] 人格目录为空，写入示例人格")
-        _ensure_default_personas(dir_path)
+        _ensure_default_persona_only(dir_path)
 
     rank = {".md": 0, ".txt": 1, ".docx": 2}
     files = [f for f in dir_path.glob("*") if f.is_file() and f.suffix.lower() in SUPPORTED_PERSONA_EXTS]
@@ -510,6 +525,22 @@ def load_personas() -> Dict[str, PersonaConfig]:
             logger.warning(f"[AI Chat] 人格文件内容为空，已跳过: {fp.name}")
             continue
         personas[key] = PersonaConfig(name=name, details=details)
+
+    # Ensure 'default' persona exists; create and load if missing
+    if "default" not in personas:
+        try:
+            default_fp = dir_path / "default.md"
+            if not default_fp.exists():
+                _ensure_default_persona_only(dir_path)
+            if default_fp.exists():
+                raw = _read_text_file(default_fp)
+                meta, body = _parse_front_matter(raw)
+                name = meta.get("name") or "default"
+                details = (body or "").strip()
+                if details:
+                    personas["default"] = PersonaConfig(name=name, details=details)
+        except Exception:
+            pass
 
     if not personas:
         personas = {
@@ -553,3 +584,7 @@ def reload_all() -> None:
 
 
 register_reload_callback("ai_chat", reload_all)
+
+# Backward-compat: override legacy sample writer to only create `default`
+def _ensure_default_personas(dir_path: Path) -> None:  # type: ignore[func-override]
+    _ensure_default_persona_only(dir_path)

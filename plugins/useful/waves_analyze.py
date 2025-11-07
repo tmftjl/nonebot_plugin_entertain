@@ -12,7 +12,7 @@ from nonebot.adapters.onebot.v11 import (
     MessageEvent,
     MessageSegment,
 )
-
+from nonebot.log import logger
 from ...core.api import Plugin
 from ...core.http import get_shared_async_client
 from ..group_admin.utils import get_target_message_id
@@ -26,7 +26,7 @@ TOKEN = "f3e6d1d382925f0c63bd296e3e92a314"
 
 P = Plugin(name="useful", display_name="有用")
 waves_analyze_cmd = P.on_regex(
-    r"^ww(?:分析|评分)\s*(.*)$",
+    r"^ww分析\s*(.+)$",
     name="waves_analyze",
     display_name="鸣潮分析评分",
     block=True,
@@ -101,9 +101,9 @@ async def _extract_sources_with_bot(bot: Bot, msg: Message) -> List[str]:
     out: List[str] = []
     try:
         for seg in msg:
-            if seg.type != "image":
+            if seg["type"] != "image":
                 continue
-            data = seg.data or {}
+            data = seg["data"] or {}
             url = str((data.get("url") or "")).strip()
             if url:
                 out.append(url)
@@ -120,7 +120,8 @@ async def _extract_sources_with_bot(bot: Bot, msg: Message) -> List[str]:
                 except Exception:
                     # 兜底：直接当成本地路径尝试
                     out.append(file_)
-    except Exception:
+    except Exception as e:
+        logger.error(f"消息解析失败: {e}")
         pass
     return out
 
@@ -139,12 +140,9 @@ async def _get_images_from_event_or_reply(bot: Bot, event: MessageEvent) -> List
             return []
         data = await bot.get_msg(message_id=mid)  # type: ignore[arg-type]
         raw = data.get("message") if isinstance(data, dict) else None
-        if isinstance(raw, (str, list)) and raw:
-            quoted_msg = Message(raw)
-            return await _extract_sources_with_bot(bot, quoted_msg)
+        return await _extract_sources_with_bot(bot, raw)
     except Exception:
         return []
-    return []
 
 
 @waves_analyze_cmd.handle()
@@ -155,37 +153,12 @@ async def _handle(
 ):
     # 使用 plain_text 手动解析参数
     plain_text = event.get_plaintext().strip()
-    m = re.search(r"^ww(?:分析|评分)(?:\s+(.*))?$", plain_text)
-    command_str = (m.group(1).strip() if (m and m.group(1)) else "")
+    m = re.search(r"^ww分析\s*(.+)$", plain_text)
+    command_str = m.group(1).strip()
 
     img_src_list = await _get_images_from_event_or_reply(bot, event)
-
-    if not img_src_list and not command_str:
-        await matcher.finish(
-            Message(
-                MessageSegment.reply(event.message_id)
-                + MessageSegment.text("请发送图片并附带命令，例如：ww分析 土豆 1c（可直接回复带图消息）")
-            )
-        )
-        return
-
     if not img_src_list:
-        await matcher.finish(
-            Message(
-                MessageSegment.reply(event.message_id)
-                + MessageSegment.text("未获取到图片，支持回复/引用带图消息后使用本命令")
-            )
-        )
-        return
-
-    if not command_str:
-        await matcher.finish(
-            Message(
-                MessageSegment.reply(event.message_id)
-                + MessageSegment.text("已获取图片，但未提供命令参数，例如：ww分析 土豆 1c")
-            )
-        )
-        return
+        await matcher.finish("未获取到图片，支持回复/引用带图消息后使用本命令")
 
     # 并发读取图片字节
     tasks = [asyncio.create_task(_fetch_bytes_from_source(src)) for src in img_src_list]
@@ -193,24 +166,15 @@ async def _handle(
     img_bytes_list = [b for b in results if b]
 
     if not img_bytes_list:
-        await matcher.finish(
-            Message(
-                MessageSegment.reply(event.message_id)
-                + MessageSegment.text("未能读取到有效的图片数据")
-            )
-        )
-        return
+        await matcher.finish("未能读取到有效的图片数据")
+
+    if not command_str:
+        await matcher.finish("命令错误，参考：ww分析 土豆 1c")
 
     images_b64 = _encode_images_to_b64(img_bytes_list)
     result_img, tip = await _post_score(images_b64, command_str)
 
     if not result_img:
-        text = tip or "分析失败，请重试"
-        await matcher.finish(
-            Message(MessageSegment.reply(event.message_id) + MessageSegment.text(text))
-        )
-        return
+        await matcher.finish("分析失败，请重试")
 
-    await matcher.finish(
-        Message(MessageSegment.reply(event.message_id) + MessageSegment.image(result_img))
-    )
+    await matcher.finish(Message(MessageSegment.image(result_img)))
