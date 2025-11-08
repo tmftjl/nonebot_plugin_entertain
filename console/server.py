@@ -428,22 +428,22 @@ def setup_web_console() -> None:
         @router.get("/ai_chat/personas")
         async def api_ai_personas(_: dict = Depends(_auth)):
             if not ai_get_personas:
-                raise HTTPException(500, "未找到 AI 对话模块，无法读取人格")
+                raise HTTPException(500, "未找到 AI 对话模块，无法获取人格")
             try:
                 personas = ai_get_personas() or {}
-                # 序列化
-                data: Dict[str, Dict[str, str]] = {}
+                data: Dict[str, str] = {}
                 for k, p in personas.items():
                     try:
-                        data[k] = {
-                            "name": getattr(p, "name", "") or "",
-                            "details": getattr(p, "details", "") or "",
-                        }
+                        data[k] = getattr(p, "details", "") or ""
                     except Exception:
                         continue
+                return {"personas": data}
+            except Exception as e:
+                raise HTTPException(500, f"获取人格失败: {e}")
+
         def _sanitize_persona_key(key: str) -> str:
             s = (key or "").strip()
-            if not s:               
+            if not s:
                 raise HTTPException(400, "名称不能为空")
             if s in {".", ".."}:
                 raise HTTPException(400, "名称非法")
@@ -451,9 +451,8 @@ def setup_web_console() -> None:
             if any(ch in invalid for ch in s):
                 raise HTTPException(400, "名称含有非法字符")
             if s.endswith(" ") or s.endswith("."):
-                raise HTTPException(400, "名称不允许以空格或点结尾")
+                raise HTTPException(400, "名称不能以空格或点结尾")
             return s
-
         def _write_persona_file(dir_path: Path, key: str, system_prompt: str) -> None:
             # 写入 Markdown（带 front matter）
             content = (
@@ -479,14 +478,13 @@ def setup_web_console() -> None:
             """创建人格（仅名称 + 详情）"""
             if not ai_get_personas_dir or not ai_reload_ai_configs:
                 raise HTTPException(500, "未找到 AI 对话模块，无法创建人格")
-            name_raw = str(payload.get("name") or "").strip()
-            if not name_raw:
-                raise HTTPException(400, "名称不能为空")
-            key = _sanitize_persona_key(name_raw)
-            name = name_raw
-            details = str(payload.get("details") or "").strip()
+            key_raw = str(payload.get("key") or "").strip()
+            if not key_raw:
+                raise HTTPException(400, "代号不能为空")
+            key = _sanitize_persona_key(key_raw)
+            details = str(payload.get("desc") or "").strip()
             if not details:
-                raise HTTPException(400, "详情不能为空")
+                raise HTTPException(400, "描述不能为空")
         
             dir_path = ai_get_personas_dir()
             # 检查同名（不同扩展名）
@@ -495,7 +493,7 @@ def setup_web_console() -> None:
                     raise HTTPException(400, "同名人格已存在")
         
             try:
-                _write_persona_file(dir_path, k, details)
+                _write_persona_file(dir_path, key, details)
                 ai_reload_ai_configs()
                 return {"success": True}
             except Exception as e:
@@ -514,7 +512,7 @@ def setup_web_console() -> None:
             _remove_persona_files(dir_path, k)
             # 写入新文件
             try:
-                details = str(payload.get("desc") or payload.get("details") or "").strip()
+                details = str(payload.get("desc") or "").strip()
                 if not details:
                     raise HTTPException(400, "详情不能为空")
                 _write_persona_file(dir_path, k, details)
@@ -749,4 +747,5 @@ def setup_web_console() -> None:
         logger.info("member_renewal Web 控制台已挂载 /member_renewal")
     except Exception as e:
         logger.warning(f"member_renewal Web 控制台挂载失败: {e}")
+
 

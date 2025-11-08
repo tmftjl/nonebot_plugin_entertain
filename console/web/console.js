@@ -1946,10 +1946,10 @@ function renderPersonasTable(){
     tbody.innerHTML = '<tr><td colspan="4" class="text-center">暂无人格</td></tr>';
     return;
   }
-  const html = entries.map(([key, p])=>{
-    const name = (p && p.name) || '';
+  const html = entries.map(([key, desc])=>{
+    const display = key; // 代号即文件名
     return `<tr>
-      <td>${escapeHtml(name)}</td>
+      <td>${escapeHtml(display)}</td>
       <td>
         <button class="btn btn-secondary btn-sm persona-edit" data-key="${escapeHtml(key)}">编辑</button>
         <button class="btn btn-danger btn-sm persona-delete" data-key="${escapeHtml(key)}">删除</button>
@@ -1977,10 +1977,10 @@ function openPersonaModal(mode='create', key=''){
   if(descInput){ const g1 = descInput.closest('.form-group-modern'); if(g1) g1.style.display='none'; }
   if(spInput){ const g2 = spInput.closest('.form-group-modern'); if(g2) g2.style.display=''; }
   if(mode==='edit' && key && state.personas[key]){
-    const p = state.personas[key];
+    const p = state.personas[key]; // p 为描述文本
     if(keyInput) keyInput.value = key;
-    if(nameInput) nameInput.value = p.name || '';
-    if(spInput) spInput.value = p.details || '';
+    if(nameInput) nameInput.value = '';
+    if(spInput) spInput.value = p || '';
   }else{
     if(keyInput) keyInput.value = '';
     if(nameInput) nameInput.value = '';
@@ -1990,24 +1990,24 @@ function openPersonaModal(mode='create', key=''){
 }
 
 async function savePersonaFromModal(){
-  const name = ($('#persona-name')?.value||'').trim();
-  const content = ($('#persona-system-prompt')?.value||'').trim();
-  if(!name){ showToast('名称不能为空', 'warning'); return; }
-  if(!content){ showToast('详情不能为空', 'warning'); return; }
+  const key = (document.querySelector("#persona-key")?.value||"").trim();
+  const content = (document.querySelector("#persona-system-prompt")?.value||"").trim();
+  if(!content){ showToast("内容不能为空", "warning"); return; }
   try{
     showLoading(true);
-    if(personaModalMode==='edit'){
-      const payload = { name, details: content };
+    if(personaModalMode==="edit"){
+      const payload = { desc: content };
       await apiPersonaUpdate(personaEditingKey, payload);
-      showToast('人格已更新', 'success');
+      showToast("人格已更新", "success");
     }else{
-      await apiPersonaCreate({ name, details: content });
-      showToast('人格已创建', 'success');
+      if(!key){ showToast("代号不能为空", "warning"); return; }
+      await apiPersonaCreate({ key, desc: content });
+      showToast("人格已创建", "success");
     }
     closePersonaModal();
     await loadPersonas();
   }catch(e){
-    showToast('保存失败: '+(e && e.message ? e.message : e), 'error');
+    showToast("操作失败: "+(e && e.message ? e.message : e), "error");
   }finally{
     showLoading(false);
   }
