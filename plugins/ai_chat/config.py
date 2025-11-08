@@ -1,4 +1,4 @@
-"""AI 对话配置与人格文件管理（UTF-8）
+﻿"""AI 对话配置与人格文件管理（UTF-8）
 
 - 统一落盘目录：config/ai_chat/
 - 人格“目录化”管理：config/ai_chat/personas 下的 .md/.txt/.docx 文件
@@ -283,6 +283,7 @@ register_plugin_schema("ai_chat", AI_CHAT_SCHEMA)
 
 
 _config: Optional[AIChatConfig] = None
+_personas: Dict[str, "PersonaConfig"] = {}
 
 
 def get_config_dir() -> Path:
@@ -320,6 +321,11 @@ def _ensure_default(dir_path: Path) -> None:
             p.write_text(content, encoding="utf-8")
     except Exception:
         pass
+
+
+def _ensure_default_persona_only(dir_path: Path) -> None:
+    """当目录为空时，仅创建 default.md 示例文件。"""
+    _ensure_default(dir_path)
 
 
 def _collect_persona_files(dir_path: Path) -> Dict[str, Path]:
@@ -385,23 +391,7 @@ def save_persona_text(name: str, text: str) -> Path:
     return path
 
 
-def rename_persona(old_name: str, new_name: str) -> bool:
-    """重命名人格（修改文件名）。若 new_name 已存在则返回 False。"""
-    dir_path = get_personas_dir()
-    files = _collect_persona_files(dir_path)
-    if old_name not in files:
-        return False
-    if new_name in files:
-        return False
-    src = files[old_name]
-    dst = src.with_name(f"{new_name}{src.suffix}")
-    try:
-        src.rename(dst)
-        logger.info(f"[AI Chat] 人格重命名: {old_name} -> {new_name}")
-        return True
-    except Exception as e:
-        logger.error(f"[AI Chat] 人格重命名失败: {e}")
-        return False
+# 禁用重命名：仅允许修改内容
 
 
 # ==================== 配置读写 ====================
@@ -541,34 +531,34 @@ def load_personas() -> Dict[str, PersonaConfig]:
             continue
 
         meta, body = _parse_front_matter(raw)
-        name = meta.get("name") or key
+        name = key
         details = body.strip()
         if not details:
             logger.warning(f"[AI Chat] 人格文件内容为空，已跳过: {fp.name}")
             continue
         personas[key] = PersonaConfig(name=name, details=details)
 
-    # Ensure '默认人格' persona exists; create and load if missing
-    if "默认人格" not in personas:
+    # Ensure 'default' persona exists; create and load if missing
+    if "default" not in personas:
         try:
-            default_fp = dir_path / "默认人格.md"
+            default_fp = dir_path / "default.md"
             if not default_fp.exists():
                 _ensure_default_persona_only(dir_path)
             if default_fp.exists():
                 raw = _read_text_file(default_fp)
                 meta, body = _parse_front_matter(raw)
-                name = meta.get("name") or "默认人格"
+                name = "default"
                 details = (body or "").strip()
                 if details:
-                    personas["默认人格"] = PersonaConfig(name=name, details=details)
+                    personas["default"] = PersonaConfig(name=name, details=details)
         except Exception:
             pass
 
     if not personas:
         personas = {
-            "默认人格": PersonaConfig(
-                name="默认人格",
-                details=("你是一个友好、耐心且乐于助人的 AI 助手。回答简洁清晰，有同理心。"),
+            "default": PersonaConfig(
+                name="default",
+                details=("你是一个友好、耐心且乐于助人的 AI 助手。请保持回答简洁清晰，并具备同理心。"),
             )
         }
 
@@ -608,9 +598,20 @@ def get_personas() -> Dict[str, PersonaConfig]:
     return personas
 
 
+
+def get_personas() -> Dict[str, PersonaConfig]:
+    """返回缓存的人格映射；为空时触发一次加载（key=文件名，details=文件内容）。"""
+    global _personas
+    if not _personas:
+        _personas = load_personas()
+    return _personas
 def reload_all() -> None:
     global _config
     _config = load_config()
+    try:
+        load_personas()
+    except Exception:
+        pass
     logger.info("[AI Chat] 配置已重载（人格基于文件名，实时从磁盘读取）")
 
 

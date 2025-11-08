@@ -408,7 +408,7 @@ class ChatManager:
         messages: List[Dict[str, Any]] = []
 
         personas = get_personas()
-        persona = personas.get(session.persona_name) or personas.get("默认人格") or next(iter(personas.values()))
+        persona = personas.get(session.persona_name) or personas.get("default") or next(iter(personas.values()))
         system_prompt = persona.details
 
         if active_reply and chatroom_history:
@@ -746,6 +746,7 @@ class ChatManager:
 # ==================== 全局实例 ====================
 
 chat_manager = ChatManager()
+
 
 
 
