@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Dict, Optional, List
-
+import zipfile
+import xml.etree.ElementTree as ET
 from nonebot.log import logger
 from pydantic import BaseModel, Field
 
@@ -493,6 +494,57 @@ def get_api_by_name(name: Optional[str]) -> APIItem:
 
 # ==================== 人格：目录化实现 ====================
 
+def _read_text_file(path: Path) -> str:
+    return path.read_text(encoding="utf-8", errors="ignore")
+
+
+def _read_docx_text(path: Path) -> str:
+    try:
+        with zipfile.ZipFile(path) as z:
+            xml_bytes = z.read("word/document.xml")
+        ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+        root = ET.fromstring(xml_bytes)
+        lines: List[str] = []
+        for p in root.findall(".//w:p", ns):
+            texts: List[str] = []
+            for t in p.findall(".//w:t", ns):
+                if t.text:
+                    texts.append(t.text)
+            if texts:
+                lines.append("".join(texts))
+        return "\n".join(lines).strip()
+    except Exception:
+        try:
+            return path.read_bytes().decode("utf-8", errors="ignore")
+        except Exception:
+            return ""
+
+
+def _parse_front_matter(text: str) -> Tuple[Dict[str, str], str]:
+    """解析简易 Front Matter（仅 name/description）"""
+    meta: Dict[str, str] = {}
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return meta, text
+    end_idx = None
+    for i in range(1, min(len(lines), 100)):
+        if lines[i].strip() == "---":
+            end_idx = i
+            break
+    if end_idx is None:
+        return meta, text
+    for ln in lines[1:end_idx]:
+        s = ln.strip()
+        if not s or s.startswith("#"):
+            continue
+        if ":" in s:
+            k, v = s.split(":", 1)
+            k = k.strip().lower()
+            v = v.strip().strip('"').strip("'")
+            if k in {"name", "description"}:
+                meta[k] = v
+    body = "\n".join(lines[end_idx + 1 :]).lstrip("\n")
+    return meta, body
 
 def load_personas() -> Dict[str, PersonaConfig]:
     """扫描 config/ai_chat/personas 目录，返回 {key: PersonaConfig}
