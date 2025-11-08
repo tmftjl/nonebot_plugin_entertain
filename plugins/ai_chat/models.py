@@ -240,7 +240,7 @@ class ChatSession(BaseIDModel, table=True):
                     continue
             await session.flush()
             return changed
-
+        
     @classmethod
     @with_session
     async def append_history_items(

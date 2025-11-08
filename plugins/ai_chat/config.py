@@ -7,9 +7,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional, List, Tuple
-import zipfile
-import xml.etree.ElementTree as ET
+from typing import Any, Dict, Optional, List
 
 from nonebot.log import logger
 from pydantic import BaseModel, Field
@@ -285,7 +283,6 @@ register_plugin_schema("ai_chat", AI_CHAT_SCHEMA)
 
 
 _config: Optional[AIChatConfig] = None
-_personas: Dict[str, PersonaConfig] = {}
 
 
 def get_config_dir() -> Path:
@@ -304,111 +301,107 @@ def get_personas_dir() -> Path:
     return p
 
 
-# ==================== 人格文件读取 ====================
+"""
+# ==================== 人格（基于文件名） ====================
+"""
+
+SUPPORTED_PERSONA_EXTS = {".md", ".txt"}
 
 
-SUPPORTED_PERSONA_EXTS = {".txt", ".md", ".docx"}
-
-
-def _read_text_file(path: Path) -> str:
-    return path.read_text(encoding="utf-8", errors="ignore")
-
-
-def _read_docx_text(path: Path) -> str:
+def _ensure_default(dir_path: Path) -> None:
+    """确保存在一个叫 default 的文件（优先 default.md）。"""
     try:
-        with zipfile.ZipFile(path) as z:
-            xml_bytes = z.read("word/document.xml")
-        ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
-        root = ET.fromstring(xml_bytes)
-        lines: List[str] = []
-        for p in root.findall(".//w:p", ns):
-            texts: List[str] = []
-            for t in p.findall(".//w:t", ns):
-                if t.text:
-                    texts.append(t.text)
-            if texts:
-                lines.append("".join(texts))
-        return "\n".join(lines).strip()
-    except Exception:
-        try:
-            return path.read_bytes().decode("utf-8", errors="ignore")
-        except Exception:
-            return ""
-
-
-def _parse_front_matter(text: str) -> Tuple[Dict[str, str], str]:
-    """解析简易 Front Matter（仅 name/description）"""
-    meta: Dict[str, str] = {}
-    lines = text.splitlines()
-    if not lines or lines[0].strip() != "---":
-        return meta, text
-    end_idx = None
-    for i in range(1, min(len(lines), 100)):
-        if lines[i].strip() == "---":
-            end_idx = i
-            break
-    if end_idx is None:
-        return meta, text
-    for ln in lines[1:end_idx]:
-        s = ln.strip()
-        if not s or s.startswith("#"):
-            continue
-        if ":" in s:
-            k, v = s.split(":", 1)
-            k = k.strip().lower()
-            v = v.strip().strip('"').strip("'")
-            if k in {"name", "description"}:
-                meta[k] = v
-    body = "\n".join(lines[end_idx + 1 :]).lstrip("\n")
-    return meta, body
-
-
-def _ensure_default_persona_only(dir_path: Path) -> None:
-    """Create only `默认人格.md` when it's missing; no other samples."""
-    try:
-        content = (
-            "---\n"
-            "name: 默认人格\n"
-            "---\n\n"
-            "你是一个友好、耐心且乐于助人的 AI 助手。回答简洁清晰，有同理心"
-        )
-        p = dir_path / "默认人格.md"
+        p = dir_path / "default.md"
         if not p.exists():
+            content = (
+                "你是一个友好、耐心且乐于助人的 AI 助手。"
+                "请保持回答简洁清晰，并具备同理心。"
+            )
             p.write_text(content, encoding="utf-8")
     except Exception:
         pass
 
-def _ensure_default_personas(dir_path: Path) -> None:
+
+def _collect_persona_files(dir_path: Path) -> Dict[str, Path]:
+    """收集人格文件，返回 {stem: Path}，按扩展优先级（.md > .txt）。"""
+    rank = {".md": 0, ".txt": 1}
+    result: Dict[str, Path] = {}
     try:
-        samples: Dict[str, str] = {
-            "default.md": (
-                "---\n"
-                "name: 默认助手\n"
-                "description: 一个友好的 AI 助手\n"
-                "---\n\n"
-                "你是一个友好、耐心且乐于助人的 AI 助手。回答简洁清晰，有同理心。"
-            ),
-            "tsundere.md": (
-                "---\n"
-                "name: 傲娇少女\n"
-                "description: 傲娇属性的人格\n"
-                "---\n\n"
-                "你是一个有些傲娇的人格，说话常带有‘才不是’‘哼’之类的口癖，外冷内热。"
-            ),
-            "professional.md": (
-                "---\n"
-                "name: 专业问答\n"
-                "description: 专业的知识问答\n"
-                "---\n\n"
-                "你是一个专业的知识问答助手，擅长编程、系统架构等，回答准确专业且提供可操作建议。"
-            ),
-        }
-        for fname, content in samples.items():
-            p = dir_path / fname
-            if not p.exists():
-                p.write_text(content, encoding="utf-8")
-    except Exception:
-        pass
+        files = [
+            f for f in dir_path.glob("*") if f.is_file() and f.suffix.lower() in SUPPORTED_PERSONA_EXTS
+        ]
+        files.sort(key=lambda p: (p.stem.lower(), rank.get(p.suffix.lower(), 9)))
+        for fp in files:
+            stem = fp.stem
+            if stem not in result:
+                result[stem] = fp
+            else:
+                logger.warning(f"[AI Chat] 人格文件名重复（仅保留优先者）: {fp.name}")
+    except Exception as e:
+        logger.error(f"[AI Chat] 扫描人格目录失败: {e}")
+    return result
+
+
+def list_personas() -> List[str]:
+    """列出所有人格名（文件名，不含扩展名）。"""
+    dir_path = get_personas_dir()
+    _ensure_default(dir_path)
+    files = _collect_persona_files(dir_path)
+    names = sorted(files.keys())
+    if "default" not in names:
+        names = ["default", *names]
+    return names
+
+
+def get_persona_text(name: str) -> str:
+    """读取指定人格（文件名）的内容，找不到时返回空字符串（回退 default）。"""
+    dir_path = get_personas_dir()
+    _ensure_default(dir_path)
+    files = _collect_persona_files(dir_path)
+    path = files.get(name)
+    try:
+        if path and path.exists():
+            return path.read_text(encoding="utf-8", errors="ignore").strip()
+    except Exception as e:
+        logger.error(f"[AI Chat] 读取人格失败 {name}: {e}")
+    if name != "default":
+        try:
+            p = dir_path / "default.md"
+            if p.exists():
+                return p.read_text(encoding="utf-8", errors="ignore").strip()
+        except Exception:
+            pass
+    return ""
+
+
+def save_persona_text(name: str, text: str) -> Path:
+    """保存/覆盖指定人格（文件名）的内容，写入 .md 文件，返回路径。"""
+    dir_path = get_personas_dir()
+    _ensure_default(dir_path)
+    if not name or any(ch in name for ch in "/\\:*?\"<>|") or name.strip() != name:
+        raise ValueError("非法的人格名（文件名）")
+    path = dir_path / f"{name}.md"
+    path.write_text(text or "", encoding="utf-8")
+    return path
+
+
+def rename_persona(old_name: str, new_name: str) -> bool:
+    """重命名人格（修改文件名）。若 new_name 已存在则返回 False。"""
+    dir_path = get_personas_dir()
+    files = _collect_persona_files(dir_path)
+    if old_name not in files:
+        return False
+    if new_name in files:
+        return False
+    src = files[old_name]
+    dst = src.with_name(f"{new_name}{src.suffix}")
+    try:
+        src.rename(dst)
+        logger.info(f"[AI Chat] 人格重命名: {old_name} -> {new_name}")
+        return True
+    except Exception as e:
+        logger.error(f"[AI Chat] 人格重命名失败: {e}")
+        return False
 
 
 # ==================== 配置读写 ====================
@@ -598,22 +591,27 @@ def save_personas(personas: Dict[str, PersonaConfig]) -> None:
 
 
 def get_personas() -> Dict[str, PersonaConfig]:
-    """总是重载，确保与文件一致"""
-    global _personas
-    if not _personas:
-        _personas = load_personas()
-    return _personas
+    """基于文件名的人格映射：{文件名: PersonaConfig(name=文件名, details=文件内容)}"""
+    dir_path = get_personas_dir()
+    _ensure_default(dir_path)
+    files = _collect_persona_files(dir_path)
+    personas: Dict[str, PersonaConfig] = {}
+    for name, path in files.items():
+        try:
+            content = path.read_text(encoding="utf-8", errors="ignore").strip()
+        except Exception:
+            content = ""
+        if content:
+            personas[name] = PersonaConfig(name=name, details=content)
+    if "default" not in personas:
+        personas["default"] = PersonaConfig(name="default", details=get_persona_text("default") or "")
+    return personas
 
 
 def reload_all() -> None:
-    global _config, _personas
+    global _config
     _config = load_config()
-    _personas = load_personas()
-    logger.info("[AI Chat] 配置与人格已重载")
+    logger.info("[AI Chat] 配置已重载（人格基于文件名，实时从磁盘读取）")
 
 
 register_reload_callback("ai_chat", reload_all)
-
-# Backward-compat: override legacy sample writer to only create `default`
-def _ensure_default_personas(dir_path: Path) -> None:  # type: ignore[func-override]
-    _ensure_default_persona_only(dir_path)

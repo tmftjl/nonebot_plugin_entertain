@@ -273,7 +273,6 @@ async def handle_info(event: MessageEvent):
         await info_cmd.finish("未找到当前会话")
 
     personas = get_personas()
-    persona = personas.get(session.persona_name) or personas.get("默认人格") or next(iter(personas.values()))
 
     status = "启用" if session.is_active else "停用"
     cfg_now = get_config()
@@ -285,7 +284,7 @@ async def handle_info(event: MessageEvent):
         f"会话 ID: {session.session_id}\n"
         f"状态: {status}\n"
         f"服务商: {provider}\n"
-        f"人格: {persona.name if persona else session.persona_name}\n"
+        f"人格: {session.persona_name}\n"
         f"记忆轮数: {rounds}\n"
         f"更新时间: {session.updated_at[:10]}"
     )
@@ -326,15 +325,11 @@ async def handle_persona_list(event: MessageEvent):
         await persona_list_cmd.finish("未找到当前会话")
 
     personas = get_personas()
-    persona = personas.get(session.persona_name, personas.get("default"))
+    current = session.persona_name
+    info_text = (f"当前人格: {current}\n")
 
-    info_text = (f"当前人格: {persona.name}\n")
-
-    persona_lines = []
-    for key, persona in personas.items():
-        persona_lines.append(f"- {key}: {persona.name}")
-    persona_lines.append(info_text)
-    info_text = "\n".join(["📜 人格列表", *persona_lines])
+    persona_lines = [f"- {name}" for name in personas.keys()]
+    info_text = "\n".join(["📜 人格列表", *persona_lines, info_text])
     await persona_list_cmd.finish(info_text)
 
 
