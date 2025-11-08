@@ -101,9 +101,22 @@ async def _extract_sources_with_bot(bot: Bot, msg: Message) -> List[str]:
     out: List[str] = []
     try:
         for seg in msg:
-            if seg["type"] != "image":
+            if isinstance(seg, dict):
+                seg_dict = seg
+            elif hasattr(seg, "dict") and callable(getattr(seg, "dict")):
+                try:
+                    seg_dict = seg.dict()
+                except Exception as e:
+                    logger.warning(f"调用 seg.dict() 失败: {e}")
+                    continue
+            elif hasattr(seg, "__dict__"):
+                seg_dict = vars(seg)
+            else:
+                logger.warning(f"无法处理的消息段类型: {type(seg)}")
                 continue
-            data = seg["data"] or {}
+            if seg_dict.get("type") != "image":
+                continue
+            data = seg_dict.get("data") or {}
             url = str((data.get("url") or "")).strip()
             if url:
                 out.append(url)
