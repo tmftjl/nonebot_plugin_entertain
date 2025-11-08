@@ -1,8 +1,6 @@
 ﻿"""AI 对话配置与人格文件管理（UTF-8）
 
 - 统一落盘目录：config/ai_chat/
-- 人格“目录化”管理：config/ai_chat/personas 下的 .md/.txt/.docx 文件
-- 始终从磁盘读取人格，避免缓存导致的更新不生效问题
 """
 from __future__ import annotations
 
@@ -664,7 +662,7 @@ def reload_all() -> None:
         load_personas()
     except Exception:
         pass
-    logger.info("[AI Chat] 配置已重载（人格基于文件名，实时从磁盘读取）")
+    logger.info("[AI Chat] 配置已重载")
 
 
 register_reload_callback("ai_chat", reload_all)

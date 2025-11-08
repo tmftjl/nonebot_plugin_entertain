@@ -437,13 +437,10 @@ def setup_web_console() -> None:
                     try:
                         data[k] = {
                             "name": getattr(p, "name", "") or "",
-                            "details": getattr(p, "details", "") or "",                        }
+                            "details": getattr(p, "details", "") or "",
+                        }
                     except Exception:
                         continue
-                return {"personas": data}
-            except Exception as e:
-                raise HTTPException(500, f"读取人格失败: {e}")
-
         def _sanitize_persona_key(key: str) -> str:
             s = (key or "").strip()
             if not s:               
@@ -457,10 +454,10 @@ def setup_web_console() -> None:
                 raise HTTPException(400, "名称不允许以空格或点结尾")
             return s
 
-        def _write_persona_file(dir_path: Path, key: str, name: str, description: str, system_prompt: str) -> None:
+        def _write_persona_file(dir_path: Path, key: str, system_prompt: str) -> None:
             # 写入 Markdown（带 front matter）
             content = (
-                f"---\nname: {name}\n---\n\n{system_prompt}\n"
+                f"{system_prompt}"
             )
             fp = dir_path / f"{key}.md"
             fp.write_text(content, encoding="utf-8")
@@ -476,24 +473,6 @@ def setup_web_console() -> None:
                 except Exception:
                     continue
             return removed
-
-        def _write_persona_file(dir_path: Path, key: str, name: str, description: str, system_prompt: str) -> None:  # type: ignore[no-redef]
-            content = (
-                f"---\nname: {name}\n---\n\n{system_prompt}\n"
-            )
-            fp = dir_path / f"{key}.md"
-            fp.write_text(content, encoding="utf-8")
-
-        # 简易摘要：取正文首个非空行，截断 40 字
-        def _summarize_desc(body: str, width: int = 40) -> str:
-            try:
-                for ln in str(body or "").splitlines():
-                    s = ln.strip().lstrip("#:-* ")
-                    if s:
-                        return s[:width]
-            except Exception:
-                pass
-            return ""
 
         @router.post("/ai_chat/persona")
         async def api_ai_persona_create(payload: Dict[str, Any], _: dict = Depends(_auth)):
@@ -516,7 +495,7 @@ def setup_web_console() -> None:
                     raise HTTPException(400, "同名人格已存在")
         
             try:
-                _write_persona_file(dir_path, key, name, "", details)
+                _write_persona_file(dir_path, k, details)
                 ai_reload_ai_configs()
                 return {"success": True}
             except Exception as e:
@@ -527,31 +506,20 @@ def setup_web_console() -> None:
             """更新人格（仅名称 + 详情）"""
             if not ai_get_personas_dir or not ai_reload_ai_configs:
                 raise HTTPException(500, "未找到 AI 对话模块，无法更新人格")
-            old_key = _sanitize_persona_key(key)
-            name_raw = str(payload.get("name") or "").strip()
-            if not name_raw:
-                raise HTTPException(400, "名称不能为空")
-            new_key = old_key
-            name = name_raw
+            k = _sanitize_persona_key(key)
         
             dir_path = ai_get_personas_dir()
         
-            # 如更名，确保目标不存在
-            if False and new_key != old_key:
-                for ext in (".md", ".txt", ".docx"):
-                    if (dir_path / f"{new_key}{ext}").exists():
-                        raise HTTPException(400, "同名人格已存在")
-        
             # 先移除旧文件
-            _remove_persona_files(dir_path, old_key)
+            _remove_persona_files(dir_path, k)
             # 写入新文件
             try:
-                details = str(payload.get("details") or "").strip()
+                details = str(payload.get("desc") or payload.get("details") or "").strip()
                 if not details:
                     raise HTTPException(400, "详情不能为空")
-                _write_persona_file(dir_path, old_key, name, "", details)
+                _write_persona_file(dir_path, k, details)
                 ai_reload_ai_configs()
-                return {"success": True, "key": old_key}
+                return {"success": True, "key": k}
             except HTTPException:
                 raise
             except Exception as e:
@@ -781,22 +749,4 @@ def setup_web_console() -> None:
         logger.info("member_renewal Web 控制台已挂载 /member_renewal")
     except Exception as e:
         logger.warning(f"member_renewal Web 控制台挂载失败: {e}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

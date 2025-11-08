@@ -1968,7 +1968,12 @@ function openPersonaModal(mode='create', key=''){
   const nameInput = $('#persona-name');
   const descInput = $('#persona-description'); // 未使用，仅占位
   const spInput = $('#persona-system-prompt');
-  if(keyInput){ const g = keyInput.closest('.form-group-modern'); if(g) g.style.display='none'; }
+  // 编辑时不展示名称；仅新增时显示“人格代号”输入
+  const nameGroup = nameInput ? nameInput.closest('.form-group-modern') : null;
+  if(nameGroup){ nameGroup.style.display = (mode==='edit') ? 'none' : 'none'; }
+  if(keyInput){ const g = keyInput.closest('.form-group-modern'); if(g) g.style.display = (mode==='edit') ? 'none' : ''; }
+  // 同步隐藏的 name 值，沿用原创建提交结构
+  if(keyInput && nameInput){ try{ keyInput.addEventListener('input', ()=>{ nameInput.value = keyInput.value; }); }catch{} }
   if(descInput){ const g1 = descInput.closest('.form-group-modern'); if(g1) g1.style.display='none'; }
   if(spInput){ const g2 = spInput.closest('.form-group-modern'); if(g2) g2.style.display=''; }
   if(mode==='edit' && key && state.personas[key]){
