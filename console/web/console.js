@@ -1085,13 +1085,42 @@ function renderConfigForm(data, parentKey = '') {
       // 数组类型：区分 原子类型数组 与 对象数组
       if (Array.isArray(value)) {
         const hasObjectItems = value.some(v => typeof v === 'object' && v !== null && !Array.isArray(v));
-        if (hasObjectItems) {
+        let schemaItemsIsObject = false;
+        try {
+          const node = __schemaGetNode(fullKey) || {};
+          const t = node && node.type;
+          const types = Array.isArray(t) ? t : (t ? [t] : []);
+          if (types.includes('array')) {
+            const items = (node && node.items) || {};
+            const it = items && items.type;
+            schemaItemsIsObject = Array.isArray(it) ? it.includes('object') : (it === 'object');
+          }
+        } catch {}
+        if (hasObjectItems || schemaItemsIsObject) {
           // 渲染为嵌套的数组项编辑卡片（与顶层数组渲染保持一致风格）
           html += `<div class="config-section">
             <div class="config-section-header">
               <span class="config-section-icon">📋</span>
               <span class="config-section-title">${escapeHtml(__schemaGetTitle(fullKey, key))}</span>
             </div>`;
+          if (value.length === 0 && schemaItemsIsObject) {
+            let template = {};
+            try {
+              const node = __schemaGetNode(fullKey) || {};
+              const items = (node && node.items) || {};
+              const props = (items && items.properties) || {};
+              template = {};
+              for (const pk of Object.keys(props)) {
+                const pt = props[pk] && props[pk].type;
+                const isArr = Array.isArray(pt) ? pt.includes('array') : (pt === 'array');
+                const isObj = Array.isArray(pt) ? pt.includes('object') : (pt === 'object');
+                if (isArr) template[pk] = [];
+                else if (isObj) template[pk] = {};
+                else template[pk] = '';
+              }
+            } catch { template = {}; }
+            html += `<div class="config-array-item">\n                <div class="config-array-header">\n                  <span class="config-array-label">${escapeHtml(__schemaGetTitle(`${fullKey}[0]`, `项目 1`))}</span>\n                </div>\n                <div class="config-array-body">\n                  ${renderConfigForm(template, `${fullKey}[0]`)}\n                </div>\n              </div>`;
+          } else {
           value.forEach((item, index) => {
             if (typeof item === 'object' && item !== null) {
               html += `<div class="config-array-item">
@@ -1106,6 +1135,7 @@ function renderConfigForm(data, parentKey = '') {
               html += renderConfigField(`${fullKey}[${index}]`, item, `项目 ${index + 1}`);
             }
           });
+          }
           html += `</div>`;
         } else {
           // 原子类型数组：使用简单的逗号分隔输入框
@@ -1166,9 +1196,20 @@ function __schemaGetNode(fullKey){
     const parts = rel.split('.').filter(Boolean);
     let node = root;
     for(const p of parts){
-      const props = (node && node.properties) || {};
-      if(!props || !props[p]) return null;
-      node = props[p];
+      // 优先命中当前节点的 properties
+      let next = (node && node.properties && node.properties[p]) ? node.properties[p] : null;
+      // 若当前为数组节点，则尝试进入 items.properties
+      if(!next && node){
+        const t = node.type;
+        const isArr = Array.isArray(t) ? t.includes('array') : (t === 'array');
+        if(isArr){
+          const items = node.items || {};
+          const iprops = (items && items.properties) || {};
+          if(iprops && iprops[p]) next = iprops[p];
+        }
+      }
+      if(!next) return null;
+      node = next;
     }
     return node || null;
   }catch{ return null; }
@@ -1301,10 +1342,63 @@ async function saveCurrentConfig() {
       } else {
         value = input.value;
         // 尝试解析为数组
-        if (value.includes(',')) {
+        if (typeof value === 'string' && value.includes(',')) {
           const arr = value.split(',').map(s => s.trim()).filter(Boolean);
           if (arr.length > 0) value = arr;
         }
+      }
+
+      // 基于 Schema 的类型纠正，避免数组被错误保存为字符串
+      try {
+        const node = __schemaGetNode(fullKey) || {};
+        const t = node && node.type;
+        const types = Array.isArray(t) ? t : (t ? [t] : []);
+        if (types.includes('array')) {
+          const items = (node && node.items) || {};
+          const itemTypeRaw = items && items.type;
+          const itemType = Array.isArray(itemTypeRaw) ? (itemTypeRaw[0] || 'string') : (itemTypeRaw || 'string');
+
+          // 文本输入到数组的统一转换
+          if (typeof value === 'string') {
+            const s = value.trim();
+            if (!s) {
+              value = [];
+            } else if (itemType === 'object') {
+              // 对象数组不支持逗号文本输入；空或任意文本都保存为空数组
+              value = [];
+            } else {
+              let arr = s.split(',').map(x => x.trim()).filter(Boolean);
+              if (itemType === 'number' || itemType === 'integer') {
+                arr = arr
+                  .map(x => (itemType === 'integer' ? parseInt(x, 10) : parseFloat(x)))
+                  .filter(v => Number.isFinite(v));
+              }
+              value = arr;
+            }
+          } else if (!Array.isArray(value)) {
+            // 任何非数组/非字符串输入也归一化为空数组
+            value = [];
+          }
+        } else if (types.includes('integer')) {
+          if (typeof value === 'string') {
+            const n = parseInt(value, 10);
+            value = Number.isFinite(n) ? n : 0;
+          } else if (typeof value === 'number') {
+            value = Math.round(value);
+          }
+        } else if (types.includes('number')) {
+          if (typeof value === 'string') {
+            const n = parseFloat(value);
+            value = Number.isFinite(n) ? n : 0;
+          }
+        } else if (types.includes('boolean')) {
+          if (typeof value === 'string') {
+            const s = value.toLowerCase();
+            value = (s === 'true' || s === '1' || s === 'on' || s === 'yes');
+          }
+        }
+      } catch (e) {
+        // 忽略 Schema 矫正错误，保留原值
       }
 
       // 设置嵌套值
