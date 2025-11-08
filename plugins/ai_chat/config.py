@@ -39,7 +39,7 @@ class SessionConfig(BaseModel):
     chatroom_history_max_lines: int = Field(default=200, description="聊天室历史行数上限（内存）")
     active_reply_enable: bool = Field(default=False, description="是否开启主动回复（群聊）")
     active_reply_probability: float = Field(default=0.1, description="主动回复概率 0~1")
-    ignore_prefix: str = Field(default="", description="消息以此前缀开头时不触发AI回复（忽略前导空白）")
+    ignore_prefixes: List[str] = Field(default_factory=list, description="消息以这些前缀之一开头时不触发AI回复（忽略前导空白）")
     active_reply_prompt_suffix: str = Field(
         default=(
             "请根据以下消息进行自然回复：`{message}`，并保持简洁清晰。\n"
@@ -124,7 +124,7 @@ DEFAULTS: Dict[str, Any] = {
             "只需回复结果，不要解释过程。\n"
         ),
         "active_reply_probability": 0.1,
-        "ignore_prefix": "",
+        "ignore_prefixes": [],
     },
     "tools": {
         "enabled": False,
@@ -193,7 +193,7 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
                 "active_reply_enable": {"type": "boolean", "title": "开启主动回复（群聊）", "x-order": 5},
                 "active_reply_probability": {"type": "number", "title": "主动回复概率（0~1）", "minimum": 0, "maximum": 1, "x-order": 6},
                 "active_reply_prompt_suffix": {"type": "string", "title": "主动回复提示后缀", "x-order": 7},
-                "ignore_prefix": {"type": "string", "title": "不回复前缀（全局）", "description": "消息以此前缀开头时不触发AI；忽略前导空白。", "x-order": 8},
+                "ignore_prefixes": {"type": "array", "title": "不回复前缀（全局）", "description": "消息以这些前缀之一开头时不触发AI；忽略前导空白。", "items": {"type": "string"}, "x-order": 8},
             },
         },
         "tools": {
@@ -418,6 +418,19 @@ def load_config() -> AIChatConfig:
     global _config
     try:
         data = CFG.load() or {}
+        # migrate: ignore_prefix (str) -> ignore_prefixes (list[str])
+        try:
+            sess = data.setdefault("session", {})
+            if "ignore_prefixes" not in sess:
+                old = sess.get("ignore_prefix")
+                if isinstance(old, list):
+                    sess["ignore_prefixes"] = [str(x) for x in old if isinstance(x, (str, int)) and str(x)]
+                elif isinstance(old, str) and old:
+                    sess["ignore_prefixes"] = [old]
+                else:
+                    sess["ignore_prefixes"] = []
+        except Exception:
+            pass
         _config = AIChatConfig(**data)
         # 规范化：若存在服务商但未设置/设置了无效的 default_provider，则设置为第一个键
         try:

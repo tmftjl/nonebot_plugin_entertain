@@ -180,14 +180,18 @@ async def handle_chat_auto(bot: Bot, event: MessageEvent):
         return
 
     message = extract_plain_text(event.message)
-    # 全局不回复前缀：在控制台配置 session.ignore_prefix 后，命中则直接跳过
+    # 不回复前缀（数组）检查：命中任一前缀则不触发 AI
     try:
         cfg_now = get_config()
-        ip = getattr(getattr(cfg_now, "session", None), "ignore_prefix", "") or ""
-        if ip and message.lstrip().startswith(ip):
-            return
+        prefixes = list(getattr(getattr(cfg_now, "session", None), "ignore_prefixes", []) or [])
+        if prefixes:
+            plain = message.lstrip()
+            for _p in prefixes:
+                if isinstance(_p, str) and _p and plain.startswith(_p):
+                    return
     except Exception:
         pass
+
     images = await extract_image_data_uris(bot, event.message)
     if not message and not images:
         return
