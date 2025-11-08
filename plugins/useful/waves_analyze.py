@@ -26,7 +26,7 @@ TOKEN = "f3e6d1d382925f0c63bd296e3e92a314"
 
 P = Plugin(name="useful", display_name="有用")
 waves_analyze_cmd = P.on_regex(
-    r"^ww分析\s*(.+)$",
+    r"^(.*)ww分析\s*(.+)",
     name="waves_analyze",
     display_name="鸣潮分析评分",
     block=True,
@@ -153,7 +153,7 @@ async def _handle(
 ):
     # 使用 plain_text 手动解析参数
     plain_text = event.get_plaintext().strip()
-    m = re.search(r"^ww分析\s*(.+)$", plain_text)
+    m = re.search(r"ww分析\s*(.+)", plain_text)
     command_str = m.group(1).strip()
 
     img_src_list = await _get_images_from_event_or_reply(bot, event)
