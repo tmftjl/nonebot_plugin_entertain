@@ -531,13 +531,13 @@ def setup_web_console() -> None:
             name_raw = str(payload.get("name") or "").strip()
             if not name_raw:
                 raise HTTPException(400, "名称不能为空")
-            new_key = _sanitize_persona_key(name_raw)
+            new_key = old_key
             name = name_raw
         
             dir_path = ai_get_personas_dir()
         
             # 如更名，确保目标不存在
-            if new_key != old_key:
+            if False and new_key != old_key:
                 for ext in (".md", ".txt", ".docx"):
                     if (dir_path / f"{new_key}{ext}").exists():
                         raise HTTPException(400, "同名人格已存在")
@@ -549,9 +549,9 @@ def setup_web_console() -> None:
                 details = str(payload.get("details") or "").strip()
                 if not details:
                     raise HTTPException(400, "详情不能为空")
-                _write_persona_file(dir_path, new_key, name, "", details)
+                _write_persona_file(dir_path, old_key, name, "", details)
                 ai_reload_ai_configs()
-                return {"success": True, "key": new_key}
+                return {"success": True, "key": old_key}
             except HTTPException:
                 raise
             except Exception as e:

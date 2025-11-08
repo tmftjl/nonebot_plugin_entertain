@@ -364,15 +364,15 @@ def _parse_front_matter(text: str) -> Tuple[Dict[str, str], str]:
 
 
 def _ensure_default_persona_only(dir_path: Path) -> None:
-    """Create only `default.md` when it's missing; no other samples."""
+    """Create only `默认人格.md` when it's missing; no other samples."""
     try:
         content = (
             "---\n"
-            "name: 默认助手\n"
+            "name: 默认人格\n"
             "---\n\n"
             "你是一个友好、耐心且乐于助人的 AI 助手。回答简洁清晰，有同理心"
         )
-        p = dir_path / "default.md"
+        p = dir_path / "默认人格.md"
         if not p.exists():
             p.write_text(content, encoding="utf-8")
     except Exception:
@@ -555,26 +555,26 @@ def load_personas() -> Dict[str, PersonaConfig]:
             continue
         personas[key] = PersonaConfig(name=name, details=details)
 
-    # Ensure 'default' persona exists; create and load if missing
-    if "default" not in personas:
+    # Ensure '默认人格' persona exists; create and load if missing
+    if "默认人格" not in personas:
         try:
-            default_fp = dir_path / "default.md"
+            default_fp = dir_path / "默认人格.md"
             if not default_fp.exists():
                 _ensure_default_persona_only(dir_path)
             if default_fp.exists():
                 raw = _read_text_file(default_fp)
                 meta, body = _parse_front_matter(raw)
-                name = meta.get("name") or "default"
+                name = meta.get("name") or "默认人格"
                 details = (body or "").strip()
                 if details:
-                    personas["default"] = PersonaConfig(name=name, details=details)
+                    personas["默认人格"] = PersonaConfig(name=name, details=details)
         except Exception:
             pass
 
     if not personas:
         personas = {
-            "default": PersonaConfig(
-                name="默认助手",
+            "默认人格": PersonaConfig(
+                name="默认人格",
                 details=("你是一个友好、耐心且乐于助人的 AI 助手。回答简洁清晰，有同理心。"),
             )
         }

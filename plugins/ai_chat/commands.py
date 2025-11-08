@@ -273,7 +273,7 @@ async def handle_info(event: MessageEvent):
         await info_cmd.finish("未找到当前会话")
 
     personas = get_personas()
-    persona = personas.get(session.persona_name, personas.get("default"))
+    persona = personas.get(session.persona_name) or personas.get("默认人格") or next(iter(personas.values()))
 
     status = "启用" if session.is_active else "停用"
     cfg_now = get_config()

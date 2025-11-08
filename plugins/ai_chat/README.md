@@ -1,4 +1,4 @@
-AI 对话插件 ai_chat
+﻿AI 对话插件 ai_chat
 
 简介
 - 基于 NoneBot2 的通用 AI 对话插件，支持多模态输入（文本/图片）、工具调用（Function Calling）与可选 MCP、会话与人格系统、TTS 语音回复、摘要记忆等能力。
@@ -19,16 +19,16 @@ AI 对话插件 ai_chat
 - 依赖安装（UTF-8 环境）：
   - 使用项目根目录的 `requirements.txt` 安装：
     pip install -r requirements.txt
-  - 关键依赖：openai>=1.0, pydantic>=2, sqlalchemy>=2, sqlmodel, Pillow, httpx, aiosqlite。
-- 启用插件：确保在 NoneBot 加载 `nonebot_plugin_entertain` 后，自动加载本插件（ai_chat 的 `__init__.py` 中已 `require("nonebot_plugin_entertain")`）。
-- 配置文件与目录：
-  - 主配置：`config/ai_chat/config.json`
-  - 人格目录：`config/ai_chat/personas/`（支持 .md/.txt/.docx，优先 .md）
-  - TTS 音频输出：`data/ai_chat/tts/`
-  - 可用环境变量覆盖配置目录：`NPE_CONFIG_DIR=/your/config/dir`
+  - 鍏抽敭渚濊禆锛歰penai>=1.0, pydantic>=2, sqlalchemy>=2, sqlmodel, Pillow, httpx, aiosqlite銆?
+- 鍚敤鎻掍欢锛氱‘淇濆湪 NoneBot 鍔犺浇 `nonebot_plugin_entertain` 鍚庯紝鑷姩鍔犺浇鏈彃浠讹紙ai_chat 鐨?`__init__.py` 涓凡 `require("nonebot_plugin_entertain")`锛夈€?
+- 閰嶇疆鏂囦欢涓庣洰褰曪細
+  - 涓婚厤缃細`config/ai_chat/config.json`
+  - 浜烘牸鐩綍锛歚config/ai_chat/personas/`锛堟敮鎸?.md/.txt/.docx锛屼紭鍏?.md锛?
+  - TTS 闊抽杈撳嚭锛歚data/ai_chat/tts/`
+  - 鍙敤鐜鍙橀噺瑕嗙洊閰嶇疆鐩綍锛歚NPE_CONFIG_DIR=/your/config/dir`
 
-快速开始
-1) 创建最小可用配置 `config/ai_chat/config.json`：
+蹇€熷紑濮?
+1) 鍒涘缓鏈€灏忓彲鐢ㄩ厤缃?`config/ai_chat/config.json`锛?
 ```
 {
   "api": {
@@ -46,69 +46,69 @@ AI 对话插件 ai_chat
     "chatroom_history_max_lines": 200,
     "active_reply_enable": false,
     "active_reply_probability": 0.1,
-    "active_reply_prompt_suffix": "请基于最近消息自然地回复：{message}\n只输出必要内容。"
+    "active_reply_prompt_suffix": "璇峰熀浜庢渶杩戞秷鎭嚜鐒跺湴鍥炲锛歿message}\n鍙緭鍑哄繀瑕佸唴瀹广€?
   }
 }
 ```
-2) 常见 `base_url` 示例（按服务商自行替换）：
+2) 甯歌 `base_url` 绀轰緥锛堟寜鏈嶅姟鍟嗚嚜琛屾浛鎹級锛?
 - OpenAI: `https://api.openai.com/v1`
-- 第三方代理/聚合（示例）：`https://one-api.your-domain/v1`、`https://api.deepseek.com/v1`、`https://open.bigmodel.cn/api/paas/v4` 等。请以供应商文档为准。
-3) 运行后在群聊 @机器人 发消息，或私聊直接发消息测试。
+- 绗笁鏂逛唬鐞?鑱氬悎锛堢ず渚嬶級锛歚https://one-api.your-domain/v1`銆乣https://api.deepseek.com/v1`銆乣https://open.bigmodel.cn/api/paas/v4` 绛夈€傝浠ヤ緵搴斿晢鏂囨。涓哄噯銆?
+3) 杩愯鍚庡湪缇よ亰 @鏈哄櫒浜?鍙戞秷鎭紝鎴栫鑱婄洿鎺ュ彂娑堟伅娴嬭瘯銆?
 
-命令速查
-- 对话
-  - 群聊需 @机器人 或命中主动回复；私聊直接发送文本/图片即可。
-- 会话管理
-  - `#清空会话` 清空当前会话历史
-  - `#会话信息` 查看当前会话状态
-  - `#开启AI` / `#关闭AI`（管理员）切换会话启用状态
-- 人格
-  - `#人格列表`（管理员）查看可用人格
-  - `#切换人格 <key>`（管理员）切换当前会话人格
-- 服务商
-  - `#服务商列表`（超管）查看配置中的服务商
-  - `#切换服务商 <name>`（超管）切换 `session.api_active`
-- 工具与 TTS
-  - `#工具列表`（超管）查看工具（含 MCP 动态工具）
-  - `#开启工具 <name>` / `#关闭工具 <name>`（超管）
-  - `#开启TTS` / `#关闭TTS`（超管）
-- 系统
-  - `#重载AI配置`（超管）重新加载配置与人格
+鍛戒护閫熸煡
+- 瀵硅瘽
+  - 缇よ亰闇€ @鏈哄櫒浜?鎴栧懡涓富鍔ㄥ洖澶嶏紱绉佽亰鐩存帴鍙戦€佹枃鏈?鍥剧墖鍗冲彲銆?
+- 浼氳瘽绠＄悊
+  - `#娓呯┖浼氳瘽` 娓呯┖褰撳墠浼氳瘽鍘嗗彶
+  - `#浼氳瘽淇℃伅` 鏌ョ湅褰撳墠浼氳瘽鐘舵€?
+  - `#寮€鍚疉I` / `#鍏抽棴AI`锛堢鐞嗗憳锛夊垏鎹細璇濆惎鐢ㄧ姸鎬?
+- 浜烘牸
+  - `#浜烘牸鍒楄〃`锛堢鐞嗗憳锛夋煡鐪嬪彲鐢ㄤ汉鏍?
+  - `#鍒囨崲浜烘牸 <key>`锛堢鐞嗗憳锛夊垏鎹㈠綋鍓嶄細璇濅汉鏍?
+- 鏈嶅姟鍟?
+  - `#鏈嶅姟鍟嗗垪琛╜锛堣秴绠★級鏌ョ湅閰嶇疆涓殑鏈嶅姟鍟?
+  - `#鍒囨崲鏈嶅姟鍟?<name>`锛堣秴绠★級鍒囨崲 `session.api_active`
+- 宸ュ叿涓?TTS
+  - `#宸ュ叿鍒楄〃`锛堣秴绠★級鏌ョ湅宸ュ叿锛堝惈 MCP 鍔ㄦ€佸伐鍏凤級
+  - `#寮€鍚伐鍏?<name>` / `#鍏抽棴宸ュ叿 <name>`锛堣秴绠★級
+  - `#寮€鍚疶TS` / `#鍏抽棴TTS`锛堣秴绠★級
+- 绯荤粺
+  - `#閲嶈浇AI閰嶇疆`锛堣秴绠★級閲嶆柊鍔犺浇閰嶇疆涓庝汉鏍?
 
-图片输入说明
-- 支持来源：
-  - QQ 图片消息（自动下载/压缩后转 data:image;base64）
-  - 直接粘贴 URL（http/https）或 data:image;base64
-  - 文本中的 Markdown 图片：`![alt](https://...)`
-- 压缩与质量：
-  - `input.image_max_side` 最长边像素（>0 时按比例缩放并转 JPEG）
-  - `input.image_jpeg_quality` JPEG 质量（1-95），默认 85
+鍥剧墖杈撳叆璇存槑
+- 鏀寔鏉ユ簮锛?
+  - QQ 鍥剧墖娑堟伅锛堣嚜鍔ㄤ笅杞?鍘嬬缉鍚庤浆 data:image;base64锛?
+  - 鐩存帴绮樿创 URL锛坔ttp/https锛夋垨 data:image;base64
+  - 鏂囨湰涓殑 Markdown 鍥剧墖锛歚![alt](https://...)`
+- 鍘嬬缉涓庤川閲忥細
+  - `input.image_max_side` 鏈€闀胯竟鍍忕礌锛?0 鏃舵寜姣斾緥缂╂斁骞惰浆 JPEG锛?
+  - `input.image_jpeg_quality` JPEG 璐ㄩ噺锛?-95锛夛紝榛樿 85
 
-人格文件（personas）
-- 位置：`config/ai_chat/personas/`，支持 `.md/.txt/.docx`，优先 `.md`。
-- `.md` 支持可选 Front Matter：
+浜烘牸鏂囦欢锛坧ersonas锛?
+- 浣嶇疆锛歚config/ai_chat/personas/`锛屾敮鎸?`.md/.txt/.docx`锛屼紭鍏?`.md`銆?
+- `.md` 鏀寔鍙€?Front Matter锛?
 ```
 ---
-name: 落落大方
-description: 友善、耐心、表达清晰
+name: 钀借惤澶ф柟
+description: 鍙嬪杽銆佽€愬績銆佽〃杈炬竻鏅?
 ---
 
-你是一位友善且表达清晰的 AI 助手，回答简洁、条理分明。
+浣犳槸涓€浣嶅弸鍠勪笖琛ㄨ揪娓呮櫚鐨?AI 鍔╂墜锛屽洖绛旂畝娲併€佹潯鐞嗗垎鏄庛€?
 ```
-- 初次运行目录为空时仅写入示例人格：`default.md`。
-- 切换人格：`#切换人格 default`（管理员）。
+- 鍒濇杩愯鐩綍涓虹┖鏃朵粎鍐欏叆绀轰緥浜烘牸锛歚默认人格.md`銆?
+- 鍒囨崲浜烘牸锛歚#鍒囨崲浜烘牸 default`锛堢鐞嗗憳锛夈€?
 
-工具调用（Function Calling + MCP）
-- 内置工具（可在配置 `tools.builtin_tools` 中启用）：
-  - `get_time` 当前时间
-  - `get_weather` 简单示例（可接入真实 API）
-- 自定义工具注册示例（`plugins/ai_chat/tools.py` 相同风格）：
+宸ュ叿璋冪敤锛團unction Calling + MCP锛?
+- 鍐呯疆宸ュ叿锛堝彲鍦ㄩ厤缃?`tools.builtin_tools` 涓惎鐢級锛?
+  - `get_time` 褰撳墠鏃堕棿
+  - `get_weather` 绠€鍗曠ず渚嬶紙鍙帴鍏ョ湡瀹?API锛?
+- 鑷畾涔夊伐鍏锋敞鍐岀ず渚嬶紙`plugins/ai_chat/tools.py` 鐩稿悓椋庢牸锛夛細
 ```
 from plugins.ai_chat.tools import register_tool
 
 @register_tool(
     name="echo",
-    description="回显传入文本",
+    description="鍥炴樉浼犲叆鏂囨湰",
     parameters={
         "type": "object",
         "properties": {"text": {"type": "string"}},
@@ -118,9 +118,9 @@ from plugins.ai_chat.tools import register_tool
 async def tool_echo(text: str) -> str:
     return text
 ```
-- MCP 接入：
-  - 需要安装 Python MCP SDK（`pip install modelcontextprotocol` 或供应商 SDK）。
-  - 在配置中开启：
+- MCP 鎺ュ叆锛?
+  - 闇€瑕佸畨瑁?Python MCP SDK锛坄pip install modelcontextprotocol` 鎴栦緵搴斿晢 SDK锛夈€?
+  - 鍦ㄩ厤缃腑寮€鍚細
 ```
 {
   "tools": {
@@ -139,14 +139,14 @@ async def tool_echo(text: str) -> str:
   }
 }
 ```
-  - 使用方式：模型在调用工具时可使用 `mcp:<server>:<tool>`（例如 `mcp:calc:calculator`）。
+  - 浣跨敤鏂瑰紡锛氭ā鍨嬪湪璋冪敤宸ュ叿鏃跺彲浣跨敤 `mcp:<server>:<tool>`锛堜緥濡?`mcp:calc:calculator`锛夈€?
 
-TTS 语音输出
-- 三种模式：`openai` / `http` / `command`
-  - openai：使用 OpenAI TTS（例如 `gpt-4o-mini-tts`）。需要在 `api` 中正确配置 Key/URL。
-  - http：向自建/第三方 HTTP 接口发送 `{"text","voice","format"}`，响应可为音频字节或 JSON(base64)。
-  - command：执行本地命令，将音频写入 `{out}` 指定路径。支持占位符 `{text}/{voice}/{format}/{out}`。
-- 相关配置（示例）：
+TTS 璇煶杈撳嚭
+- 涓夌妯″紡锛歚openai` / `http` / `command`
+  - openai锛氫娇鐢?OpenAI TTS锛堜緥濡?`gpt-4o-mini-tts`锛夈€傞渶瑕佸湪 `api` 涓纭厤缃?Key/URL銆?
+  - http锛氬悜鑷缓/绗笁鏂?HTTP 鎺ュ彛鍙戦€?`{"text","voice","format"}`锛屽搷搴斿彲涓洪煶棰戝瓧鑺傛垨 JSON(base64)銆?
+  - command锛氭墽琛屾湰鍦板懡浠わ紝灏嗛煶棰戝啓鍏?`{out}` 鎸囧畾璺緞銆傛敮鎸佸崰浣嶇 `{text}/{voice}/{format}/{out}`銆?
+- 鐩稿叧閰嶇疆锛堢ず渚嬶級锛?
 ```
 {
   "output": {
@@ -158,47 +158,53 @@ TTS 语音输出
   }
 }
 ```
-- 生成的音频文件存放：`data/ai_chat/tts/`，消息将自动携带语音（具体见适配器能力）。
+- 鐢熸垚鐨勯煶棰戞枃浠跺瓨鏀撅細`data/ai_chat/tts/`锛屾秷鎭皢鑷姩鎼哄甫璇煶锛堝叿浣撹閫傞厤鍣ㄨ兘鍔涳級銆?
 
-会话与记忆
-- 历史与状态持久化到 SQLite：表 `ai_chat_sessions`（位于 `data/entertain.db`）。
-- `session.max_rounds` 控制保留的 user+assistant 轮数（模型消息前会裁剪）。
-- 群聊短期上下文（内存 LTM）：按 `chatroom_history_max_lines` 行保存“最近群聊摘要”，用于主动回复提示。
-- 摘要记忆：
-  - `memory.enable_summarize`: 启用/禁用
-  - `memory.summarize_min_rounds`: 开始总结所需最小轮数
-  - `memory.summarize_interval_rounds`: 间隔轮数再次总结
-  - 摘要写入会话 config_json 的 `memory_summary` 字段并注入 System Prompt。
+浼氳瘽涓庤蹇?
+- 鍘嗗彶涓庣姸鎬佹寔涔呭寲鍒?SQLite锛氳〃 `ai_chat_sessions`锛堜綅浜?`data/entertain.db`锛夈€?
+- `session.max_rounds` 鎺у埗淇濈暀鐨?user+assistant 杞暟锛堟ā鍨嬫秷鎭墠浼氳鍓級銆?
+- 缇よ亰鐭湡涓婁笅鏂囷紙鍐呭瓨 LTM锛夛細鎸?`chatroom_history_max_lines` 琛屼繚瀛樷€滄渶杩戠兢鑱婃憳瑕佲€濓紝鐢ㄤ簬涓诲姩鍥炲鎻愮ず銆?
+- 鎽樿璁板繂锛?
+  - `memory.enable_summarize`: 鍚敤/绂佺敤
+  - `memory.summarize_min_rounds`: 寮€濮嬫€荤粨鎵€闇€鏈€灏忚疆鏁?
+  - `memory.summarize_interval_rounds`: 闂撮殧杞暟鍐嶆鎬荤粨
+  - 鎽樿鍐欏叆浼氳瘽 config_json 鐨?`memory_summary` 瀛楁骞舵敞鍏?System Prompt銆?
 
-权限与作用域
-- 插件默认对所有场景生效（群/私）。
-- 权限等级（参考本项目 PermLevel）：
--  管理员：`#清空会话`、`#开启AI`、`#关闭AI`、`#切换人格` 等
--  超管：`#服务商列表`、`#切换服务商`、`#工具列表`、`#开启/关闭工具`、`#开启/关闭TTS`、`#重载AI配置`
+鏉冮檺涓庝綔鐢ㄥ煙
+- 鎻掍欢榛樿瀵规墍鏈夊満鏅敓鏁堬紙缇?绉侊級銆?
+- 鏉冮檺绛夌骇锛堝弬鑰冩湰椤圭洰 PermLevel锛夛細
+-  绠＄悊鍛橈細`#娓呯┖浼氳瘽`銆乣#寮€鍚疉I`銆乣#鍏抽棴AI`銆乣#鍒囨崲浜烘牸` 绛?
+-  瓒呯锛歚#鏈嶅姟鍟嗗垪琛╜銆乣#鍒囨崲鏈嶅姟鍟哷銆乣#宸ュ叿鍒楄〃`銆乣#寮€鍚?鍏抽棴宸ュ叿`銆乣#寮€鍚?鍏抽棴TTS`銆乣#閲嶈浇AI閰嶇疆`
 
-完整配置字段速览
-- `api`: {名称: {`base_url`,`api_key`,`model`,`timeout`}}
+瀹屾暣閰嶇疆瀛楁閫熻
+- `api`: {鍚嶇О: {`base_url`,`api_key`,`model`,`timeout`}}
 - `session`: `api_active`,`default_temperature`,`max_rounds`,`chatroom_history_max_lines`,`active_reply_enable`,`active_reply_probability`,`active_reply_prompt_suffix`
-- `tools`: `enabled`,`max_iterations`,`builtin_tools`,`mcp_enabled`,`mcp_servers`（含 `name`,`command`,`args`,`env`）
+- `tools`: `enabled`,`max_iterations`,`builtin_tools`,`mcp_enabled`,`mcp_servers`锛堝惈 `name`,`command`,`args`,`env`锛?
 - `output`: `tts_enable`,`tts_provider`,`tts_model`,`tts_voice`,`tts_format`,`tts_http_*`,`tts_command`
 - `input`: `image_max_side`,`image_jpeg_quality`
 - `memory`: `enable_summarize`,`summarize_min_rounds`,`summarize_interval_rounds`
 
-常见问题（FAQ）
-- 没有回复/空白：检查 `config/ai_chat/config.json` 中 `api` 是否配置、`session.api_active` 是否指向存在的服务商、API Key 是否有效。
-- 提示未配置 OpenAI：第一次运行会在日志中提示配置文件路径，请按路径补全配置并 `#重载AI配置`。
-- 图片无法识别：确认发送的图片被适配器正确解析；或将图片以 URL 形式发送；必要时调高 `image_max_side`。
-- 主动回复太频繁：降低 `active_reply_probability` 或关闭 `active_reply_enable`。
-- TTS 无声音：
-  - openai：确认 `api` 配置与 `tts_model` 有效；网络可达。
-  - http：确认接口返回类型与 `tts_http_response_type` 匹配；必要时打印服务端日志排错。
-  - command：保证命令包含 `{out}` 并能在本机写文件；检查生成路径与权限。
-- MCP 看不到工具：确保安装 MCP SDK、在配置中开启 `mcp_enabled` 并正确填写 `mcp_servers`，重载配置后再试。
+甯歌闂锛團AQ锛?
+- 娌℃湁鍥炲/绌虹櫧锛氭鏌?`config/ai_chat/config.json` 涓?`api` 鏄惁閰嶇疆銆乣session.api_active` 鏄惁鎸囧悜瀛樺湪鐨勬湇鍔″晢銆丄PI Key 鏄惁鏈夋晥銆?
+- 鎻愮ず鏈厤缃?OpenAI锛氱涓€娆¤繍琛屼細鍦ㄦ棩蹇椾腑鎻愮ず閰嶇疆鏂囦欢璺緞锛岃鎸夎矾寰勮ˉ鍏ㄩ厤缃苟 `#閲嶈浇AI閰嶇疆`銆?
+- 鍥剧墖鏃犳硶璇嗗埆锛氱‘璁ゅ彂閫佺殑鍥剧墖琚€傞厤鍣ㄦ纭В鏋愶紱鎴栧皢鍥剧墖浠?URL 褰㈠紡鍙戦€侊紱蹇呰鏃惰皟楂?`image_max_side`銆?
+- 涓诲姩鍥炲澶绻侊細闄嶄綆 `active_reply_probability` 鎴栧叧闂?`active_reply_enable`銆?
+- TTS 鏃犲０闊筹細
+  - openai锛氱‘璁?`api` 閰嶇疆涓?`tts_model` 鏈夋晥锛涚綉缁滃彲杈俱€?
+  - http锛氱‘璁ゆ帴鍙ｈ繑鍥炵被鍨嬩笌 `tts_http_response_type` 鍖归厤锛涘繀瑕佹椂鎵撳嵃鏈嶅姟绔棩蹇楁帓閿欍€?
+  - command锛氫繚璇佸懡浠ゅ寘鍚?`{out}` 骞惰兘鍦ㄦ湰鏈哄啓鏂囦欢锛涙鏌ョ敓鎴愯矾寰勪笌鏉冮檺銆?
+- MCP 鐪嬩笉鍒板伐鍏凤細纭繚瀹夎 MCP SDK銆佸湪閰嶇疆涓紑鍚?`mcp_enabled` 骞舵纭～鍐?`mcp_servers`锛岄噸杞介厤缃悗鍐嶈瘯銆?
 
-兼容性与注意事项
-- 本插件使用 OpenAI Chat Completions 风格的接口；第三方服务需兼容该协议（含 `tools` 字段）。
-- 返回内容中的图片 URL/Markdown 图片会被提取成独立媒体发送，并从文本中移除对应标记。
-- 插件文件统一使用 UTF-8 编码；若控制台出现乱码，请将终端编码设置为 UTF-8。
+鍏煎鎬т笌娉ㄦ剰浜嬮」
+- 鏈彃浠朵娇鐢?OpenAI Chat Completions 椋庢牸鐨勬帴鍙ｏ紱绗笁鏂规湇鍔￠渶鍏煎璇ュ崗璁紙鍚?`tools` 瀛楁锛夈€?
+- 杩斿洖鍐呭涓殑鍥剧墖 URL/Markdown 鍥剧墖浼氳鎻愬彇鎴愮嫭绔嬪獟浣撳彂閫侊紝骞朵粠鏂囨湰涓Щ闄ゅ搴旀爣璁般€?
+- 鎻掍欢鏂囦欢缁熶竴浣跨敤 UTF-8 缂栫爜锛涜嫢鎺у埗鍙板嚭鐜颁贡鐮侊紝璇峰皢缁堢缂栫爜璁剧疆涓?UTF-8銆?
 
-开源与贡献
-- 欢迎提交 Issue 与 PR 来完善功能与文档。
+寮€婧愪笌璐＄尞
+- 娆㈣繋鎻愪氦 Issue 涓?PR 鏉ュ畬鍠勫姛鑳戒笌鏂囨。銆?
+
+
+
+
+
+
