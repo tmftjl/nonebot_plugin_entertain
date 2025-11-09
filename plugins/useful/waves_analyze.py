@@ -15,7 +15,10 @@ from nonebot.adapters.onebot.v11 import (
 from nonebot.log import logger
 from ...core.api import Plugin
 from ...core.http import get_shared_async_client
-from ..group_admin.utils import get_target_message_id
+from ...core.framework.message_utils import (
+    get_images_from_event_or_reply,
+    get_target_message_id,
+)
 
 
 # 参照 temp/wutheringwaves_custom 的实现
@@ -169,7 +172,7 @@ async def _handle(
     m = re.search(r"ww分析\s*(.+)", plain_text)
     command_str = m.group(1).strip()
 
-    img_src_list = await _get_images_from_event_or_reply(bot, event)
+    img_src_list = await get_images_from_event_or_reply(bot, event)
     if not img_src_list:
         await matcher.finish("未获取到图片，支持回复/引用带图消息后使用本命令")
 
