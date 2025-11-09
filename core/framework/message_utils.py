@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, List, Optional
+from dataclasses import dataclass, field
 
 from nonebot.log import logger
 
@@ -243,4 +244,142 @@ async def get_chat_history(
     except Exception as e:  # noqa: BLE001
         logger.debug(f"get_chat_history failed: {e}")
     return []
+
+
+# ===== 汇总获取：文本 / 图片 / 转发聊天记录 =====
+
+@dataclass
+class ReplyBundle:
+    """被回复消息的汇总结果对象。
+
+    字段：
+    - message_id: 被回复消息的 ID（若无法解析则为 None）
+    - message: 被回复消息的 Message 对象（若获取失败为 None）
+    - text: 从被回复消息中提取的纯文本（可能为 None）
+    - images: 从被回复消息中提取的图片来源（URL 或本地路径）
+    - forward_id: 若被回复消息为“转发消息”，则为转发 id
+    - forward_nodes: 通过 get_forward_msg 获取到的节点列表
+    """
+
+    message_id: Optional[int] = None
+    message: Optional[Message] = None
+    text: Optional[str] = None
+    images: List[str] = field(default_factory=list)
+    forward_id: Optional[str] = None
+    forward_nodes: List[dict] = field(default_factory=list)
+
+
+def _extract_forward_id_from_message(msg: Any) -> Optional[str]:
+    """从 Message 或字符串中尽力解析转发 id。"""
+    # 1) Message 段解析
+    try:
+        for seg in msg:  # OneBot v11 Message 可迭代
+            t = getattr(seg, "type", None)
+            if t == "forward":
+                data = getattr(seg, "data", None) or {}
+                fid = data.get("id")
+                if fid:
+                    return str(fid)
+    except Exception:
+        pass
+
+    # 2) 字符串兜底解析（CQ/str 形态）
+    try:
+        s = str(msg)
+        import re as _re
+
+        # 常见形态：[CQ:forward,id=xxxx] 或 [forward:id=xxxx]
+        for pat in [
+            r"\[CQ:forward,id=([A-Za-z0-9_\-+=/]+)\]",
+            r"\[forward(?::|,)?(?:id=)?([A-Za-z0-9_\-+=/]+)\]",
+            r"(?:forward_id|id)\D*([A-Za-z0-9_\-+=/]{5,})",
+        ]:
+            m = _re.search(pat, s)
+            if m:
+                return m.group(1)
+    except Exception:
+        pass
+    return None
+
+
+async def _get_forward_nodes_by_id(bot: Bot, forward_id: str) -> List[dict]:
+    """调用 get_forward_msg 获取转发节点列表。"""
+    try:
+        data = await bot.call_api("get_forward_msg", id=forward_id)
+        if isinstance(data, dict):
+            # go-cqhttp 常见：{"messages": [...]} 或 {"data": {"messages": [...]}}
+            if isinstance(data.get("messages"), list):
+                return list(data["messages"])
+            d = data.get("data")
+            if isinstance(d, dict) and isinstance(d.get("messages"), list):
+                return list(d["messages"])
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"get_forward_msg failed: {e}")
+    return []
+
+
+async def get_reply_bundle(bot: Bot, event: MessageEvent) -> ReplyBundle:
+    """获取被回复消息的文本、图片与（如有）转发聊天记录。"""
+    bundle = ReplyBundle()
+
+    # 解析被回复的 message_id
+    try:
+        bundle.message_id = get_target_message_id(event)
+    except Exception:
+        bundle.message_id = None
+
+    # 获取被回复的 Message 对象
+    try:
+        if bundle.message_id is not None:
+            bundle.message = await fetch_replied_message(bot, event)
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"get_reply_bundle.fetch_replied_message failed: {e}")
+        bundle.message = None
+
+    # 提取纯文本
+    try:
+        if bundle.message:
+            text = extract_plain_text(bundle.message)
+            bundle.text = text if text else None
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"get_reply_bundle.extract_plain_text failed: {e}")
+
+    # 提取图片来源
+    try:
+        if bundle.message:
+            bundle.images = await extract_image_sources_with_bot(bot, bundle.message)
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"get_reply_bundle.extract_image_sources_with_bot failed: {e}")
+
+    # 提取“转发聊天记录”
+    # 1) 先从被回复的 Message 段里找 forward 段
+    try:
+        if bundle.message:
+            bundle.forward_id = _extract_forward_id_from_message(bundle.message)
+    except Exception:
+        pass
+
+    # 2) 若未获取到，回查 get_msg 返回体再解析一次
+    try:
+        if not bundle.forward_id and bundle.message_id is not None:
+            raw = await bot.get_msg(message_id=bundle.message_id)
+            if isinstance(raw, dict):
+                # 直接字段或从 message 字段解析
+                bundle.forward_id = (
+                    str(raw.get("forward_id"))
+                    if raw.get("forward_id")
+                    else _extract_forward_id_from_message(raw.get("message"))
+                    or _extract_forward_id_from_message(str(raw))
+                )
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"get_reply_bundle.get_msg for forward failed: {e}")
+
+    # 3) 有 forward_id 则取节点列表
+    try:
+        if bundle.forward_id:
+            bundle.forward_nodes = await _get_forward_nodes_by_id(bot, bundle.forward_id)
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"get_reply_bundle.get_forward_nodes failed: {e}")
+
+    return bundle
 
