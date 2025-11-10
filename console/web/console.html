@@ -53,6 +53,10 @@
             <span class="nav-icon">🧠</span>
             <span class="nav-text">人格管理</span>
           </a>
+          <a href="#ai-sessions" class="nav-item" data-tab="ai-sessions">
+            <span class="nav-icon">??</span>
+            <span class="nav-text">AI �Ự</span>
+          </a>
           <a href="#config" class="nav-item" data-tab="config">
             <span class="nav-icon">⚙️</span>
             <span class="nav-text">配置管理</span>
@@ -91,6 +95,49 @@
                 <div class="stat-label-compact">已到期</div>
                 <div id="stat-expired" class="stat-value-compact">-</div>
               </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="tab-ai-sessions" class="tab-content">
+          <h2 class="page-title">AI �Ի� · �Ự����</h2>
+
+          <div class="panel">
+            <div class="panel-header" style="display:flex;justify-content:space-between;align-items:center;">
+              <div class="toolbar" style="display:flex;gap:10px;align-items:center;">
+                <input id="ai-sessions-search" class="input" placeholder="����Ⱥ��/�û�/session_id...">
+                <select id="ai-sessions-type" class="input">
+                  <option value="all">ȫ������</option>
+                  <option value="group">Ⱥ��</option>
+                  <option value="private">˽��</option>
+                </select>
+                <select id="ai-sessions-active" class="input">
+                  <option value="all">ȫ��״̬</option>
+                  <option value="active">����</option>
+                  <option value="inactive">����</option>
+                </select>
+                <button id="ai-sessions-refresh" class="btn btn-secondary btn-sm">ˢ��</button>
+              </div>
+            </div>
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>session_id</th>
+                    <th>����</th>
+                    <th>Ⱥ��</th>
+                    <th>�û�</th>
+                    <th>�˸�</th>
+                    <th>�����̼�</th>
+                    <th>����</th>
+                    <th>����ʷ���</th>
+                    <th>����</th>
+                  </tr>
+                </thead>
+                <tbody id="ai-sessions-table-body">
+                  <tr><td colspan="9" class="text-center">������...</td></tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </section>
@@ -474,6 +521,59 @@
       <div class="modal-footer">
         <button id="persona-cancel" class="btn btn-secondary">取消</button>
         <button id="persona-save" class="btn btn-primary">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI 会话：编辑表单 -->
+  <div id="ai-session-edit-modal" class="modal hidden">
+    <div class="modal-dialog modal-modern">
+      <div class="modal-header">
+        <div class="modal-header-content">
+          <div class="modal-icon">💬</div>
+          <h3 class="modal-title" id="ai-session-edit-title">�༭�Ự</h3>
+        </div>
+        <button id="ai-session-edit-close" class="modal-close">✖</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group-modern"><label class="form-label">session_id</label><input id="ai-edit-session-id" class="form-input" disabled></div>
+        <div class="form-group-modern"><label class="form-label">����</label>
+          <select id="ai-edit-session-type" class="form-select"><option value="group">group</option><option value="private">private</option></select>
+        </div>
+        <div class="form-group-modern"><label class="form-label">Ⱥ��</label><input id="ai-edit-group-id" class="form-input" placeholder="group_id"></div>
+        <div class="form-group-modern"><label class="form-label">�û�</label><input id="ai-edit-user-id" class="form-input" placeholder="user_id"></div>
+        <div class="form-group-modern"><label class="form-label">�˸�</label>
+          <select id="ai-edit-persona" class="form-select"><option value="default">default</option></select>
+        </div>
+        <div class="form-group-modern"><label class="form-label">�����̼�</label>
+          <select id="ai-edit-provider" class="form-select"><option value="">(Ĭ��)</option></select>
+        </div>
+        <div class="form-group-modern"><label class="form-label">����ʷ���</label><input id="ai-edit-max-history" type="number" min="0" class="form-input" value="20"></div>
+        <div class="form-group-modern">
+          <label class="form-label">����</label>
+          <label class="config-switch"><input id="ai-edit-active" type="checkbox"><span class="config-switch-slider"></span><span class="config-switch-label">�ѽ���</span></label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="ai-session-edit-cancel" class="btn btn-secondary">ȡ��</button>
+        <button id="ai-session-edit-save" class="btn btn-primary">����</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI 会话：JSON 编辑（历史/配置） -->
+  <div id="ai-session-json-modal" class="modal hidden">
+    <div class="modal-dialog modal-dialog-large">
+      <div class="modal-header">
+        <h3 id="ai-session-json-title" class="panel-title">�༭JSON</h3>
+        <button id="ai-session-json-close" class="modal-close">✖</button>
+      </div>
+      <div class="modal-body">
+        <textarea id="ai-session-json-text" class="json-editor" rows="24" placeholder="�ڴ˴��༭ JSON ����..."></textarea>
+      </div>
+      <div class="modal-footer">
+        <button id="ai-session-json-cancel" class="btn btn-secondary">ȡ��</button>
+        <button id="ai-session-json-save" class="btn btn-primary">����JSON</button>
       </div>
     </div>
   </div>
