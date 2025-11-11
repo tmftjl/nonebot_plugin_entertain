@@ -14,6 +14,13 @@ const state = {
   statsSort: 'total_desc', // total_desc | total_asc | bot_asc | bot_desc | group_desc | private_desc
   statsKeyword: '',
   personas: {}, // {key: {name, details}}
+  // AI sessions
+  aiSessions: [],
+  aiProviders: [],
+  aiProvidersDefault: '',
+  aiSessionsKeyword: '',
+  aiSessionsType: 'all',
+  aiSessionsActive: 'all',
   // 分页状态
   pagination: {
     currentPage: 1,
@@ -111,6 +118,168 @@ function switchTab(tab){
   else if(tab==='permissions') loadPermissions();
   else if(tab==='config') loadConfig();
   else if(tab==='personas') loadPersonas();
+  else if(tab==='ai-sessions') loadAISessions();
+}
+
+// ========== AI 会话 ==========
+async function apiAISessionsList(q=''){
+  const qs = q ? ('?q='+encodeURIComponent(q)) : '';
+  return apiCall('/ai_chat/sessions'+qs);
+}
+async function apiAIProviders(){
+  return apiCall('/ai_chat/providers');
+}
+async function apiAISessionUpdate(sid, payload){
+  return apiCall(`/ai_chat/session/${encodeURIComponent(sid)}`, { method:'PUT', body: JSON.stringify(payload) });
+}
+async function apiAISessionHistoryGet(sid){ return apiCall(`/ai_chat/session/${encodeURIComponent(sid)}/history`); }
+async function apiAISessionHistorySet(sid, history){ return apiCall(`/ai_chat/session/${encodeURIComponent(sid)}/history`, { method:'PUT', body: JSON.stringify({ history }) }); }
+async function apiAISessionConfigGet(sid){ return apiCall(`/ai_chat/session/${encodeURIComponent(sid)}/config`); }
+async function apiAISessionConfigSet(sid, config){ return apiCall(`/ai_chat/session/${encodeURIComponent(sid)}/config`, { method:'PUT', body: JSON.stringify({ config }) }); }
+
+async function loadAISessions(){
+  try{
+    showLoading(true);
+    // fetch providers and personas for dropdowns
+    try{
+      const p = await apiAIProviders();
+      state.aiProviders = (p && p.providers) || [];
+      state.aiProvidersDefault = (p && p.default) || '';
+    }catch{}
+    try{
+      const ps = await apiPersonasList();
+      state.personas = (ps && ps.personas) || {};
+    }catch{}
+
+    const data = await apiAISessionsList(state.aiSessionsKeyword);
+    state.aiSessions = (data && data.sessions) || [];
+    renderAISessionsTable();
+    populateAISessionEditDropdowns();
+  }catch(e){
+    showToast('�����Ự�б�ʧ��: '+(e && e.message ? e.message : e), 'error');
+    const tbody=$('#ai-sessions-table-body'); if(tbody){ tbody.innerHTML = '<tr><td colspan="9" class="text-center">����ʧ��</td></tr>'; }
+  }finally{ showLoading(false); }
+}
+
+function populateAISessionEditDropdowns(){
+  const personSel = $('#ai-edit-persona'); if(personSel){
+    const cur = personSel.value;
+    personSel.innerHTML = '';
+    const keys = Object.keys(state.personas||{});
+    const opts = ['default', ...keys.filter(k=>k!=='default')];
+    personSel.appendChild(new Option('default','default'));
+    for(const k of opts){ if(k==='default') continue; personSel.appendChild(new Option(k,k)); }
+    if(cur) personSel.value = cur;
+  }
+  const provSel = $('#ai-edit-provider'); if(provSel){
+    const cur = provSel.value;
+    provSel.innerHTML = '';
+    provSel.appendChild(new Option('(Ĭ��)',''));
+    for(const n of (state.aiProviders||[])) provSel.appendChild(new Option(n,n));
+    if(cur!==undefined) provSel.value = cur;
+  }
+}
+
+function renderAISessionsTable(){
+  const tbody = $('#ai-sessions-table-body'); if(!tbody) return;
+  let list = Array.isArray(state.aiSessions) ? [...state.aiSessions] : [];
+  const kw = (state.aiSessionsKeyword||'').trim();
+  const typ = state.aiSessionsType||'all';
+  const act = state.aiSessionsActive||'all';
+  if(kw){ list = list.filter(s=> String(s.group_id||'').includes(kw) || String(s.user_id||'').includes(kw) || String(s.session_id||'').includes(kw)); }
+  if(typ!=='all'){ list = list.filter(s=> String(s.session_type||'')===typ); }
+  if(act!=='all'){
+    const want = (act==='active');
+    list = list.filter(s=> !!s.is_active === want);
+  }
+  if(list.length===0){ tbody.innerHTML = '<tr><td colspan="9" class="text-center">������</td></tr>'; return; }
+  tbody.innerHTML = list.map(s=>`
+    <tr>
+      <td>${escapeHtml(s.session_id||'')}</td>
+      <td>${escapeHtml(s.session_type||'')}</td>
+      <td>${escapeHtml(s.group_id||'')}</td>
+      <td>${escapeHtml(s.user_id||'')}</td>
+      <td>${escapeHtml(s.persona_name||'')}</td>
+      <td>${escapeHtml(s.provider_name||'')||'<span class="muted">(Ĭ��)</span>'}</td>
+      <td>${s.is_active?'<span class="status-badge status-active">����</span>':'<span class="status-badge status-expired">����</span>'}</td>
+      <td>${Number(s.max_history||0)}</td>
+      <td>
+        <button class="btn-action ai-session-edit" data-sid="${encodeURIComponent(s.session_id)}">�༭</button>
+        <button class="btn-action ai-session-history" data-sid="${encodeURIComponent(s.session_id)}">����ʷJSON</button>
+        <button class="btn-action ai-session-config" data-sid="${encodeURIComponent(s.session_id)}">����JSON</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function openAISessionEditModal(s){
+  const m = $('#ai-session-edit-modal'); if(!m) return;
+  $('#ai-edit-session-id').value = s.session_id||'';
+  $('#ai-edit-session-type').value = (s.session_type||'group');
+  $('#ai-edit-group-id').value = s.group_id||'';
+  $('#ai-edit-user-id').value = s.user_id||'';
+  populateAISessionEditDropdowns();
+  $('#ai-edit-persona').value = s.persona_name||'default';
+  $('#ai-edit-provider').value = s.provider_name||'';
+  const chk = $('#ai-edit-active'); if(chk){ chk.checked = !!s.is_active; const lb=chk.closest('.form-group-modern')?.querySelector('.config-switch-label'); if(lb) lb.textContent=chk.checked?'������':'�ѽ���'; }
+  $('#ai-edit-max-history').value = Number(s.max_history||0);
+  m.classList.remove('hidden');
+}
+
+async function saveAISessionFromModal(){
+  const sid = $('#ai-edit-session-id').value;
+  const payload = {
+    session_type: $('#ai-edit-session-type').value,
+    group_id: $('#ai-edit-group-id').value.trim()||null,
+    user_id: $('#ai-edit-user-id').value.trim()||null,
+    persona_name: $('#ai-edit-persona').value,
+    provider_name: $('#ai-edit-provider').value,
+    is_active: $('#ai-edit-active').checked,
+    max_history: parseInt($('#ai-edit-max-history').value)||0,
+  };
+  try{
+    showLoading(true);
+    await apiAISessionUpdate(sid, payload);
+    showToast('�ѱ���','success');
+    $('#ai-session-edit-modal').classList.add('hidden');
+    await loadAISessions();
+  }catch(e){ showToast('����ʧ��: '+(e&&e.message?e.message:e), 'error'); }
+  finally{ showLoading(false); }
+}
+
+async function openAISessionJsonModal(kind, sid){
+  const modal = $('#ai-session-json-modal'); if(!modal) return;
+  modal.dataset.kind = kind; modal.dataset.sid = sid;
+  const title = $('#ai-session-json-title'); if(title) title.textContent = (kind==='history' ? '�༭�Ự����ʷ JSON' : '�༭�Ự���� JSON');
+  const ta = $('#ai-session-json-text'); if(ta) ta.value = '';
+  try{
+    showLoading(true);
+    const data = (kind==='history') ? await apiAISessionHistoryGet(sid) : await apiAISessionConfigGet(sid);
+    const key = (kind==='history') ? 'history' : 'config';
+    const val = (data && data[key]) || (kind==='history'? [] : {});
+    if(ta) ta.value = JSON.stringify(val, null, 2);
+    modal.classList.remove('hidden');
+  }catch(e){ showToast('������ȡ��ʧ��: '+(e&&e.message?e.message:e),'error'); }
+  finally{ showLoading(false); }
+}
+
+async function saveAISessionJson(){
+  const modal = $('#ai-session-json-modal'); if(!modal) return;
+  const sid = modal.dataset.sid || '';
+  const kind = modal.dataset.kind || 'history';
+  const ta = $('#ai-session-json-text');
+  let obj;
+  try{
+    obj = JSON.parse((ta && ta.value) || (kind==='history'?'[]':'{}'));
+  }catch(e){ showToast('JSON ��ʽ����ȷ: '+(e&&e.message?e.message:e),'error'); return; }
+  try{
+    showLoading(true);
+    if(kind==='history') await apiAISessionHistorySet(sid, obj); else await apiAISessionConfigSet(sid, obj);
+    showToast('JSON �ѱ���','success');
+    modal.classList.add('hidden');
+    await loadAISessions();
+  }catch(e){ showToast('����ʧ��: '+(e&&e.message?e.message:e),'error'); }
+  finally{ showLoading(false); }
 }
 
 // ========== AI 人格管理 ==========
@@ -1999,6 +2168,37 @@ window.addEventListener('DOMContentLoaded', ()=>{
 });
 
 window.switchTab = switchTab;
+
+// ===== AI 会话事件绑定 =====
+document.addEventListener('input', (e)=>{
+  const t=e.target; if(!(t instanceof Element)) return;
+  if(t.matches('#ai-sessions-search')){ state.aiSessionsKeyword = t.value.trim(); renderAISessionsTable(); }
+});
+document.addEventListener('change', (e)=>{
+  const t=e.target; if(!(t instanceof Element)) return;
+  if(t.matches('#ai-sessions-type')){ state.aiSessionsType = t.value; renderAISessionsTable(); }
+  else if(t.matches('#ai-sessions-active')){ state.aiSessionsActive = t.value; renderAISessionsTable(); }
+});
+document.addEventListener('click', async (e)=>{
+  const t=e.target; if(!(t instanceof Element)) return;
+  if(t.matches('#ai-sessions-refresh')){ await loadAISessions(); }
+  else if(t.matches('.ai-session-edit')){
+    const sid = t.getAttribute('data-sid')||''; const s = (state.aiSessions||[]).find(x=>encodeURIComponent(x.session_id)===sid || x.session_id===sid);
+    if(s) openAISessionEditModal(s);
+  } else if(t.matches('#ai-session-edit-close') || t.matches('#ai-session-edit-cancel')){
+    $('#ai-session-edit-modal')?.classList.add('hidden');
+  } else if(t.matches('#ai-session-edit-save')){
+    await saveAISessionFromModal();
+  } else if(t.matches('.ai-session-history')){
+    const sid = t.getAttribute('data-sid')||''; await openAISessionJsonModal('history', decodeURIComponent(sid));
+  } else if(t.matches('.ai-session-config')){
+    const sid = t.getAttribute('data-sid')||''; await openAISessionJsonModal('config', decodeURIComponent(sid));
+  } else if(t.matches('#ai-session-json-close') || t.matches('#ai-session-json-cancel')){
+    $('#ai-session-json-modal')?.classList.add('hidden');
+  } else if(t.matches('#ai-session-json-save')){
+    await saveAISessionJson();
+  }
+});
 
 // 人格管理 · 唯一实现
 // - 中文注释与提示

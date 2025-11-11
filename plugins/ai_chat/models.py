@@ -5,10 +5,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import Field, select
+from sqlalchemy import or_
 
 from ...db.base_models import BaseIDModel, with_session
 
@@ -317,3 +318,146 @@ class ChatSession(BaseIDModel, table=True):
             return True
         except Exception:
             return False
+
+    @classmethod
+    @with_session
+    async def update_fields(
+        cls,
+        session: AsyncSession,
+        session_id: str,
+        **updates: Any,
+    ) -> bool:
+        """统一更新若干允许的字段（含规范化与校验）。
+
+        允许字段：session_type, group_id, user_id, provider_name, persona_name, max_history, is_active
+        仅对 provider_name 做列存在的保障（简易迁移）。
+        若参数非法，抛出 ValueError。
+        """
+        # 预处理与校验
+        norm: Dict[str, Any] = {}
+        if "session_type" in updates:
+            st = str(updates.get("session_type") or "").strip().lower()
+            if st not in {"group", "private"}:
+                raise ValueError("session_type 只能是 group 或 private")
+            norm["session_type"] = st
+        if "group_id" in updates:
+            gid = updates.get("group_id")
+            gid_s = str(gid).strip() if gid is not None else ""
+            norm["group_id"] = gid_s or None
+        if "user_id" in updates:
+            uid = updates.get("user_id")
+            uid_s = str(uid).strip() if uid is not None else ""
+            norm["user_id"] = uid_s or None
+        if "provider_name" in updates:
+            pv = str(updates.get("provider_name") or "").strip()
+            norm["provider_name"] = pv or None
+        if "persona_name" in updates:
+            pn = str(updates.get("persona_name") or "").strip() or "default"
+            norm["persona_name"] = pn
+        if "max_history" in updates:
+            try:
+                mh = int(updates.get("max_history"))
+                if mh < 0:
+                    raise ValueError
+            except Exception:
+                raise ValueError("max_history 必须为非负整数")
+            norm["max_history"] = mh
+        if "is_active" in updates:
+            norm["is_active"] = bool(updates.get("is_active"))
+
+        try:
+            if "provider_name" in norm:
+                await cls.ensure_provider_column(session=session)
+        except Exception:
+            pass
+
+        row = await cls.get_by_session_id(session=session, session_id=session_id)
+        if not row:
+            return False
+        for k, v in norm.items():
+            setattr(row, k, v)
+        row.updated_at = datetime.now().isoformat()
+        session.add(row)
+        await session.flush()
+        return True
+
+    @classmethod
+    @with_session
+    async def update_fields_raw(
+        cls,
+        session: AsyncSession,
+        session_id: str,
+        payload: Dict[str, Any],
+    ) -> bool:
+        """接收原始 payload，委托给 update_fields 做校验与保存。"""
+        return await cls.update_fields(session=session, session_id=session_id, **(payload or {}))
+
+    @classmethod
+    @with_session
+    async def set_history_raw(
+        cls,
+        session: AsyncSession,
+        session_id: str,
+        raw: Any,
+    ) -> bool:
+        """从任意原始对象/字符串解析并保存 history_json。非法时报 ValueError。"""
+        import json
+        data = raw
+        if isinstance(raw, str):
+            try:
+                data = json.loads(raw)
+            except Exception as e:
+                raise ValueError(f"JSON 解析失败: {e}")
+        if not isinstance(data, list):
+            raise ValueError("必须是 JSON 数组")
+        return await cls.set_history_list(session=session, session_id=session_id, history=data)
+
+    @classmethod
+    @with_session
+    async def set_config_raw(
+        cls,
+        session: AsyncSession,
+        session_id: str,
+        raw: Any,
+    ) -> bool:
+        """从任意原始对象/字符串解析并保存 config_json。非法时报 ValueError。"""
+        import json
+        data = raw
+        if isinstance(raw, str):
+            try:
+                data = json.loads(raw)
+            except Exception as e:
+                raise ValueError(f"JSON 解析失败: {e}")
+        if not isinstance(data, dict):
+            raise ValueError("必须是 JSON 对象")
+        return await cls.set_config_json(session=session, session_id=session_id, data=data)
+
+    # ==================== 查询：会话列表（支持关键字） ====================
+
+    @classmethod
+    @with_session
+    async def search_sessions(
+        cls,
+        session: AsyncSession,
+        keyword: Optional[str] = None,
+    ) -> List["ChatSession"]:
+        """按关键字查询会话（匹配 session_id / group_id / user_id），为空则返回全部。
+
+        为了兼容现有控制台的筛选逻辑，这里只做关键字过滤，其他筛选在前端处理。
+        """
+        kw = (keyword or "").strip()
+        if not kw:
+            # 直接返回全部
+            result = await session.execute(select(cls))
+            return result.scalars().all()
+
+        like = f"%{kw}%"
+        stmt = select(cls).where(
+            or_(
+                cls.session_id.like(like),  # type: ignore[attr-defined]
+                cls.group_id.like(like),    # type: ignore[attr-defined]
+                cls.user_id.like(like),     # type: ignore[attr-defined]
+            )
+        )
+        result = await session.execute(stmt)
+        return result.scalars().all()

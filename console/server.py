@@ -29,18 +29,22 @@ from .membership_service import (
     UNITS,
 )
 
-# === AI Chat personas (file-based) ===
+# === AI Chat personas (file-based) & sessions ===
 try:
     # 延迟导入，避免在未安装/未启用 ai_chat 插件时报错
     from ..plugins.ai_chat.config import (
         get_personas as ai_get_personas,
         get_personas_dir as ai_get_personas_dir,
         reload_all as ai_reload_ai_configs,
+        get_config as ai_get_config,
     )
+    from ..plugins.ai_chat.models import ChatSession
 except Exception:
     ai_get_personas = None  # type: ignore
     ai_get_personas_dir = None  # type: ignore
     ai_reload_ai_configs = None  # type: ignore
+    ai_get_config = None  # type: ignore
+    ChatSession = None  # type: ignore
 
 
 def _extract_token(request: Request) -> str:
@@ -541,6 +545,128 @@ def setup_web_console() -> None:
                 raise HTTPException(500, f"删除失败: {e}")
 
         # 数据
+        # ==================== AI 对话：会话信息表 ====================
+        @router.get("/ai_chat/providers")
+        async def api_ai_providers(_: dict = Depends(_auth)):
+            """列出可用服务商名称及默认项。"""
+            if not ai_get_config:
+                return {"providers": [], "default": ""}
+            try:
+                cfg = ai_get_config()
+                apis = list((getattr(cfg, "api", {}) or {}).keys())
+                default_name = getattr(getattr(cfg, "session", object()), "default_provider", "") or ""
+                return {"providers": apis, "default": default_name}
+            except Exception as e:
+                raise HTTPException(500, f"获取服务商失败: {e}")
+
+        @router.get("/ai_chat/sessions")
+        async def api_ai_sessions(request: Request, _: dict = Depends(_auth)):
+            """获取会话信息列表，支持按群号/用户模糊搜索（query: q）。"""
+            if ChatSession is None:
+                raise HTTPException(500, "未找到 AI 对话模块，无法获取会话")
+            try:
+                q = str(request.query_params.get("q") or "").strip()
+            except Exception:
+                q = ""
+            try:
+                # 调用模型层封装的查询
+                rows = await ChatSession.search_sessions(keyword=q)  # type: ignore[attr-defined]
+                data = []
+                for r in rows:
+                    try:
+                        item = {
+                            "id": r.id,
+                            "session_id": r.session_id,
+                            "session_type": r.session_type,
+                            "group_id": r.group_id,
+                            "user_id": r.user_id,
+                            "provider_name": getattr(r, "provider_name", None),
+                            "persona_name": r.persona_name,
+                            "max_history": r.max_history,
+                            "is_active": r.is_active,
+                            "created_at": r.created_at,
+                            "updated_at": r.updated_at,
+                        }
+                        data.append(item)
+                    except Exception:
+                        continue
+                return {"sessions": data}
+            except Exception as e:
+                raise HTTPException(500, f"获取会话失败: {e}")
+
+        @router.put("/ai_chat/session/{sid}")
+        async def api_ai_session_update(sid: str, payload: Dict[str, Any], _: dict = Depends(_auth)):
+            """更新单个会话的部分字段。
+
+            允许字段：session_type, group_id, user_id, provider_name(可为""表示默认), persona_name, max_history, is_active
+            """
+            if ChatSession is None:
+                raise HTTPException(500, "未找到 AI 对话模块，无法更新会话")
+            # 执行更新（模型层封装）
+            try:
+                ok = await ChatSession.update_fields_raw(session_id=sid, payload=payload or {})  # type: ignore[attr-defined]
+                if not ok:
+                    raise HTTPException(404, "未找到会话")
+                return {"updated": True}
+            except HTTPException:
+                raise
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+            except Exception as e:
+                raise HTTPException(500, f"更新失败: {e}")
+
+        @router.get("/ai_chat/session/{sid}/history")
+        async def api_ai_session_history_get(sid: str, _: dict = Depends(_auth)):
+            if ChatSession is None:
+                raise HTTPException(500, "未找到 AI 对话模块，无法读取历史")
+            try:
+                lst = await ChatSession.get_history_list(session_id=sid)  # type: ignore[attr-defined]
+                return {"history": lst}
+            except Exception as e:
+                raise HTTPException(500, f"读取失败: {e}")
+
+        @router.put("/ai_chat/session/{sid}/history")
+        async def api_ai_session_history_set(sid: str, payload: Dict[str, Any], _: dict = Depends(_auth)):
+            if ChatSession is None:
+                raise HTTPException(500, "未找到 AI 对话模块，无法保存历史")
+            try:
+                ok = await ChatSession.set_history_raw(session_id=sid, raw=payload.get("history"))  # type: ignore[attr-defined]
+                if not ok:
+                    raise HTTPException(404, "未找到会话")
+                return {"success": True}
+            except HTTPException:
+                raise
+            except ValueError as e:
+                raise HTTPException(400, f"JSON 格式错误: {e}")
+            except Exception as e:
+                raise HTTPException(500, f"保存失败: {e}")
+
+        @router.get("/ai_chat/session/{sid}/config")
+        async def api_ai_session_config_get(sid: str, _: dict = Depends(_auth)):
+            if ChatSession is None:
+                raise HTTPException(500, "未找到 AI 对话模块，无法读取配置")
+            try:
+                data = await ChatSession.get_config_json(session_id=sid)  # type: ignore[attr-defined]
+                return {"config": data}
+            except Exception as e:
+                raise HTTPException(500, f"读取失败: {e}")
+
+        @router.put("/ai_chat/session/{sid}/config")
+        async def api_ai_session_config_set(sid: str, payload: Dict[str, Any], _: dict = Depends(_auth)):
+            if ChatSession is None:
+                raise HTTPException(500, "未找到 AI 对话模块，无法保存配置")
+            try:
+                ok = await ChatSession.set_config_raw(session_id=sid, raw=payload.get("config"))  # type: ignore[attr-defined]
+                if not ok:
+                    raise HTTPException(404, "未找到会话")
+                return {"success": True}
+            except HTTPException:
+                raise
+            except ValueError as e:
+                raise HTTPException(400, f"JSON 格式错误: {e}")
+            except Exception as e:
+                raise HTTPException(500, f"保存失败: {e}")
+
         @router.get("/data")
         async def api_get_all(_: dict = Depends(_auth)):
             return await _read_data()
