@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Set
 from dataclasses import dataclass, field
 
 from nonebot.log import logger
@@ -382,4 +382,164 @@ async def get_reply_bundle(bot: Bot, event: MessageEvent) -> ReplyBundle:
         logger.debug(f"get_reply_bundle.get_forward_nodes failed: {e}")
 
     return bundle
+
+
+# ===== 解析 @ 提及信息 =====
+
+@dataclass
+class AtInfo:
+    """解析到的 @ 提及信息
+
+    字段:
+    - user_id: 被 @ 的 QQ（字符串形式；可能为 'all' 表示全体成员）
+    - nickname: 尽力获取到的昵称（优先群名片，其次昵称；若无法获取则为 None）
+    """
+
+    user_id: str
+    nickname: Optional[str] = None
+
+
+def _iter_message_segments_as_dicts(msg: Any) -> List[dict]:
+    """将消息段尽力转换为 dict 列表（容错）。"""
+    segs: List[dict] = []
+    try:
+        for seg in msg or []:
+            if isinstance(seg, dict):
+                segs.append(seg)
+            elif hasattr(seg, "dict") and callable(getattr(seg, "dict")):
+                try:
+                    segs.append(seg.dict())
+                except Exception:
+                    try:
+                        segs.append(vars(seg))
+                    except Exception:
+                        pass
+            elif hasattr(seg, "__dict__"):
+                try:
+                    segs.append(vars(seg))
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return segs
+
+
+def _parse_ats_from_string_form(raw: str) -> List[str]:
+    """从字符串形态解析 [CQ:at,qq=xxx] 或 [at:qq=xxx] 等形态。
+
+    仅返回 qq/id 字符串；例如 'all' 或 '123456'.
+    """
+    ids: Set[str] = set()
+    try:
+        import re as _re
+
+        for pat in [
+            r"\[CQ:at,qq=(all|\d+)\]",
+            r"\[at:qq=(all|\d+)\]",
+            r"\[AT:qq=(all|\d+)\]",
+        ]:
+            for m in _re.finditer(pat, raw):
+                ids.add(str(m.group(1)))
+    except Exception:
+        pass
+    return list(ids)
+
+
+async def extract_mentions(
+    bot: Bot,
+    event: MessageEvent,
+    *,
+    include_all: bool = True,
+) -> List[AtInfo]:
+    """解析消息中的 @ 信息，返回包含 id 与昵称的列表。
+
+    解析策略（与 AI 对话命令一致的鲁棒性思路）：
+    1) 优先遍历消息段中 type == 'at' 的段，读取 data.qq；
+    2) 若上一步获取为空，兜底从字符串形态解析 [CQ:at,qq=...] / [at:qq=...]；
+    3) 对于每个 id，尽力获取昵称：
+       - 群内：调用 get_group_member_info，优先 card 其后 nickname；
+       - 非群：调用 get_stranger_info（若可用），否则置为 None。
+
+    参数:
+    - include_all: 是否包含 @全体成员（qq=all）。
+    """
+
+    results: List[AtInfo] = []
+    collected_ids: Set[str] = set()
+
+    # 1) 从消息段提取
+    try:
+        for seg in _iter_message_segments_as_dicts(getattr(event, "message", [])):
+            if seg.get("type") != "at":
+                continue
+            qq = str((seg.get("data") or {}).get("qq") or "").strip()
+            if not qq:
+                continue
+            if qq == "all" and not include_all:
+                continue
+            collected_ids.add(qq)
+    except Exception:
+        pass
+
+    # 2) 兜底从字符串解析
+    try:
+        if not collected_ids:
+            raw = str(getattr(event, "message", ""))
+            for qq in _parse_ats_from_string_form(raw):
+                if qq == "all" and not include_all:
+                    continue
+                collected_ids.add(qq)
+    except Exception:
+        pass
+
+    if not collected_ids:
+        return []
+
+    # 3) 尝试解析昵称
+    group_id = getattr(event, "group_id", None)
+    for uid in collected_ids:
+        nickname: Optional[str] = None
+        # 已有 name 字段（某些实现可能在 at 段里带 name）
+        try:
+            for seg in _iter_message_segments_as_dicts(getattr(event, "message", [])):
+                if seg.get("type") == "at":
+                    data = seg.get("data") or {}
+                    if str(data.get("qq") or "").strip() == uid:
+                        maybe_name = data.get("name")
+                        if isinstance(maybe_name, str) and maybe_name.strip():
+                            nickname = maybe_name.strip()
+                            break
+        except Exception:
+            pass
+
+        if nickname is None and uid != "all":
+            # 群内优先查群名片
+            if group_id:
+                try:
+                    info = await bot.get_group_member_info(
+                        group_id=int(group_id), user_id=int(uid)
+                    )
+                    if isinstance(info, dict):
+                        nickname = (
+                            str(info.get("card") or "").strip()
+                            or str(info.get("nickname") or "").strip()
+                            or None
+                        )
+                except Exception:
+                    pass
+            # 非群尝试陌生人信息
+            if nickname is None:
+                try:
+                    info = await bot.call_api("get_stranger_info", user_id=int(uid))
+                    if isinstance(info, dict):
+                        nickname = str(info.get("nickname") or "").strip() or None
+                except Exception:
+                    pass
+
+        if uid == "all" and nickname is None:
+            nickname = "全体成员"
+
+        results.append(AtInfo(user_id=str(uid), nickname=nickname))
+
+    return results
 
