@@ -17,7 +17,7 @@ from nonebot.log import logger
 from nonebot.matcher import Matcher
 from nonebot.params import RegexGroup
 from nonebot.exception import FinishedException
-from ...core.api import Plugin
+from ...core.api import Plugin, KeyValueCache
 from .config import cfg_music
 
 
@@ -60,7 +60,8 @@ class Song:
 
 
 # In-memory search cache per user
-USER_RESULTS: Dict[str, Tuple[Platform, List[Song]]] = {}
+# Cache recent search results per user with TTL to avoid unbounded growth
+USER_RESULTS = KeyValueCache(ttl=600)  # 10 minutes
 
 
 # Regex definitions
@@ -464,7 +465,7 @@ async def _(matcher: Matcher, event: MessageEvent, groups: Tuple[Optional[str], 
         )
         return
 
-    USER_RESULTS[event.get_user_id()] = (platform, songs)
+    USER_RESULTS.set(event.get_user_id(), (platform, songs))
     prov = _lv_provider_from_platform(platform)
     platform_for_display: Platform = "qq" if prov == "tencent" else "wangyiyun"
     img_bytes = _make_song_list_image_grid(platform_for_display, keyword, songs)
@@ -475,7 +476,7 @@ async def _(matcher: Matcher, event: MessageEvent, groups: Tuple[Optional[str], 
 @select_matcher.handle()
 async def _(matcher: Matcher, event: MessageEvent, groups: Tuple[str] = RegexGroup()) -> None:
     user_id = event.get_user_id()
-    if user_id not in USER_RESULTS:
+    if not USER_RESULTS.get(user_id):
         await matcher.finish("您的点歌记录已过期，请先搜索歌曲。例如：#点歌 晴天")
         return
 
@@ -486,7 +487,7 @@ async def _(matcher: Matcher, event: MessageEvent, groups: Tuple[str] = RegexGro
         await matcher.finish("无效的歌曲序号，请检查后重试。")
         return
 
-    platform, songs = USER_RESULTS[user_id]
+    res = USER_RESULTS.get(user_id); platform, songs = res
     if index < 0 or index >= len(songs):
         await matcher.finish("无效的歌曲序号，请检查后重试。")
         return
@@ -526,4 +527,6 @@ async def _(matcher: Matcher, event: MessageEvent, groups: Tuple[str] = RegexGro
         await matcher.finish(f"{song.name} - {song.artist}\n{fallback}")
     else:
         await matcher.finish("播放失败：未能获取歌曲播放地址。")
+
+
 

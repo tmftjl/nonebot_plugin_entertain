@@ -157,13 +157,18 @@ async def render_help_image(
         async with _RENDER_SEM:
             browser = await _ensure_browser()
             page = await browser.new_page(device_scale_factor=scale)
-            await asyncio.wait_for(page.set_content(html, wait_until="load"), timeout=15.0)
-            el = await page.query_selector(".container")
-            if el:
-                buf = await asyncio.wait_for(el.screenshot(type="png"), timeout=15.0)
-            else:
-                buf = await asyncio.wait_for(page.screenshot(type="png", full_page=True), timeout=15.0)
-            await page.close()
+            try:
+                await asyncio.wait_for(page.set_content(html, wait_until="load"), timeout=15.0)
+                el = await page.query_selector(".container")
+                if el:
+                    buf = await asyncio.wait_for(el.screenshot(type="png"), timeout=15.0)
+                else:
+                    buf = await asyncio.wait_for(page.screenshot(type="png", full_page=True), timeout=15.0)
+            finally:
+                try:
+                    await page.close()
+                except Exception:
+                    pass
         return buf
     except Exception as e:
         logger.warning(f"[help][renderer] Playwright 渲染失败，回退到 PIL: {e}")
