@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from typing import Dict, List, Tuple
+from threading import RLock
 
 from nonebot import on_message
 from nonebot.matcher import Matcher
@@ -25,6 +26,11 @@ from ...core.framework.perm import PermLevel, PermScene
 DATA_DIR = plugin_data_dir("group_admin")
 BAN_FILE = DATA_DIR / "banned_words.json"
 
+# In-memory cache to avoid decoding JSON on every message
+_BAN_CACHE: Dict[str, Dict[str, object]] = {}
+_BAN_CACHE_MTIME: float = -1.0
+_BAN_CACHE_LOCK = RLock()
+
 
 def _group_key(event: MessageEvent) -> str | None:
     gid = getattr(event, "group_id", None)
@@ -32,6 +38,7 @@ def _group_key(event: MessageEvent) -> str | None:
 
 
 def _load_ban_store() -> Dict[str, Dict[str, object]]:
+    """Load ban store from disk (uncached)."""
     try:
         if BAN_FILE.exists():
             data = json.loads(BAN_FILE.read_text(encoding="utf-8"))
@@ -42,10 +49,41 @@ def _load_ban_store() -> Dict[str, Dict[str, object]]:
     return {}
 
 
+def _load_ban_store_cached() -> Dict[str, Dict[str, object]]:
+    """Fast path for frequent reads in on_message interceptor.
+
+    Uses file mtime to invalidate cache. Falls back to empty dict on errors.
+    """
+    global _BAN_CACHE_MTIME
+    try:
+        mtime = BAN_FILE.stat().st_mtime if BAN_FILE.exists() else -1.0
+    except Exception:
+        mtime = -2.0
+    with _BAN_CACHE_LOCK:
+        if _BAN_CACHE and _BAN_CACHE_MTIME == mtime:
+            return _BAN_CACHE
+        data = _load_ban_store()
+        _BAN_CACHE.clear()
+        if isinstance(data, dict):
+            _BAN_CACHE.update(data)
+        _BAN_CACHE_MTIME = mtime
+        return _BAN_CACHE
+
+
 def _save_ban_store(data: Dict[str, Dict[str, object]]) -> None:
+    """Persist store and refresh in-memory cache."""
+    global _BAN_CACHE_MTIME
     try:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         BAN_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        # Refresh cache after successful write
+        with _BAN_CACHE_LOCK:
+            _BAN_CACHE.clear()
+            _BAN_CACHE.update(data or {})
+            try:
+                _BAN_CACHE_MTIME = BAN_FILE.stat().st_mtime
+            except Exception:
+                _BAN_CACHE_MTIME = -1.0
     except Exception:
         pass
 
@@ -66,7 +104,8 @@ banword_on = P.on_regex(
 async def _banword_on(matcher: Matcher, event: MessageEvent):
     if not isinstance(event, GroupMessageEvent):
         await matcher.finish("请在群聊中使用")
-    store = _load_ban_store()
+    # Use cached store for high-frequency path
+    store = _load_ban_store_cached()
     key = _group_key(event)
     rec = store.get(key or "") or {}
     rec.setdefault("words", [])
