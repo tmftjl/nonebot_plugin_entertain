@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 import base64
 import mimetypes
-from typing import List
+from typing import List, Optional
 
 from nonebot import Bot
 from nonebot.adapters.onebot.v11 import (
@@ -31,6 +31,12 @@ from .manager import chat_manager
 from .models import ChatSession
 from .config import get_config, get_personas, reload_all, save_config, CFG
 from .tools import list_tools as ai_list_tools
+from ...core.framework.message_utils import (
+    extract_plain_text as mu_extract_plain_text,
+    fetch_replied_message,
+    get_reply_text,
+    extract_mentions,
+)
 
 
 P = Plugin(name="ai_chat", display_name="AI 对话", enabled=True, level=PermLevel.LOW, scene=PermScene.ALL)
@@ -87,11 +93,15 @@ def _is_at_bot_robust(bot: Bot, event: MessageEvent) -> bool:
 
 
 def extract_plain_text(message: Message) -> str:
-    text_parts = []
-    for seg in message:
-        if seg.type == "text":
-            text_parts.append(seg.data.get("text", "").strip())
-    return " ".join(text_parts).strip()
+    # 使用共享工具以获得更鲁棒的纯文本提取
+    try:
+        return mu_extract_plain_text(message)
+    except Exception:
+        text_parts = []
+        for seg in message:
+            if getattr(seg, "type", None) == "text":
+                text_parts.append((getattr(seg, "data", None) or {}).get("text", "").strip())
+        return " ".join(text_parts).strip()
 
 
 async def extract_image_data_uris(bot: Bot, message: Message) -> List[str]:
@@ -193,6 +203,14 @@ async def handle_chat_auto(bot: Bot, event: MessageEvent):
         pass
 
     images = await extract_image_data_uris(bot, event.message)
+    # 若当前消息无图，尝试从被回复消息中取图
+    if not images:
+        try:
+            replied_msg: Optional[Message] = await fetch_replied_message(bot, event)
+            if replied_msg:
+                images = await extract_image_data_uris(bot, replied_msg)
+        except Exception:
+            pass
     if not message and not images:
         return
 
@@ -203,6 +221,20 @@ async def handle_chat_auto(bot: Bot, event: MessageEvent):
     group_id = str(getattr(event, "group_id", "")) if isinstance(event, GroupMessageEvent) else None
 
     try:
+        # 解析被回复文本与 @ 信息
+        try:
+            reply_text: Optional[str] = await get_reply_text(bot, event)
+        except Exception:
+            reply_text = None
+        try:
+            at_list = await extract_mentions(bot, event)
+            mentions = [
+                {"user_id": getattr(a, "user_id", ""), "nickname": getattr(a, "nickname", None)}
+                for a in (at_list or [])
+            ]
+        except Exception:
+            mentions = None
+
         response = await chat_manager.process_message(
             session_id=session_id,
             user_id=user_id,
@@ -219,6 +251,8 @@ async def handle_chat_auto(bot: Bot, event: MessageEvent):
                 )
             ),
             images=images or None,
+            reply_text=reply_text,
+            mentions=mentions,
         )
 
         if response:

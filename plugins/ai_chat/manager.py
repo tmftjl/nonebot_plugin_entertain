@@ -248,6 +248,8 @@ class ChatManager:
         active_reply: bool = False,
         active_reply_suffix: Optional[str] = None,
         images: Optional[List[str]] = None,
+        reply_text: Optional[str] = None,
+        mentions: Optional[List[dict]] = None,
     ) -> Any:
         """处理用户消息（串行同会话，支持工具与前后钩子，多模态输出）。
 
@@ -310,6 +312,8 @@ class ChatManager:
                     active_reply=active_reply,
                     active_reply_suffix=active_reply_suffix,
                     images=(images if (images and support_vision) else None),
+                    reply_text=reply_text,
+                    mentions=mentions,
                 )
 
                 cfg = get_config()
@@ -331,6 +335,8 @@ class ChatManager:
                     user_id=user_id,
                     user_name=user_name,
                     request_text=message,
+                    reply_text=reply_text,
+                    mentions=mentions,
                 )
 
                 model = overrides.get("model", default_model)
@@ -359,6 +365,8 @@ class ChatManager:
                     user_id=user_id,
                     user_name=user_name,
                     request_text=message,
+                    reply_text=reply_text,
+                    mentions=mentions,
                 )
 
                 response = self._sanitize_response_v2(response)
@@ -402,6 +410,8 @@ class ChatManager:
         active_reply: bool = False,
         active_reply_suffix: Optional[str] = None,
         images: Optional[List[str]] = None,
+        reply_text: Optional[str] = None,
+        mentions: Optional[List[dict]] = None,
     ) -> List[Dict[str, Any]]:
         """构建发送给 AI 的消息列表"""
 
@@ -444,7 +454,24 @@ class ChatManager:
                 content = f"{uname}: {content}"
             messages.append({"role": role, "content": content})
 
-        current_text = f"{user_name}: {message}" if session_type == "group" else message
+        # 组装当前用户输入文本，加入被引用文本与 @ 信息
+        mention_note = ""
+        if mentions:
+            try:
+                names = []
+                for m in mentions:
+                    if not isinstance(m, dict):
+                        continue
+                    nm = str((m.get("nickname") or m.get("user_id") or "")).strip()
+                    if nm:
+                        names.append(nm)
+                if names:
+                    mention_note = f"[@提及: {', '.join(names)}]"
+            except Exception:
+                mention_note = ""
+        reply_note = f"[引用: {reply_text}]" if (reply_text and str(reply_text).strip()) else ""
+        base_text = f"{user_name}: {message}" if session_type == "group" else message
+        current_text = " ".join([s for s in [reply_note, mention_note, base_text] if s])
         if images:
             parts: List[Dict[str, Any]] = []
             if current_text:
