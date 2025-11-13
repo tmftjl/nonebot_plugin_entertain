@@ -5,9 +5,9 @@ from dataclasses import dataclass, field
 
 from nonebot.log import logger
 
-try:  # pragma: no cover - import at runtime in bot environment
+try:  # pragma: no cover - 运行期由适配器提供
     from nonebot.adapters.onebot.v11 import Bot, Message, MessageEvent
-except Exception:  # pragma: no cover - allow static analysis
+except Exception:  # pragma: no cover - 便于静态检查
     Bot = Any  # type: ignore
     Message = Any  # type: ignore
     MessageEvent = Any  # type: ignore
@@ -28,57 +28,62 @@ def get_target_message_id(event: MessageEvent) -> Optional[int]:
     2) event.message 中的 reply 段 data.id
     3) 字符串形态 [reply:id=xxxx]
     """
+    logger.debug("[mu] 进入 get_target_message_id")
     # 1) event.reply
     try:
         reply = getattr(event, "reply", None)
+        logger.debug(f"[mu] event.reply = {reply!r}")
         if reply is not None:
-            # 对象 / 字典 两类常见实现
             for key in ("message_id", "id"):
                 if hasattr(reply, key):
                     mid = _safe_int(getattr(reply, key))
+                    logger.debug(f"[mu] reply 对象属性 {key} -> {mid}")
                     if mid is not None:
                         return mid
             if isinstance(reply, dict):
                 for key in ("message_id", "id"):
                     mid = _safe_int(reply.get(key))
+                    logger.debug(f"[mu] reply 字典键 {key} -> {mid}")
                     if mid is not None:
                         return mid
-            # Fallback: 从字符串里匹配一遍
-            try:  # pragma: no cover - best effort
+            try:  # pragma: no cover - 兜底
                 import re as _re
-
                 m = _re.search(r"(message_id|id)\D*(\d+)", str(reply))
                 if m:
+                    logger.debug("[mu] 从 str(reply) 匹配到 message_id")
                     return int(m.group(2))
             except Exception:
                 pass
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"[mu] get_target_message_id: reply 分支异常: {e}")
 
     # 2) reply 段 in event.message
     try:
         for seg in getattr(event, "message", []):
+            logger.debug(f"[mu] 遍历消息段: type={getattr(seg,'type',None)} data={getattr(seg,'data',None)}")
             if getattr(seg, "type", None) == "reply":
                 data = getattr(seg, "data", None) or {}
                 mid = _safe_int(data.get("id"))
+                logger.debug(f"[mu] reply 段 id -> {mid}")
                 if mid is not None:
                     return mid
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"[mu] get_target_message_id: 消息段分支异常: {e}")
 
     # 3) 字符串兜底 [reply:id=xxxx]
     try:
         import re as _re
-
         s = str(getattr(event, "message", ""))
-        m = _re.search(r"\[reply:(?:id=)?(\d+)\]", s) or _re.search(
-            r"\[reply\s*,?\s*id=(\d+)\]", s
-        )
+        logger.debug(f"[mu] 消息字符串: {s!r}")
+        m = _re.search(r"\[reply:(?:id=)?(\d+)\]", s) or _re.search(r"\[reply\s*,?\s*id=(\d+)\]", s)
         if m:
-            return int(m.group(1))
-    except Exception:
-        pass
+            val = int(m.group(1))
+            logger.debug(f"[mu] 字符串匹配到 reply id -> {val}")
+            return val
+    except Exception as e:
+        logger.debug(f"[mu] get_target_message_id: 字符串分支异常: {e}")
 
+    logger.debug("[mu] 未解析到 message_id -> None")
     return None
 
 
@@ -86,21 +91,27 @@ async def fetch_replied_message(bot: Bot, event: MessageEvent) -> Optional[Messa
     """获取被回复的消息内容（Message 对象）。失败返回 None。"""
     try:
         mid = get_target_message_id(event)
+        logger.debug(f"[mu] fetch_replied_message: 目标 message_id = {mid}")
         if not mid:
             return None
         data = await bot.get_msg(message_id=mid)  # type: ignore[arg-type]
+        logger.debug(
+            f"[mu] fetch_replied_message: get_msg 返回类型/键 = {list(data.keys()) if isinstance(data, dict) else type(data)}"
+        )
         raw = data.get("message") if isinstance(data, dict) else None
+        logger.debug(f"[mu] fetch_replied_message: raw 类型 = {type(raw)}")
         if raw is None:
             return None
-        # 将 raw 尽力转成 Message
         try:
-            from nonebot.adapters.onebot.v11 import Message as _Msg  # local import
-
-            return raw if isinstance(raw, _Msg) else _Msg(raw)
-        except Exception:
+            from nonebot.adapters.onebot.v11 import Message as _Msg  # 局部导入
+            msg_obj = raw if isinstance(raw, _Msg) else _Msg(raw)
+            logger.debug(f"[mu] fetch_replied_message: 已转换为 Message；长度 = {len(str(msg_obj))}")
+            return msg_obj
+        except Exception as e:
+            logger.debug(f"[mu] fetch_replied_message: Message 转换失败，返回原始对象: {e}")
             return raw  # type: ignore[return-value]
     except Exception as e:  # noqa: BLE001
-        logger.debug(f"fetch_replied_message failed: {e}")
+        logger.debug(f"[mu] fetch_replied_message 失败: {e}")
         return None
 
 
@@ -119,13 +130,14 @@ def _iter_message_segments_as_dicts(msg: Any) -> List[dict]:
                         segs.append(vars(seg))
                     except Exception:
                         pass
-            elif hasattr(seg, "__dict__" ):
+            elif hasattr(seg, "__dict") or hasattr(seg, "__dict__"):
                 try:
                     segs.append(vars(seg))
                 except Exception:
                     pass
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"[mu] _iter_message_segments_as_dicts: 异常 {e}")
+    logger.debug(f"[mu] _iter_message_segments_as_dicts: 得到 {len(segs)} 段")
     return segs
 
 
@@ -133,29 +145,33 @@ async def extract_image_sources_with_bot(bot: Bot, msg: Message) -> List[str]:
     """从消息段提取图片来源（url 或通过 get_image 解析的本地路径）。"""
     out: List[str] = []
     try:
-        for seg in _iter_message_segments_as_dicts(msg):
+        segs = _iter_message_segments_as_dicts(msg)
+        logger.debug(f"[mu] extract_image_sources_with_bot: 消息段数量 = {len(segs)}")
+        for seg in segs:
             if seg.get("type") != "image":
                 continue
             data = seg.get("data") or {}
             url = str((data.get("url") or "")).strip()
             if url:
                 out.append(url)
+                logger.debug(f"[mu] extract_image_sources_with_bot: 发现图片 URL -> {url}")
                 continue
             file_ = str((data.get("file") or "")).strip()
             if file_:
                 try:
-                    # 使用 OneBot get_image 将 file id 转真实路径
                     resp = await bot.get_image(file=file_)  # type: ignore[arg-type]
                     path = resp.get("file") if isinstance(resp, dict) else None
                     if path:
                         out.append(str(path))
+                        logger.debug(f"[mu] extract_image_sources_with_bot: get_image 返回文件路径 -> {path}")
                         continue
-                except Exception:
-                    # 兜底：直接返回 file_，便于定位
+                except Exception as e:
+                    logger.debug(f"[mu] extract_image_sources_with_bot: get_image 失败 {e}; 回退 file={file_}")
                     out.append(file_)
     except Exception as e:
-        logger.debug(f"extract_image_sources_with_bot failed: {e}")
+        logger.debug(f"[mu] extract_image_sources_with_bot 异常: {e}")
 
+    logger.debug(f"[mu] extract_image_sources_with_bot: 结果数量 = {len(out)}")
     return out
 
 
@@ -163,45 +179,50 @@ async def get_images_from_event_or_reply(
     bot: Bot, event: MessageEvent, *, include_current: bool = True
 ) -> List[str]:
     """优先从当前消息取图；没有则尝试从被引用的消息中取图。"""
-    # 1) 当前消息
     if include_current:
         try:
+            logger.debug("[mu] get_images_from_event_or_reply: 尝试从当前消息取图")
             current = await extract_image_sources_with_bot(bot, event.get_message())
             if current:
+                logger.debug("[mu] get_images_from_event_or_reply: 已从当前消息获取到图片")
                 return current
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"[mu] get_images_from_event_or_reply: 当前消息取图异常 {e}")
 
-    # 2) 被回复消息
     try:
+        logger.debug("[mu] get_images_from_event_or_reply: 尝试从被回复消息取图")
         replied = await fetch_replied_message(bot, event)
         if replied:
             return await extract_image_sources_with_bot(bot, replied)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"[mu] get_images_from_event_or_reply: 被回复消息取图异常 {e}")
     return []
 
 
 def extract_plain_text(msg: Message, *, strip: bool = True) -> str:
     """提取消息中的纯文本内容（忽略 CQ 码）。"""
     try:
-        # OneBot v11 Message 提供 extract_plain_text
         text = msg.extract_plain_text()  # type: ignore[attr-defined]
-        return text.strip() if strip else text
-    except Exception:
-        pass
+        res = text.strip() if strip else text
+        logger.debug(f"[mu] extract_plain_text: 适配器 extract_plain_text 成功，文本 = {res!r}")
+        return res
+    except Exception as e:
+        logger.debug(f"[mu] extract_plain_text: 适配器 extract_plain_text 失败: {e}")
 
-    # Fallback: 拼接 text 段
     texts: List[str] = []
     try:
         for seg in _iter_message_segments_as_dicts(msg):
             if seg.get("type") == "text":
                 t = (seg.get("data") or {}).get("text") or ""
                 texts.append(str(t))
-    except Exception:
-        return str(msg).strip() if strip else str(msg)
+    except Exception as e:
+        logger.debug(f"[mu] extract_plain_text: 遍历段失败，使用 str(msg): {e}")
+        joined = str(msg)
+        return joined.strip() if strip else joined
     joined = "".join(texts)
-    return joined.strip() if strip else joined
+    res = joined.strip() if strip else joined
+    logger.debug(f"[mu] extract_plain_text: 拼接 text 段完成，文本 = {res!r}")
+    return res
 
 
 async def get_reply_text(bot: Bot, event: MessageEvent) -> Optional[str]:
@@ -209,10 +230,13 @@ async def get_reply_text(bot: Bot, event: MessageEvent) -> Optional[str]:
     try:
         replied = await fetch_replied_message(bot, event)
         if not replied:
+            logger.debug("[mu] get_reply_text: 没有被回复的消息")
             return None
         text = extract_plain_text(replied)
+        logger.debug(f"[mu] get_reply_text: 文本 = {text!r}")
         return text if text else None
-    except Exception:
+    except Exception as e:
+        logger.debug(f"[mu] get_reply_text: 异常 {e}")
         return None
 
 
@@ -241,22 +265,23 @@ class ReplyBundle:
 
 def _extract_forward_id_from_message(msg: Any) -> Optional[str]:
     """从 Message 或字符串中尽力解析转发 id。"""
-    # 1) Message 段解析
     try:
-        for seg in _iter_message_segments_as_dicts(msg):
+        segs = _iter_message_segments_as_dicts(msg)
+        logger.debug(f"[mu] _extract_forward_id_from_message: 消息段数量 = {len(segs)}")
+        for seg in segs:
             if seg.get("type") == "forward":
                 data = seg.get("data") or {}
                 fid = data.get("id")
+                logger.debug(f"[mu] _extract_forward_id_from_message: forward 段 id = {fid}")
                 if fid:
                     return str(fid)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"[mu] _extract_forward_id_from_message: 段解析异常 {e}")
 
-    # 2) 字符串兜底解析（CQ/str 形态）
     try:
         s = str(msg)
         import re as _re
-
+        logger.debug(f"[mu] _extract_forward_id_from_message: 字符串长度 = {len(s)}")
         for pat in [
             r"\[CQ:forward,id=([A-Za-z0-9_\-+=/]+)\]",
             r"\[forward(?::|,)?(?:id=)?([A-Za-z0-9_\-+=/]+)\]",
@@ -264,9 +289,11 @@ def _extract_forward_id_from_message(msg: Any) -> Optional[str]:
         ]:
             m = _re.search(pat, s)
             if m:
-                return m.group(1)
-    except Exception:
-        pass
+                fid = m.group(1)
+                logger.debug(f"[mu] _extract_forward_id_from_message: 在字符串中匹配到 forward_id = {fid}")
+                return fid
+    except Exception as e:
+        logger.debug(f"[mu] _extract_forward_id_from_message: 字符串解析异常 {e}")
     return None
 
 
@@ -275,52 +302,56 @@ async def _get_forward_nodes_by_id(bot: Bot, forward_id: str) -> List[dict]:
     try:
         data = await bot.call_api("get_forward_msg", id=forward_id)
         if isinstance(data, dict):
-            # go-cqhttp 常见：{"messages": [...]} 或 {"data": {"messages": [...]}}
             if isinstance(data.get("messages"), list):
+                logger.debug(f"[mu] _get_forward_nodes_by_id: 节点数量 = {len(data['messages'])}")
                 return list(data["messages"])
             d = data.get("data")
             if isinstance(d, dict) and isinstance(d.get("messages"), list):
+                logger.debug(f"[mu] _get_forward_nodes_by_id: 节点数量(data) = {len(d['messages'])}")
                 return list(d["messages"])
     except Exception as e:  # noqa: BLE001
-        logger.debug(f"get_forward_msg failed: {e}")
+        logger.debug(f"[mu] get_forward_msg 失败: {e}")
     return []
 
 
 async def get_reply_bundle(bot: Bot, event: MessageEvent) -> ReplyBundle:
     """获取被回复消息的文本、图片与（如有）转发聊天记录。"""
+    logger.debug("[mu] 进入 get_reply_bundle")
     bundle = ReplyBundle()
 
-    # 解析 message_id
     try:
         bundle.message_id = get_target_message_id(event)
-    except Exception:
+        logger.debug(f"[mu] get_reply_bundle: 解析到 message_id = {bundle.message_id}")
+    except Exception as e:
+        logger.debug(f"[mu] get_reply_bundle: 解析 message_id 异常 {e}")
         bundle.message_id = None
 
-    # 获取被回复的 Message
     try:
         if bundle.message_id is not None:
             bundle.message = await fetch_replied_message(bot, event)
+            logger.debug(f"[mu] get_reply_bundle: 获取被回复 Message 成功? {bundle.message is not None}")
     except Exception as e:  # noqa: BLE001
-        logger.debug(f"get_reply_bundle.fetch_replied_message failed: {e}")
+        logger.debug(f"[mu] get_reply_bundle.fetch_replied_message 异常: {e}")
         bundle.message = None
 
-    # 文本与图片
     try:
         if bundle.message:
             txt = extract_plain_text(bundle.message)
             bundle.text = txt if txt else None
             bundle.images = await extract_image_sources_with_bot(bot, bundle.message)
+            logger.debug(
+                f"[mu] get_reply_bundle: 文本长度 = {len(bundle.text or '')} 图片数量 = {len(bundle.images)}"
+            )
     except Exception as e:  # noqa: BLE001
-        logger.debug(f"get_reply_bundle.extract text/images failed: {e}")
+        logger.debug(f"[mu] get_reply_bundle: 提取文本/图片异常 {e}")
 
-    # 转发 id
     try:
         if bundle.message and not bundle.forward_id:
             bundle.forward_id = _extract_forward_id_from_message(bundle.message)
-    except Exception:
-        pass
+            logger.debug(f"[mu] get_reply_bundle: 从 Message 段解析到 forward_id = {bundle.forward_id}")
+    except Exception as e:
+        logger.debug(f"[mu] get_reply_bundle: 从 Message 段解析 forward_id 异常 {e}")
 
-    # 若未获取到，回查 get_msg 返回体再解析一次
     try:
         if not bundle.forward_id and bundle.message_id is not None:
             raw = await bot.get_msg(message_id=bundle.message_id)
@@ -331,16 +362,20 @@ async def get_reply_bundle(bot: Bot, event: MessageEvent) -> ReplyBundle:
                     bundle.forward_id = _extract_forward_id_from_message(raw.get("message"))
                 if not bundle.forward_id:
                     bundle.forward_id = _extract_forward_id_from_message(str(raw))
+                logger.debug(f"[mu] get_reply_bundle: 调用 get_msg 后解析到 forward_id = {bundle.forward_id}")
     except Exception as e:  # noqa: BLE001
-        logger.debug(f"get_reply_bundle.get_msg for forward failed: {e}")
+        logger.debug(f"[mu] get_reply_bundle: get_msg 解析 forward_id 异常 {e}")
 
-    # 拉取转发节点
     try:
         if bundle.forward_id:
             bundle.forward_nodes = await _get_forward_nodes_by_id(bot, bundle.forward_id)
+            logger.debug(f"[mu] get_reply_bundle: forward 节点数量 = {len(bundle.forward_nodes)}")
     except Exception as e:  # noqa: BLE001
-        logger.debug(f"get_reply_bundle.get_forward_nodes failed: {e}")
+        logger.debug(f"[mu] get_reply_bundle: 获取 forward 节点异常 {e}")
 
+    logger.debug(
+        f"[mu] get_reply_bundle: 完成 -> mid={bundle.message_id} text_len={len(bundle.text or '')} images={len(bundle.images)} forward_id={bundle.forward_id} nodes={len(bundle.forward_nodes)}"
+    )
     return bundle
 
 
@@ -367,7 +402,6 @@ def _parse_ats_from_string_form(raw: str) -> List[str]:
     ids: Set[str] = set()
     try:
         import re as _re
-
         for pat in [
             r"\[CQ:at,qq=(all|\d+)\]",
             r"\[at:qq=(all|\d+)\]",
@@ -375,8 +409,8 @@ def _parse_ats_from_string_form(raw: str) -> List[str]:
         ]:
             for m in _re.finditer(pat, raw):
                 ids.add(str(m.group(1)))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"[mu] _parse_ats_from_string_form: 异常 {e}")
     return list(ids)
 
 
@@ -392,15 +426,11 @@ async def extract_mentions(
     1) 遍历消息段中 type == 'at' 的段，读取 data.qq
     2) 若为空，兜底从字符串形态解析
     3) 对每个 id 获取昵称：群内优先群名片，然后昵称；非群尝试 get_stranger_info
-
-    参数:
-    - include_all: 是否包含 @全体成员（qq=all）
     """
 
     results: List[AtInfo] = []
     collected_ids: Set[str] = set()
 
-    # 1) 从消息段提取
     try:
         for seg in _iter_message_segments_as_dicts(getattr(event, "message", [])):
             if seg.get("type") != "at":
@@ -411,10 +441,10 @@ async def extract_mentions(
             if qq == "all" and not include_all:
                 continue
             collected_ids.add(qq)
-    except Exception:
-        pass
+        logger.debug(f"[mu] extract_mentions: 从段解析到的 @ 集合: {collected_ids}")
+    except Exception as e:
+        logger.debug(f"[mu] extract_mentions: 段解析异常 {e}")
 
-    # 2) 兜底从字符串解析
     try:
         if not collected_ids:
             raw = str(getattr(event, "message", ""))
@@ -422,17 +452,16 @@ async def extract_mentions(
                 if qq == "all" and not include_all:
                     continue
                 collected_ids.add(qq)
-    except Exception:
-        pass
+        logger.debug(f"[mu] extract_mentions: 字符串解析后的 @ 集合: {collected_ids}")
+    except Exception as e:
+        logger.debug(f"[mu] extract_mentions: 字符串解析异常 {e}")
 
     if not collected_ids:
         return []
 
-    # 3) 尝试解析昵称
     group_id = getattr(event, "group_id", None)
     for uid in collected_ids:
         nickname: Optional[str] = None
-        # 若 at 段自带 name 字段
         try:
             for seg in _iter_message_segments_as_dicts(getattr(event, "message", [])):
                 if seg.get("type") == "at":
@@ -442,36 +471,33 @@ async def extract_mentions(
                         if isinstance(maybe_name, str) and maybe_name.strip():
                             nickname = maybe_name.strip()
                             break
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"[mu] extract_mentions: 从段读取 name 异常 {e}")
 
         if nickname is None and uid != "all":
-            # 群内优先查群名片
             if group_id:
                 try:
-                    info = await bot.get_group_member_info(
-                        group_id=int(group_id), user_id=int(uid)
-                    )
+                    info = await bot.get_group_member_info(group_id=int(group_id), user_id=int(uid))
                     if isinstance(info, dict):
                         nickname = (
                             str(info.get("card") or "").strip()
                             or str(info.get("nickname") or "").strip()
                             or None
                         )
-                except Exception:
-                    pass
-            # 非群尝试陌生人信息
+                except Exception as e:
+                    logger.debug(f"[mu] extract_mentions: get_group_member_info 异常 {e}")
             if nickname is None:
                 try:
                     info = await bot.call_api("get_stranger_info", user_id=int(uid))
                     if isinstance(info, dict):
                         nickname = str(info.get("nickname") or "").strip() or None
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"[mu] extract_mentions: get_stranger_info 异常 {e}")
 
         if uid == "all" and nickname is None:
             nickname = "全体成员"
 
         results.append(AtInfo(user_id=str(uid), nickname=nickname))
 
+    logger.debug(f"[mu] extract_mentions: 最终 @ 结果 = {[(r.user_id,r.nickname) for r in results]}")
     return results
