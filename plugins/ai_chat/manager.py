@@ -14,6 +14,9 @@ from collections import defaultdict
 
 from nonebot.log import logger
 from openai import AsyncOpenAI
+import base64
+import mimetypes
+import os
 
 # Track background tasks to prevent unbounded growth
 _BG_TASKS: set[asyncio.Task] = set()
@@ -311,6 +314,7 @@ class ChatManager:
                     chatroom_history=chatroom_history,
                     active_reply=active_reply,
                     active_reply_suffix=active_reply_suffix,
+                    support_vision=support_vision,
                 )
 
                 cfg = get_config()
@@ -406,6 +410,7 @@ class ChatManager:
         chatroom_history: str = "",
         active_reply: bool = False,
         active_reply_suffix: Optional[str] = None,
+        support_vision: bool = True,
     ) -> List[Dict[str, Any]]:
         """构建发送给 AI 的消息列表"""
 
@@ -482,6 +487,7 @@ class ChatManager:
 
         # reply part
         reply_block = ""
+        rep_imgs: list[str] = []
         rep = getattr(bundles, "reply", None)
         if rep:
             rep_text = str(getattr(rep, "text", "") or "").strip()
@@ -523,8 +529,78 @@ class ChatManager:
                     parts.append("[回复的转发聊天记录]\n" + "\n".join(logs))
             reply_block = "\n".join([p for p in parts if p])
 
-        user_content = "\n".join([s for s in [reply_block, current_block] if s])
-        messages.append({"role": "user", "content": user_content})
+        # 如果支持视觉并且存在图片，则将图片打包为多模态 parts 发送
+        if support_vision and (cur_imgs or rep_imgs):
+            def _file_to_data_uri(path: str) -> str | None:
+                try:
+                    p = (path or "").strip()
+                    if not p or not os.path.exists(p) or not os.path.isfile(p):
+                        return None
+                    try:
+                        from .config import get_config as _gc
+                        cfg = _gc()
+                        max_side = int(getattr(getattr(cfg, "input", None), "image_max_side", 0) or 0)
+                        quality = int(getattr(getattr(cfg, "input", None), "image_jpeg_quality", 85) or 85)
+                    except Exception:
+                        max_side, quality = 0, 85
+                    if max_side > 0:
+                        try:
+                            from PIL import Image  # type: ignore
+                            import io
+                            with Image.open(p) as im:
+                                w, h = im.size
+                                m = max(w, h)
+                                scale = max_side / float(m) if m > max_side else 1.0
+                                if scale < 1.0:
+                                    nw, nh = int(w * scale), int(h * scale)
+                                    im = im.convert("RGB").resize((nw, nh))
+                                else:
+                                    im = im.convert("RGB")
+                                buf = io.BytesIO()
+                                im.save(buf, format="JPEG", quality=max(1, min(95, quality)))
+                                b = buf.getvalue()
+                                mime = "image/jpeg"
+                        except Exception:
+                            with open(p, "rb") as f:
+                                b = f.read()
+                            mime = mimetypes.guess_type(p)[0] or "image/jpeg"
+                    else:
+                        with open(p, "rb") as f:
+                            b = f.read()
+                        mime = mimetypes.guess_type(p)[0] or "image/jpeg"
+                    b64 = base64.b64encode(b).decode("ascii")
+                    return f"data:{mime};base64,{b64}"
+                except Exception:
+                    return None
+
+            def _normalize_urls(urls: list[str]) -> list[str]:
+                out: list[str] = []
+                for u in urls or []:
+                    try:
+                        su = str(u or "").strip()
+                        if not su:
+                            continue
+                        if su.startswith("http://") or su.startswith("https://") or su.startswith("data:"):
+                            out.append(su)
+                            continue
+                        data_uri = _file_to_data_uri(su)
+                        if data_uri:
+                            out.append(data_uri)
+                    except Exception:
+                        continue
+                return out
+
+            all_imgs = _normalize_urls(rep_imgs) + _normalize_urls(cur_imgs)
+            content_parts: list[dict] = []
+            text_block = "\n".join([s for s in [mention_note, reply_block, base_text] if s]).strip()
+            if text_block:
+                content_parts.append({"type": "text", "text": text_block})
+            for u in all_imgs:
+                content_parts.append({"type": "image_url", "image_url": {"url": u}})
+            messages.append({"role": "user", "content": content_parts})
+        else:
+            user_content = "\n".join([s for s in [reply_block, current_block] if s])
+            messages.append({"role": "user", "content": user_content})
 
         if active_reply and active_reply_suffix:
             try:
