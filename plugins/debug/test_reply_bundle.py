@@ -9,76 +9,67 @@ from nonebot.permission import SUPERUSER
 from nonebot.adapters.onebot.v11 import Bot, MessageEvent
 
 from core.framework.message_utils import (
-    get_reply_bundle,
-    extract_plain_text,
-    extract_image_sources_with_bot,
-    _extract_forward_id_from_message,
-    _get_forward_nodes_by_id,
+    get_message_bundle,
 )
 
 # 仅主人可用；最高优先级；不阻断其它插件
-matcher = on_message(priority=0, permission=SUPERUSER, block=False)
+matcher = on_message(priority=0, permission=SUPERUSER, block=True)
+
+
+def _none_guard(x: Optional[object]) -> str:
+    return "None" if x is None else str(x)
+
+
+def _dump_bundle(title: str, b) -> str:
+    if b is None:
+        return f"{title}: None"
+    parts = []
+    parts.append(title)
+    parts.append(f"source: {b.source}")
+    parts.append(f"message_id: {_none_guard(b.message_id)}")
+    try:
+        parts.append(f"message(str): {_none_guard(b.message)}")
+    except Exception:
+        parts.append("message(str): <转换失败>")
+    parts.append(f"text: {_none_guard(b.text)}")
+    try:
+        parts.append(f"images(len={len(b.images)}): {json.dumps(b.images, ensure_ascii=False)}")
+    except Exception:
+        parts.append(f"images(len={len(b.images)}): {b.images}")
+    parts.append(f"forward_id: {_none_guard(b.forward_id)}")
+    try:
+        parts.append(f"forward_nodes(len={len(b.forward_nodes)}): {json.dumps(b.forward_nodes, ensure_ascii=False)}")
+    except Exception:
+        parts.append(f"forward_nodes(len={len(b.forward_nodes)}): {b.forward_nodes}")
+    try:
+        parts.append(f"mentions(len={len(b.mentions)}): {json.dumps([{'user_id': m.user_id, 'nickname': m.nickname} for m in b.mentions], ensure_ascii=False)}")
+    except Exception:
+        parts.append(f"mentions(len={len(b.mentions)}): {[ (m.user_id, m.nickname) for m in b.mentions ]}")
+    # 嵌套的回复
+    if getattr(b, 'reply', None) is not None:
+        try:
+            parts.append("")
+            parts.append(_dump_bundle("[测试] 当前消息的回复(嵌套)", b.reply))
+        except Exception:
+            parts.append("[测试] 当前消息的回复(嵌套): <打印失败>")
+    return "\n".join(parts)
 
 
 @matcher.handle()
 async def _(bot: Bot, event: MessageEvent):
     logger.debug("[test] 进入 on_message")
-    try:
-        s = str(event.get_message())
-        logger.debug(f"[test] 当前消息字符串长度={len(s)} 内容={s!r}")
-    except Exception as e:
-        logger.debug(f"[test] 获取当前消息字符串失败: {e}")
 
-    # 先解析当前消息（不需要回复也能看到结果）
-    try:
-        text_cur = extract_plain_text(event.get_message())
-        imgs_cur = await extract_image_sources_with_bot(bot, event.get_message())
-        fid_cur = _extract_forward_id_from_message(event.get_message())
-        nodes_cur = await _get_forward_nodes_by_id(bot, fid_cur) if fid_cur else []
-        logger.debug(
-            f"[test] 当前消息解析: text_len={len(text_cur or '')} images={len(imgs_cur)} forward_id={fid_cur} nodes={len(nodes_cur)}"
-        )
-    except Exception as e:
-        logger.debug(f"[test] 当前消息解析异常: {e}")
-        text_cur, imgs_cur, fid_cur, nodes_cur = "", [], None, []
+    # 仅取"当前"，其中会包含嵌套的 reply 字段（如有）
+    cur = await get_message_bundle(
+        bot, event,
+        source="current",
+        want_text=True,
+        want_images=True,
+        want_forward=True,
+        want_mentions=True,
+        include_reply=True,
+    )
 
-    # 再获取被回复消息的打包结果
-    bundle = await get_reply_bundle(bot, event)
-
-    def _none_guard(x: Optional[object]) -> str:
-        return "None" if x is None else str(x)
-
-    parts = []
-    parts.append("[测试] 当前消息解析")
-    parts.append(f"text: {_none_guard(text_cur)}")
-    try:
-        parts.append(f"images(len={len(imgs_cur)}): {json.dumps(imgs_cur, ensure_ascii=False)}")
-    except Exception:
-        parts.append(f"images(len={len(imgs_cur)}): {imgs_cur}")
-    parts.append(f"forward_id: {_none_guard(fid_cur)}")
-    try:
-        parts.append(f"forward_nodes(len={len(nodes_cur)}): {json.dumps(nodes_cur, ensure_ascii=False)}")
-    except Exception:
-        parts.append(f"forward_nodes(len={len(nodes_cur)}): {nodes_cur}")
-
-    parts.append("")
-    parts.append("[测试] 被回复消息解析 get_reply_bundle")
-    parts.append(f"message_id: {_none_guard(bundle.message_id)}")
-    try:
-        parts.append(f"message(str): {_none_guard(bundle.message)}")
-    except Exception:
-        parts.append("message(str): <转换失败>")
-    parts.append(f"text: {_none_guard(bundle.text)}")
-    try:
-        parts.append(f"images(len={len(bundle.images)}): {json.dumps(bundle.images, ensure_ascii=False)}")
-    except Exception:
-        parts.append(f"images(len={len(bundle.images)}): {bundle.images}")
-    parts.append(f"forward_id: {_none_guard(bundle.forward_id)}")
-    try:
-        parts.append(f"forward_nodes(len={len(bundle.forward_nodes)}): {json.dumps(bundle.forward_nodes, ensure_ascii=False)}")
-    except Exception:
-        parts.append(f"forward_nodes(len={len(bundle.forward_nodes)}): {bundle.forward_nodes}")
-
-    out = "\n".join(parts)
+    out = _dump_bundle("[测试] 当前消息解析(整合)", cur)
     logger.debug(f"[test] 回复文本长度={len(out)}")
     await matcher.finish(out)
