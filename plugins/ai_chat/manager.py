@@ -1,4 +1,4 @@
-﻿"""AI 对话核心管理（去除好感度，加入前后钩子）
+"""AI 对话核心管理（去除好感度，加入前后钩子）
 
 - 去除了所有好感度逻辑与持久化
 - 新增 pre/post 钩子，便于在调用 AI 前后自定义修改
@@ -241,15 +241,12 @@ class ChatManager:
         session_id: str,
         user_id: str,
         user_name: str,
-        message: str,
+        bundles: Any,
         session_type: str = "group",
         group_id: Optional[str] = None,
         *,
         active_reply: bool = False,
         active_reply_suffix: Optional[str] = None,
-        images: Optional[List[str]] = None,
-        reply_text: Optional[str] = None,
-        mentions: Optional[List[dict]] = None,
     ) -> Any:
         """处理用户消息（串行同会话，支持工具与前后钩子，多模态输出）。
 
@@ -272,6 +269,11 @@ class ChatManager:
                 session = await self._get_session(session_id, session_type, group_id, user_id)
                 history = await self._get_history(session_id, session=session)
 
+                # 从传入对象提取当前纯文本
+                try:
+                    plain_current_text = str((getattr(getattr(bundles, "current", None), "text", None) or "")).strip()
+                except Exception:
+                    plain_current_text = ""
                 if not session or not session.is_active:
                     return ""
 
@@ -283,7 +285,7 @@ class ChatManager:
 
                 chatroom_history = ""
                 if session_type == "group":
-                    self.ltm.record_user(session_id, user_name, message)
+                    self.ltm.record_user(session_id, user_name, plain_current_text)
                     chatroom_history = self.ltm.get_history_str(session_id)
 
                 if active_reply:
@@ -300,20 +302,15 @@ class ChatManager:
                     return "AI 未配置或暂不可用"
                 # Capability-based input gating
                 support_tools, support_vision = self._get_active_api_flags(current_provider)
-                if (images and not support_vision) and (not message or not str(message).strip()):
-                    return "当前模型不支持识别图片"
                 messages = self._build_messages(
                     session,
                     history,
-                    message,
+                    bundles,
                     user_name,
                     session_type,
                     chatroom_history=chatroom_history,
                     active_reply=active_reply,
                     active_reply_suffix=active_reply_suffix,
-                    images=(images if (images and support_vision) else None),
-                    reply_text=reply_text,
-                    mentions=mentions,
                 )
 
                 cfg = get_config()
@@ -334,9 +331,9 @@ class ChatManager:
                     group_id=group_id,
                     user_id=user_id,
                     user_name=user_name,
-                    request_text=message,
-                    reply_text=reply_text,
-                    mentions=mentions,
+                    request_text=plain_current_text,
+                    reply_text=(getattr(getattr(bundles, "reply", None), "text", None) or None),
+                    mentions=[{"user_id": getattr(m, "user_id", ""), "nickname": getattr(m, "nickname", None)} for m in (getattr(getattr(bundles, "current", None), "mentions", []) or [])],
                 )
 
                 model = overrides.get("model", default_model)
@@ -364,9 +361,9 @@ class ChatManager:
                     group_id=group_id,
                     user_id=user_id,
                     user_name=user_name,
-                    request_text=message,
-                    reply_text=reply_text,
-                    mentions=mentions,
+                    request_text=plain_current_text,
+                    reply_text=(getattr(getattr(bundles, "reply", None), "text", None) or None),
+                    mentions=[{"user_id": getattr(m, "user_id", ""), "nickname": getattr(m, "nickname", None)} for m in (getattr(getattr(bundles, "current", None), "mentions", []) or [])],
                 )
 
                 response = self._sanitize_response_v2(response)
@@ -383,7 +380,7 @@ class ChatManager:
 
                 max_msgs = max(0, 2 * int(get_config().session.max_rounds))
                 _track_bg(asyncio.create_task(
-                    self._save_conversation(session_id, user_name, message, clean_text, max_msgs)
+                    self._save_conversation(session_id, user_name, plain_current_text, clean_text, max_msgs)
                 ))
 
                 if session_type == "group" and clean_text:
@@ -402,16 +399,13 @@ class ChatManager:
         self,
         session: ChatSession,
         history: List[Dict[str, Any]],
-        message: str,
+        bundles: Any,
         user_name: str,
         session_type: str,
         *,
         chatroom_history: str = "",
         active_reply: bool = False,
         active_reply_suffix: Optional[str] = None,
-        images: Optional[List[str]] = None,
-        reply_text: Optional[str] = None,
-        mentions: Optional[List[dict]] = None,
     ) -> List[Dict[str, Any]]:
         """构建发送给 AI 的消息列表"""
 
@@ -446,6 +440,7 @@ class ChatManager:
         _active_reply = bool(active_reply)
         _ar_suffix = (active_reply_suffix or "")
 
+        # 追加历史
         for msg in history:
             role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
             content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", "")
@@ -454,41 +449,88 @@ class ChatManager:
                 content = f"{uname}: {content}"
             messages.append({"role": role, "content": content})
 
-        # 组装当前用户输入文本，加入被引用文本与 @ 信息
-        mention_note = ""
-        if mentions:
-            try:
-                names = []
-                for m in mentions:
-                    if not isinstance(m, dict):
-                        continue
-                    nm = str((m.get("nickname") or m.get("user_id") or "")).strip()
-                    if nm:
-                        names.append(nm)
-                if names:
-                    mention_note = f"[@提及: {', '.join(names)}]"
-            except Exception:
-                mention_note = ""
-        reply_note = f"[引用: {reply_text}]" if (reply_text and str(reply_text).strip()) else ""
-        base_text = f"{user_name}: {message}" if session_type == "group" else message
-        current_text = " ".join([s for s in [reply_note, mention_note, base_text] if s])
-        if images:
-            parts: List[Dict[str, Any]] = []
-            if current_text:
-                parts.append({"type": "text", "text": current_text})
-            for uri in images:
+        # 构造当前对话文本（拼接文本/图片/回复/转发）
+        def _join_images(urls: list[str], prefix: str) -> str:
+            lines = []
+            for idx, u in enumerate(urls or [], 1):
                 try:
-                    parts.append({"type": "image_url", "image_url": {"url": uri}})
+                    su = str(u).strip()
+                    if su:
+                        lines.append(f"{prefix}{idx if len(urls) > 1 else ''}: {su}")
                 except Exception:
-                    pass
-            messages.append({"role": "user", "content": parts})
-        else:
-            messages.append({"role": "user", "content": current_text})
-        if _active_reply and _ar_suffix:
+                    continue
+            return "\n".join(lines)
+
+        # mentions
+        mention_note = ""
+        try:
+            ms = getattr(getattr(bundles, "current", None), "mentions", []) or []
+            names = []
+            for m in ms:
+                nm = str(getattr(m, "nickname", None) or getattr(m, "user_id", "")).strip()
+                if nm:
+                    names.append(nm)
+            if names:
+                mention_note = f"[@提及: {', '.join(names)}]"
+        except Exception:
+            mention_note = ""
+
+        cur_text = str((getattr(getattr(bundles, "current", None), "text", None) or "")).strip()
+        cur_imgs = list(getattr(getattr(bundles, "current", None), "images", []) or [])
+        base_text = f"{user_name}: {cur_text}" if session_type == "group" else cur_text
+        current_block = "\n".join([s for s in [mention_note, base_text, _join_images(cur_imgs, "图片")] if s])
+
+        # reply part
+        reply_block = ""
+        rep = getattr(bundles, "reply", None)
+        if rep:
+            rep_text = str(getattr(rep, "text", "") or "").strip()
+            rep_imgs = list(getattr(rep, "images", []) or [])
+            parts = []
+            if rep_text:
+                parts.append(f"[回复] {rep_text}")
+            img_txt = _join_images(rep_imgs, "回复图片")
+            if img_txt:
+                parts.append(img_txt)
+            # 转发聊天记录
+            nodes = list(getattr(rep, "forward_nodes", []) or [])
+            if nodes:
+                logs = []
+                for node in nodes:
+                    try:
+                        c = node.get("content") if isinstance(node, dict) else {}
+                        sender = (c or {}).get("sender") or {}
+                        name = str(sender.get("nickname") or sender.get("card") or sender.get("user_id") or c.get("nickname") or "").strip()
+                        msg = (c or {}).get("message")
+                        txt = ""
+                        if isinstance(msg, list):
+                            # 提取文本段
+                            tparts = []
+                            for seg in msg:
+                                try:
+                                    if isinstance(seg, dict) and seg.get("type") == "text":
+                                        tparts.append(str((seg.get("data") or {}).get("text") or ""))
+                                except Exception:
+                                    pass
+                            txt = "".join(tparts).strip()
+                        elif isinstance(msg, str):
+                            txt = msg.strip()
+                        if name or txt:
+                            logs.append(f"- {name}: {txt}".strip())
+                    except Exception:
+                        continue
+                if logs:
+                    parts.append("[回复的转发聊天记录]\n" + "\n".join(logs))
+            reply_block = "\n".join([p for p in parts if p])
+
+        user_content = "\n".join([s for s in [reply_block, current_block] if s])
+        messages.append({"role": "user", "content": user_content})
+
+        if active_reply and active_reply_suffix:
             try:
-                suffix_use = _ar_suffix.replace("{message}", message).replace("{prompt}", message)
+                suffix_use = active_reply_suffix.replace("{message}", cur_text).replace("{prompt}", cur_text)
             except Exception:
-                suffix_use = _ar_suffix
+                suffix_use = active_reply_suffix
             messages.append({"role": "user", "content": suffix_use})
 
         return messages

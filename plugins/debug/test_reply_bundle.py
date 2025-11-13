@@ -8,7 +8,7 @@ from nonebot.log import logger
 from nonebot.permission import SUPERUSER
 from nonebot.adapters.onebot.v11 import Bot, MessageEvent
 
-from core.framework.message_utils import (
+from ...core.framework.message_utils import (
     get_message_bundle,
 )
 

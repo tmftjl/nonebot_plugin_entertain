@@ -1,4 +1,4 @@
-"""AI 对话指令处理（去除好感度 + 前后钩子，依赖 manager 提供能力）
+﻿"""AI 对话指令处理（去除好感度 + 前后钩子，依赖 manager 提供能力）
 
 主要指令：
 - 对话：群聊需 @ 机器人或命中主动回复；私聊直接处理
@@ -32,10 +32,8 @@ from .models import ChatSession
 from .config import get_config, get_personas, reload_all, save_config, CFG
 from .tools import list_tools as ai_list_tools
 from ...core.framework.message_utils import (
-    extract_plain_text as mu_extract_plain_text,
-    fetch_replied_message,
-    get_reply_text,
-    extract_mentions,
+    get_message_bundles,
+    MessageBundles,
 )
 
 
@@ -189,7 +187,20 @@ async def handle_chat_auto(bot: Bot, event: MessageEvent):
     ):
         return
 
-    message = extract_plain_text(event.message)
+    # 使用统一的消息打包工具，获取当前与被回复的完整消息
+    bundles = await get_message_bundles(
+        bot,
+        event,
+        include_current=True,
+        include_reply=True,
+        want_text=True,
+        want_images=True,
+        want_forward=True,
+        want_mentions=True,
+    )
+
+    # 当前纯文本（用于忽略前缀判断等）
+    message = (bundles.current.text if (bundles and bundles.current and bundles.current.text is not None) else "")
     # 不回复前缀（数组）检查：命中任一前缀则不触发 AI
     try:
         cfg_now = get_config()
@@ -202,16 +213,9 @@ async def handle_chat_auto(bot: Bot, event: MessageEvent):
     except Exception:
         pass
 
-    images = await extract_image_data_uris(bot, event.message)
-    # 若当前消息无图，尝试从被回复消息中取图
-    if not images:
-        try:
-            replied_msg: Optional[Message] = await fetch_replied_message(bot, event)
-            if replied_msg:
-                images = await extract_image_data_uris(bot, replied_msg)
-        except Exception:
-            pass
-    if not message and not images:
+    # 若没有文本且没有图片且没有被回复内容，则不处理
+    if not ((bundles.current and (bundles.current.text or bundles.current.images))
+            or (bundles.reply and (bundles.reply.text or bundles.reply.images or bundles.reply.forward_nodes))):
         return
 
     session_type = "group" if isinstance(event, GroupMessageEvent) else "private"
@@ -221,25 +225,11 @@ async def handle_chat_auto(bot: Bot, event: MessageEvent):
     group_id = str(getattr(event, "group_id", "")) if isinstance(event, GroupMessageEvent) else None
 
     try:
-        # 解析被回复文本与 @ 信息
-        try:
-            reply_text: Optional[str] = await get_reply_text(bot, event)
-        except Exception:
-            reply_text = None
-        try:
-            at_list = await extract_mentions(bot, event)
-            mentions = [
-                {"user_id": getattr(a, "user_id", ""), "nickname": getattr(a, "nickname", None)}
-                for a in (at_list or [])
-            ]
-        except Exception:
-            mentions = None
-
         response = await chat_manager.process_message(
             session_id=session_id,
             user_id=user_id,
             user_name=user_name,
-            message=message,
+            bundles=bundles,
             session_type=session_type,
             group_id=group_id,
             active_reply=(isinstance(event, GroupMessageEvent) and bool(getattr(event, "_ai_active_reply", False))),
@@ -250,9 +240,6 @@ async def handle_chat_auto(bot: Bot, event: MessageEvent):
                     "Now, a new message is coming: `{message}`. Please react to it. Only output your response and do not output any other information.",
                 )
             ),
-            images=images or None,
-            reply_text=reply_text,
-            mentions=mentions,
         )
 
         if response:
