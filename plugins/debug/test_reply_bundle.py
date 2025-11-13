@@ -13,7 +13,7 @@ from ...core.framework.message_utils import (
 )
 
 # 仅主人可用；最高优先级；不阻断其它插件
-matcher = on_message(priority=0, permission=SUPERUSER, block=True)
+matcher = on_message(priority=0, permission=SUPERUSER, block=False)
 
 
 def _none_guard(x: Optional[object]) -> str:
