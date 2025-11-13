@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any, List, Optional, Set
 from dataclasses import dataclass, field
@@ -13,32 +13,38 @@ except Exception:  # pragma: no cover - allow static analysis
     MessageEvent = Any  # type: ignore
 
 
-def get_target_message_id(event: MessageEvent) -> Optional[int]:
-    """尽可能从事件中获取被回复消息的 message_id。
+def _safe_int(x: Any) -> Optional[int]:
+    try:
+        return int(x)
+    except Exception:
+        return None
 
-    优先顺序：
-    1) event.reply.message_id（部分实现只在这里提供）
-    2) event.message 中的 reply 段 id
-    3) 从字符串形态解析 [reply:id=xxxx]
+
+def get_target_message_id(event: MessageEvent) -> Optional[int]:
+    """尽可能从事件中获取被回复消息 message_id。
+
+    优先顺序:
+    1) event.reply.(message_id|id)
+    2) event.message 中的 reply 段 data.id
+    3) 字符串形态 [reply:id=xxxx]
     """
     # 1) event.reply
     try:
         reply = getattr(event, "reply", None)
-        if reply:
-            mid = None
-            if hasattr(reply, "message_id"):
-                mid = getattr(reply, "message_id", None)
-            elif hasattr(reply, "id"):
-                mid = getattr(reply, "id", None)
-            if mid is None and isinstance(reply, dict):
-                mid = reply.get("message_id") or reply.get("id")
-            if mid:
-                try:
-                    return int(mid)
-                except Exception:  # pragma: no cover - best effort cast
-                    pass
-            # Fallback: parse from string
-            try:  # pragma: no cover - string fallback
+        if reply is not None:
+            # 对象 / 字典 两类常见实现
+            for key in ("message_id", "id"):
+                if hasattr(reply, key):
+                    mid = _safe_int(getattr(reply, key))
+                    if mid is not None:
+                        return mid
+            if isinstance(reply, dict):
+                for key in ("message_id", "id"):
+                    mid = _safe_int(reply.get(key))
+                    if mid is not None:
+                        return mid
+            # Fallback: 从字符串里匹配一遍
+            try:  # pragma: no cover - best effort
                 import re as _re
 
                 m = _re.search(r"(message_id|id)\D*(\d+)", str(reply))
@@ -49,24 +55,25 @@ def get_target_message_id(event: MessageEvent) -> Optional[int]:
     except Exception:
         pass
 
-    # 2) reply segment in event.message
+    # 2) reply 段 in event.message
     try:
-        for seg in event.message:  # type: ignore[union-attr]
+        for seg in getattr(event, "message", []):
             if getattr(seg, "type", None) == "reply":
-                mid = (getattr(seg, "data", None) or {}).get("id")
+                data = getattr(seg, "data", None) or {}
+                mid = _safe_int(data.get("id"))
                 if mid is not None:
-                    return int(mid)
+                    return mid
     except Exception:
         pass
 
-    # 3) Parse from string form [reply:id=xxxx]
+    # 3) 字符串兜底 [reply:id=xxxx]
     try:
         import re as _re
 
         s = str(getattr(event, "message", ""))
-        m = _re.search(r"\[reply:(?:id=)?(\d+)\]", s)
-        if not m:
-            m = _re.search(r"\[reply\s*,?\s*id=(\d+)\]", s)
+        m = _re.search(r"\[reply:(?:id=)?(\d+)\]", s) or _re.search(
+            r"\[reply\s*,?\s*id=(\d+)\]", s
+        )
         if m:
             return int(m.group(1))
     except Exception:
@@ -76,7 +83,7 @@ def get_target_message_id(event: MessageEvent) -> Optional[int]:
 
 
 async def fetch_replied_message(bot: Bot, event: MessageEvent) -> Optional[Message]:
-    """获取被回复的消息内容（Message 对象），若不可用则返回 None。"""
+    """获取被回复的消息内容（Message 对象）。失败返回 None。"""
     try:
         mid = get_target_message_id(event)
         if not mid:
@@ -85,13 +92,11 @@ async def fetch_replied_message(bot: Bot, event: MessageEvent) -> Optional[Messa
         raw = data.get("message") if isinstance(data, dict) else None
         if raw is None:
             return None
-        # 若 raw 不是 Message，则尽力转为 Message
+        # 将 raw 尽力转成 Message
         try:
             from nonebot.adapters.onebot.v11 import Message as _Msg  # local import
 
-            if isinstance(raw, _Msg):
-                return raw
-            return _Msg(raw)
+            return raw if isinstance(raw, _Msg) else _Msg(raw)
         except Exception:
             return raw  # type: ignore[return-value]
     except Exception as e:  # noqa: BLE001
@@ -99,44 +104,54 @@ async def fetch_replied_message(bot: Bot, event: MessageEvent) -> Optional[Messa
         return None
 
 
+def _iter_message_segments_as_dicts(msg: Any) -> List[dict]:
+    """将消息段尽力转换为 dict 列表（容错）。"""
+    segs: List[dict] = []
+    try:
+        for seg in msg or []:
+            if isinstance(seg, dict):
+                segs.append(seg)
+            elif hasattr(seg, "dict") and callable(getattr(seg, "dict")):
+                try:
+                    segs.append(seg.dict())
+                except Exception:
+                    try:
+                        segs.append(vars(seg))
+                    except Exception:
+                        pass
+            elif hasattr(seg, "__dict__" ):
+                try:
+                    segs.append(vars(seg))
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return segs
+
+
 async def extract_image_sources_with_bot(bot: Bot, msg: Message) -> List[str]:
     """从消息段提取图片来源（url 或通过 get_image 解析的本地路径）。"""
     out: List[str] = []
     try:
-        for seg in msg:
-            seg_dict: dict
-            if isinstance(seg, dict):
-                seg_dict = seg
-            elif hasattr(seg, "dict") and callable(getattr(seg, "dict")):
-                try:
-                    seg_dict = seg.dict()
-                except Exception as e:
-                    logger.debug(f"seg.dict() failed: {e}")
-                    continue
-            elif hasattr(seg, "__dict__"):
-                seg_dict = vars(seg)
-            else:
-                logger.debug(f"unknown segment type: {type(seg)}")
+        for seg in _iter_message_segments_as_dicts(msg):
+            if seg.get("type") != "image":
                 continue
-
-            if seg_dict.get("type") != "image":
-                continue
-            data = seg_dict.get("data") or {}
+            data = seg.get("data") or {}
             url = str((data.get("url") or "")).strip()
             if url:
                 out.append(url)
                 continue
             file_ = str((data.get("file") or "")).strip()
             if file_:
-                # 使用 OneBot get_image API 将文件 id 转换为实际路径
                 try:
+                    # 使用 OneBot get_image 将 file id 转真实路径
                     resp = await bot.get_image(file=file_)  # type: ignore[arg-type]
                     path = resp.get("file") if isinstance(resp, dict) else None
                     if path:
                         out.append(str(path))
                         continue
                 except Exception:
-                    # 兜底：直接当成本地路径尝试
+                    # 兜底：直接返回 file_，便于定位
                     out.append(file_)
     except Exception as e:
         logger.debug(f"extract_image_sources_with_bot failed: {e}")
@@ -179,9 +194,9 @@ def extract_plain_text(msg: Message, *, strip: bool = True) -> str:
     # Fallback: 拼接 text 段
     texts: List[str] = []
     try:
-        for seg in msg:
-            if getattr(seg, "type", None) == "text":
-                t = (getattr(seg, "data", None) or {}).get("text") or ""
+        for seg in _iter_message_segments_as_dicts(msg):
+            if seg.get("type") == "text":
+                t = (seg.get("data") or {}).get("text") or ""
                 texts.append(str(t))
     except Exception:
         return str(msg).strip() if strip else str(msg)
@@ -201,58 +216,13 @@ async def get_reply_text(bot: Bot, event: MessageEvent) -> Optional[str]:
         return None
 
 
-async def get_chat_history(
-    bot: Bot, event: MessageEvent, *, count: int = 10
-) -> List[dict]:
-    """尽力获取最近的群聊消息记录（仅在适配器支持时生效）。
-
-    返回为底层适配器字典（如 go-cqhttp 的消息结构）。在不支持的环境下返回空列表。
-    """
-    # 仅尝试群聊
-    try:
-        group_id = getattr(event, "group_id", None)
-        if not group_id:
-            return []
-
-        # 获取 message_seq（如果可用）
-        message_seq: Optional[int] = getattr(event, "message_seq", None)
-        if message_seq is None:
-            try:
-                detail = await bot.get_msg(message_id=getattr(event, "message_id", 0))  # type: ignore[arg-type]
-                if isinstance(detail, dict):
-                    message_seq = detail.get("message_seq")
-            except Exception:
-                pass
-
-        params = {"group_id": group_id, "count": int(count)}
-        if message_seq:
-            # 从当前消息之前开始获取
-            params["message_seq"] = int(message_seq) - 1
-
-        try:
-            data = await bot.call_api("get_group_msg_history", **params)  # type: ignore[arg-type]
-            # go-cqhttp: {"messages": [...]} 或 {"data": {"messages": [...]}}
-            if isinstance(data, dict):
-                if "messages" in data and isinstance(data["messages"], list):
-                    return list(data["messages"])[:count]
-                if "data" in data and isinstance(data["data"], dict):
-                    msgs = data["data"].get("messages")
-                    if isinstance(msgs, list):
-                        return list(msgs)[:count]
-        except Exception as e:  # noqa: BLE001
-            logger.debug(f"get_group_msg_history not available: {e}")
-    except Exception as e:  # noqa: BLE001
-        logger.debug(f"get_chat_history failed: {e}")
-    return []
-
-
 # ===== 汇总获取：文本 / 图片 / 转发聊天记录 =====
 
 @dataclass
 class ReplyBundle:
     """被回复消息的汇总结果对象。
 
-    字段：
+    字段:
     - message_id: 被回复消息的 ID（若无法解析则为 None）
     - message: 被回复消息的 Message 对象（若获取失败为 None）
     - text: 从被回复消息中提取的纯文本（可能为 None）
@@ -273,10 +243,9 @@ def _extract_forward_id_from_message(msg: Any) -> Optional[str]:
     """从 Message 或字符串中尽力解析转发 id。"""
     # 1) Message 段解析
     try:
-        for seg in msg:  # OneBot v11 Message 可迭代
-            t = getattr(seg, "type", None)
-            if t == "forward":
-                data = getattr(seg, "data", None) or {}
+        for seg in _iter_message_segments_as_dicts(msg):
+            if seg.get("type") == "forward":
+                data = seg.get("data") or {}
                 fid = data.get("id")
                 if fid:
                     return str(fid)
@@ -288,7 +257,6 @@ def _extract_forward_id_from_message(msg: Any) -> Optional[str]:
         s = str(msg)
         import re as _re
 
-        # 常见形态：[CQ:forward,id=xxxx] 或 [forward:id=xxxx]
         for pat in [
             r"\[CQ:forward,id=([A-Za-z0-9_\-+=/]+)\]",
             r"\[forward(?::|,)?(?:id=)?([A-Za-z0-9_\-+=/]+)\]",
@@ -322,13 +290,13 @@ async def get_reply_bundle(bot: Bot, event: MessageEvent) -> ReplyBundle:
     """获取被回复消息的文本、图片与（如有）转发聊天记录。"""
     bundle = ReplyBundle()
 
-    # 解析被回复的 message_id
+    # 解析 message_id
     try:
         bundle.message_id = get_target_message_id(event)
     except Exception:
         bundle.message_id = None
 
-    # 获取被回复的 Message 对象
+    # 获取被回复的 Message
     try:
         if bundle.message_id is not None:
             bundle.message = await fetch_replied_message(bot, event)
@@ -336,45 +304,37 @@ async def get_reply_bundle(bot: Bot, event: MessageEvent) -> ReplyBundle:
         logger.debug(f"get_reply_bundle.fetch_replied_message failed: {e}")
         bundle.message = None
 
-    # 提取纯文本
+    # 文本与图片
     try:
         if bundle.message:
-            text = extract_plain_text(bundle.message)
-            bundle.text = text if text else None
-    except Exception as e:  # noqa: BLE001
-        logger.debug(f"get_reply_bundle.extract_plain_text failed: {e}")
-
-    # 提取图片来源
-    try:
-        if bundle.message:
+            txt = extract_plain_text(bundle.message)
+            bundle.text = txt if txt else None
             bundle.images = await extract_image_sources_with_bot(bot, bundle.message)
     except Exception as e:  # noqa: BLE001
-        logger.debug(f"get_reply_bundle.extract_image_sources_with_bot failed: {e}")
+        logger.debug(f"get_reply_bundle.extract text/images failed: {e}")
 
-    # 提取“转发聊天记录”
-    # 1) 先从被回复的 Message 段里找 forward 段
+    # 转发 id
     try:
-        if bundle.message:
+        if bundle.message and not bundle.forward_id:
             bundle.forward_id = _extract_forward_id_from_message(bundle.message)
     except Exception:
         pass
 
-    # 2) 若未获取到，回查 get_msg 返回体再解析一次
+    # 若未获取到，回查 get_msg 返回体再解析一次
     try:
         if not bundle.forward_id and bundle.message_id is not None:
             raw = await bot.get_msg(message_id=bundle.message_id)
             if isinstance(raw, dict):
-                # 直接字段或从 message 字段解析
-                bundle.forward_id = (
-                    str(raw.get("forward_id"))
-                    if raw.get("forward_id")
-                    else _extract_forward_id_from_message(raw.get("message"))
-                    or _extract_forward_id_from_message(str(raw))
-                )
+                if raw.get("forward_id"):
+                    bundle.forward_id = str(raw.get("forward_id"))
+                if not bundle.forward_id and raw.get("message") is not None:
+                    bundle.forward_id = _extract_forward_id_from_message(raw.get("message"))
+                if not bundle.forward_id:
+                    bundle.forward_id = _extract_forward_id_from_message(str(raw))
     except Exception as e:  # noqa: BLE001
         logger.debug(f"get_reply_bundle.get_msg for forward failed: {e}")
 
-    # 3) 有 forward_id 则取节点列表
+    # 拉取转发节点
     try:
         if bundle.forward_id:
             bundle.forward_nodes = await _get_forward_nodes_by_id(bot, bundle.forward_id)
@@ -399,33 +359,8 @@ class AtInfo:
     nickname: Optional[str] = None
 
 
-def _iter_message_segments_as_dicts(msg: Any) -> List[dict]:
-    """将消息段尽力转换为 dict 列表（容错）。"""
-    segs: List[dict] = []
-    try:
-        for seg in msg or []:
-            if isinstance(seg, dict):
-                segs.append(seg)
-            elif hasattr(seg, "dict") and callable(getattr(seg, "dict")):
-                try:
-                    segs.append(seg.dict())
-                except Exception:
-                    try:
-                        segs.append(vars(seg))
-                    except Exception:
-                        pass
-            elif hasattr(seg, "__dict__"):
-                try:
-                    segs.append(vars(seg))
-                except Exception:
-                    pass
-    except Exception:
-        pass
-    return segs
-
-
 def _parse_ats_from_string_form(raw: str) -> List[str]:
-    """从字符串形态解析 [CQ:at,qq=xxx] 或 [at:qq=xxx] 等形态。
+    """从字符串形态解析 [CQ:at,qq=xxx] / [at:qq=xxx] 等形态。
 
     仅返回 qq/id 字符串；例如 'all' 或 '123456'.
     """
@@ -453,15 +388,13 @@ async def extract_mentions(
 ) -> List[AtInfo]:
     """解析消息中的 @ 信息，返回包含 id 与昵称的列表。
 
-    解析策略（与 AI 对话命令一致的鲁棒性思路）：
-    1) 优先遍历消息段中 type == 'at' 的段，读取 data.qq；
-    2) 若上一步获取为空，兜底从字符串形态解析 [CQ:at,qq=...] / [at:qq=...]；
-    3) 对于每个 id，尽力获取昵称：
-       - 群内：调用 get_group_member_info，优先 card 其后 nickname；
-       - 非群：调用 get_stranger_info（若可用），否则置为 None。
+    策略:
+    1) 遍历消息段中 type == 'at' 的段，读取 data.qq
+    2) 若为空，兜底从字符串形态解析
+    3) 对每个 id 获取昵称：群内优先群名片，然后昵称；非群尝试 get_stranger_info
 
     参数:
-    - include_all: 是否包含 @全体成员（qq=all）。
+    - include_all: 是否包含 @全体成员（qq=all）
     """
 
     results: List[AtInfo] = []
@@ -499,7 +432,7 @@ async def extract_mentions(
     group_id = getattr(event, "group_id", None)
     for uid in collected_ids:
         nickname: Optional[str] = None
-        # 已有 name 字段（某些实现可能在 at 段里带 name）
+        # 若 at 段自带 name 字段
         try:
             for seg in _iter_message_segments_as_dicts(getattr(event, "message", [])):
                 if seg.get("type") == "at":
@@ -542,4 +475,3 @@ async def extract_mentions(
         results.append(AtInfo(user_id=str(uid), nickname=nickname))
 
     return results
-
