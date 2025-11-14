@@ -1,4 +1,4 @@
-"""AI 对话核心管理（去除好感度，加入前后钩子）
+﻿"""AI 对话核心管理（去除好感度，加入前后钩子）
 
 - 去除了所有好感度逻辑与持久化
 - 新增 pre/post 钩子，便于在调用 AI 前后自定义修改
@@ -304,7 +304,43 @@ class ChatManager:
                 if not client:
                     return "AI 未配置或暂不可用"
                 # Capability-based input gating
-                support_tools, support_vision = self._get_active_api_flags(current_provider)
+                support_tools, support_vision = self._get_active_api_flags(current_provider)                # If model does not support vision and input contains images, short-circuit with a friendly reply
+                try:
+                    has_images = False
+                    cur_imgs = list(getattr(getattr(bundles, "current", None), "images", []) or [])
+                    if cur_imgs:
+                        has_images = True
+                    if not has_images:
+                        rep = getattr(bundles, "reply", None)
+                        rep_imgs = list(getattr(rep, "images", []) or [])
+                        if rep_imgs:
+                            has_images = True
+                        if not has_images and rep is not None:
+                            nodes = list(getattr(rep, "forward_nodes", []) or [])
+                            for node in nodes:
+                                try:
+                                    msg_obj = None
+                                    if isinstance(node, dict):
+                                        if 'message' in node:
+                                            msg_obj = node.get('message')
+                                        else:
+                                            c = node.get('content')
+                                            if isinstance(c, dict) and 'message' in c:
+                                                msg_obj = c.get('message')
+                                    if isinstance(msg_obj, list):
+                                        for seg in msg_obj:
+                                            if isinstance(seg, dict) and (str(seg.get('type') or '') == 'image'):
+                                                has_images = True
+                                                break
+                                        if has_images:
+                                            break
+                                except Exception:
+                                    continue
+                except Exception:
+                    has_images = False
+
+                if (not support_vision) and has_images:
+                    return {"text": "当前模型不支持图片输入", "images": []}
                 messages = self._build_messages(
                     session,
                     history,
@@ -629,15 +665,60 @@ class ChatManager:
                 except Exception:
                     return None
 
+            def _http_to_data_uri(url: str) -> str | None:
+                try:
+                    import httpx, io
+                    r = httpx.get(url, timeout=10.0, follow_redirects=True)
+                    if r.status_code != 200 or not r.content:
+                        return None
+                    b = r.content
+                    mime = r.headers.get('content-type') or (mimetypes.guess_type(url)[0] or 'image/jpeg')
+                    # Optional downscale/compress per config
+                    try:
+                        from .config import get_config as _gc
+                        cfg = _gc()
+                        max_side = int(getattr(getattr(cfg, 'input', None), 'image_max_side', 0) or 0)
+                        quality = int(getattr(getattr(cfg, 'input', None), 'image_jpeg_quality', 85) or 85)
+                    except Exception:
+                        max_side, quality = 0, 85
+                    if max_side > 0:
+                        try:
+                            from PIL import Image  # type: ignore
+                            im = Image.open(io.BytesIO(b))
+                            w, h = im.size
+                            m = max(w, h)
+                            scale = max_side / float(m) if m > max_side else 1.0
+                            if scale < 1.0:
+                                nw, nh = int(w * scale), int(h * scale)
+                                im = im.convert('RGB').resize((nw, nh))
+                            else:
+                                im = im.convert('RGB')
+                            buf = io.BytesIO()
+                            im.save(buf, format='JPEG', quality=max(1, min(95, quality)))
+                            b = buf.getvalue()
+                            mime = 'image/jpeg'
+                        except Exception:
+                            pass
+                    import base64 as _b64
+                    b64 = _b64.b64encode(b).decode('ascii')
+                    return f'data:{mime};base64,{b64}'
+                except Exception:
+                    return None
+
             def _normalize_urls(urls: list[str]) -> list[str]:
                 out: list[str] = []
                 for u in urls or []:
                     try:
-                        su = str(u or "").strip()
+                        su = str(u or '').strip()
                         if not su:
                             continue
-                        if su.startswith("http://") or su.startswith("https://") or su.startswith("data:"):
+                        if su.startswith('data:'):
                             out.append(su)
+                            continue
+                        if su.startswith('http://') or su.startswith('https://'):
+                            du = _http_to_data_uri(su)
+                            if du:
+                                out.append(du)
                             continue
                         data_uri = _file_to_data_uri(su)
                         if data_uri:
