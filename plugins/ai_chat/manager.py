@@ -495,39 +495,95 @@ class ChatManager:
             parts = []
             if rep_text:
                 parts.append(f"[回复] {rep_text}")
-            img_txt = _join_images(rep_imgs, "回复图片")
-            if img_txt:
-                parts.append(img_txt)
-            # 转发聊天记录
+            # 转发聊天记录 + 其中的图片
             nodes = list(getattr(rep, "forward_nodes", []) or [])
             if nodes:
                 logs = []
                 for node in nodes:
                     try:
-                        c = node.get("content") if isinstance(node, dict) else {}
-                        sender = (c or {}).get("sender") or {}
-                        name = str(sender.get("nickname") or sender.get("card") or sender.get("user_id") or c.get("nickname") or "").strip()
-                        msg = (c or {}).get("message")
-                        txt = ""
-                        if isinstance(msg, list):
-                            # 提取文本段
-                            tparts = []
-                            for seg in msg:
+                        # accept multiple shapes: node['content']['message'] | node['message'] | node['content'] (list)
+                        msg_obj = None
+                        if isinstance(node, dict):
+                            if 'message' in node:
+                                msg_obj = node.get('message')
+                            else:
+                                c = node.get('content')
+                                if isinstance(c, dict) and 'message' in c:
+                                    msg_obj = c.get('message')
+                                else:
+                                    msg_obj = c
+                        else:
+                            msg_obj = node
+                        # local helper to extract text/images
+                        def __ext(msg_obj):
+                            text_out = []
+                            imgs = []
+                            import re as _re, json as _json
+                            try:
+                                if isinstance(msg_obj, list):
+                                    for seg in msg_obj:
+                                        try:
+                                            if isinstance(seg, dict):
+                                                t = str(seg.get('type') or '')
+                                                data = seg.get('data') or {}
+                                                if t == 'text':
+                                                    text_out.append(str((data.get('text') or '')).strip())
+                                                elif t == 'image':
+                                                    u = str((data.get('url') or data.get('file') or data.get('image') or data.get('path') or '')).strip()
+                                                    if u:
+                                                        imgs.append(u)
+                                            else:
+                                                st = str(seg)
+                                                m = _re.search(r"\[CQ:image,[^]]*?url=([^,\]]+)", st)
+                                                if m:
+                                                    imgs.append(m.group(1))
+                                        except Exception:
+                                            continue
+                                    return ("".join(text_out).strip(), imgs)
+                                if isinstance(msg_obj, dict):
+                                    inner = (msg_obj.get('message') if 'message' in msg_obj else msg_obj.get('content') if isinstance(msg_obj.get('content'), dict) else None)
+                                    if isinstance(inner, dict) and 'message' in inner:
+                                        inner = inner.get('message')
+                                    if inner is not None:
+                                        return __ext(inner)
+                                st = str(msg_obj)
+                                st_strip = st.strip()
                                 try:
-                                    if isinstance(seg, dict) and seg.get("type") == "text":
-                                        tparts.append(str((seg.get("data") or {}).get("text") or ""))
+                                    if st_strip.startswith('{') or st_strip.startswith('['):
+                                        j = _json.loads(st_strip)
+                                        return __ext(j)
                                 except Exception:
                                     pass
-                            txt = "".join(tparts).strip()
-                        elif isinstance(msg, str):
-                            txt = msg.strip()
-                        if name or txt:
-                            logs.append(f"- {name}: {txt}".strip())
+                                text_only = _re.sub(r"\[CQ:[^]]+\]", "", st)
+                                for m in _re.finditer(r"\[CQ:image,[^]]*?url=([^,\]]+)", st):
+                                    imgs.append(m.group(1))
+                                for m in _re.finditer(r"(https?://\S+?\.(?:png|jpe?g|gif|webp|bmp))(?!\S)", st, flags=_re.I):
+                                    imgs.append(m.group(1))
+                                return (text_only.strip(), imgs)
+                            except Exception:
+                                return ("", [])
+                        txt_i, imgs_i = __ext(msg_obj)
+                        name = ''
+                        try:
+                            c = node.get('content') if isinstance(node, dict) else None
+                            sender = (c or {}).get('sender') or {}
+                            name = str(sender.get('nickname') or sender.get('card') or sender.get('user_id') or (c or {}).get('nickname') or '').strip()
+                        except Exception:
+                            pass
+                        if name or txt_i:
+                            logs.append(f"- {name}: {txt_i}".strip())
+                        if imgs_i:
+                            rep_imgs.extend([u for u in imgs_i if u])
                     except Exception:
                         continue
                 if logs:
                     parts.append("[回复的转发聊天记录]\n" + "\n".join(logs))
+            # textual hint for images (for non-vision models)
+            img_txt = _join_images(rep_imgs, "回复图片")
+            if img_txt:
+                parts.append(img_txt)
             reply_block = "\n".join([p for p in parts if p])
+
 
         # 如果支持视觉并且存在图片，则将图片打包为多模态 parts 发送
         if support_vision and (cur_imgs or rep_imgs):
