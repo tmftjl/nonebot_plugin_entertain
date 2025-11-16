@@ -6,7 +6,11 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional, List, Dict
-
+import secrets
+import string
+import time
+import asyncio
+from ...core.framework.local_cache import locks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import Field, select
 
@@ -19,28 +23,78 @@ class ChatSession(BaseIDModel, table=True):
     __tablename__ = "ai_chat_sessions"
 
     # 会话标识
+    id: Optional[int] = Field(default=None, primary_key=True)
+    platform: str = Field(default="qq", description="消息平台")
     session_id: str = Field(unique=True, index=True, description="会话唯一标识")
     session_type: str = Field(description="会话类型: group | private")
-    group_id: Optional[str] = Field(default=None, description="群号（群聊会话）")
-    user_id: Optional[str] = Field(default=None, description="用户 QQ（私聊会话）")
-
-    # 服务商（每会话可独立设置；为空时使用配置的默认服务商）
+    number: Optional[str] = Field(default=None, description="账号")
     provider_name: Optional[str] = Field(default=None, description="本会话使用的服务商名称")
-
-    # 配置（直接存储，无外键）
     persona_name: str = Field(default="default", description="人格名称")
     max_history: int = Field(default=20, description="最大历史记录条数")
-    config_json: str = Field(default="{}", description="其他配置（JSON）")
-    # 会话级历史：存最近对话条目，减少查询次数
     history_json: str = Field(default="[]", description="会话历史 JSON")
-
-    # 状态
+    config_json: str = Field(default="{}", description="其他配置（JSON）")
     is_active: bool = Field(default=True, description="是否启用")
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="创建时间")
     updated_at: str = Field(default_factory=lambda: datetime.now().isoformat(), description="更新时间")
 
     # ==================== 数据库操作方法 ====================
+    @classmethod
+    @with_session
+    async def get_session_id(cls, session: AsyncSession, platform: str, session_type: str, number: str) -> str:
+        """根据 platform, session_type, number 获取会话"""
 
+        stmt = select(cls).where(
+            cls.platform == platform,
+            cls.session_type == session_type,
+            cls.number == number
+        )
+        result = await session.execute(stmt)
+        session_obj = result.scalar_one_or_none() 
+        if session_obj:
+            return session_obj.session_id
+        lock_key = f"ai_chat:get_session_id_lock:{platform}:{session_type}:{number}"
+        token = None
+        lock_timeout = 5.0  # 获取锁的最长等待时间
+        retry_interval = 0.05 # 重试间隔
+        start_time = time.time()
+        try:
+            while time.time() - start_time < lock_timeout:
+                token = locks.acquire(lock_key, ex=10, block=False)
+                if token:
+                    break
+                await asyncio.sleep(retry_interval)
+            
+            if not token:
+                raise TimeoutError(f"在指定时间内未能获取到锁: {lock_key}")
+
+            # 双重检查
+            stmt_check = select(cls).where(
+                cls.platform == platform,
+                cls.session_type == session_type,
+                cls.number == number
+            )
+            result_check = await session.execute(stmt_check)
+            session_obj_check = result_check.scalar_one_or_none()
+            
+            if session_obj_check:
+                return session_obj_check.session_id
+            
+            # 创建会话 (持有锁)
+            alphabet = string.ascii_letters + string.digits
+            session_id = ''.join(secrets.choice(alphabet) for i in range(6))
+            new_session = cls(
+                platform=platform,
+                session_type=session_type,
+                number=number,
+                session_id=session_id
+            )
+            session.add(new_session)
+            await session.flush()
+            return session_id
+        finally:
+            if token:
+                locks.release(lock_key, token)
+    
     @classmethod
     @with_session
     async def get_by_session_id(cls, session: AsyncSession, session_id: str) -> Optional["ChatSession"]:

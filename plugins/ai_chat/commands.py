@@ -14,6 +14,8 @@ import re
 import base64
 import mimetypes
 from typing import List, Optional
+import secrets
+import string
 
 from nonebot import Bot
 from nonebot.adapters.onebot.v11 import (
@@ -31,64 +33,32 @@ from .manager import chat_manager
 from .models import ChatSession
 from .config import get_config, get_personas, reload_all, save_config, CFG
 from .tools import list_tools as ai_list_tools
-from ...core.framework.message_utils import (
-    get_message_bundles,
-    MessageBundles,
-)
+from ...core.framework.message_utils import get_enhance_message
+
 
 
 P = Plugin(name="ai_chat", display_name="AI 对话", enabled=True, level=PermLevel.LOW, scene=PermScene.ALL)
 
 
 def get_session_id(event: MessageEvent) -> str:
-    if isinstance(event, GroupMessageEvent):
-        return f"group_{event.group_id}"
-    if isinstance(event, PrivateMessageEvent):
-        return f"private_{event.user_id}"
-    return f"unknown_{event.user_id}"
-
+    alphabet = string.ascii_letters + string.digits
+    return ''.join(secrets.choice(alphabet) for i in range(6))
 
 def get_user_name(event: MessageEvent) -> str:
-    try:
-        sender = getattr(event, "sender", None)
-        if sender:
-            return getattr(sender, "card", None) or getattr(sender, "nickname", None) or str(event.user_id)
-    except Exception:
-        pass
+    sender = getattr(event, "sender", None)
+    if sender:
+        return getattr(sender, "card", None) or getattr(sender, "nickname", None) or str(event.user_id)
     return str(event.user_id)
-
 
 def _is_at_bot_robust(bot: Bot, event: MessageEvent) -> bool:
     if not isinstance(event, GroupMessageEvent):
         return False
-    try:
-        for seg in event.message:
-            if seg.type == "at" and seg.data.get("qq") == bot.self_id:
-                return True
-        raw = str(event.message)
-        if f"[CQ:at,qq={bot.self_id}]" in raw or f"[at:qq={bot.self_id}]" in raw:
+    for seg in event.message:
+        if seg.type == "at" and seg.data.get("qq") == bot.self_id:
             return True
-
-        # 主动回复能力（根据配置随机触发）
-        try:
-            cfg = get_config()
-            sess = getattr(cfg, "session", None)
-            if sess and getattr(sess, "active_reply_enable", False):
-                import random as _rnd
-                prob = float(getattr(sess, "active_reply_probability", 0.0) or 0.0)
-                if prob > 0.0 and _rnd.random() <= prob:
-                    try:
-                        setattr(event, "_ai_active_reply", True)
-                        setattr(event, "_ai_active_reply_suffix", getattr(sess, "active_reply_prompt_suffix", None))
-                    except Exception:
-                        pass
-                    return True
-        except Exception:
-            pass
-    except Exception:
-        pass
-    return False
-
+    raw = str(event.message)
+    if f"[CQ:at,qq={bot.self_id}]" in raw or f"[at:qq={bot.self_id}]" in raw:
+        return True
 
 def extract_plain_text(message: Message) -> str:
     # 使用共享工具以获得更鲁棒的纯文本提取
@@ -100,7 +70,6 @@ def extract_plain_text(message: Message) -> str:
             if getattr(seg, "type", None) == "text":
                 text_parts.append((getattr(seg, "data", None) or {}).get("text", "").strip())
         return " ".join(text_parts).strip()
-
 
 async def extract_image_data_uris(bot: Bot, message: Message) -> List[str]:
     images: List[str] = []
@@ -163,18 +132,9 @@ async def extract_image_data_uris(bot: Bot, message: Message) -> List[str]:
             continue
     return images
 
-
 # ==================== 对话入口 ====================
 # 群聊需 @ 机器人或命中主动回复；私聊直接处理
-at_cmd = P.on_regex(
-    r"^(.+)$",
-    name="ai_chat_at",
-    display_name="@机器人对话",
-    priority=100,
-    block=False,
-)
-
-
+at_cmd = P.on_regex(r"^(.+)$", name="ai_chat_at", display_name="@机器人对话", priority=100, block=False)
 @at_cmd.handle()
 async def handle_chat_auto(bot: Bot, event: MessageEvent):
     """统一处理消息。
@@ -182,64 +142,30 @@ async def handle_chat_auto(bot: Bot, event: MessageEvent):
     - 私聊：只要有文本/图片就处理
     """
 
-    if isinstance(event, GroupMessageEvent) and not (
-        _is_at_bot_robust(bot, event) or getattr(event, "to_me", False)
-    ):
+    if not event.is_tome():
         return
 
-    # 使用统一的消息打包工具，获取当前与被回复的完整消息
-    bundles = await get_message_bundles(
-        bot,
-        event,
-        include_current=True,
-        include_reply=True,
-        want_text=True,
-        want_images=True,
-        want_forward=True,
-        want_mentions=True,
-    )
-
-    # 当前纯文本（用于忽略前缀判断等）
-    message = (bundles.current.text if (bundles and bundles.current and bundles.current.text is not None) else "")
-    # 不回复前缀（数组）检查：命中任一前缀则不触发 AI
-    try:
-        cfg_now = get_config()
-        prefixes = list(getattr(getattr(cfg_now, "session", None), "ignore_prefixes", []) or [])
-        if prefixes:
-            plain = message.lstrip()
-            for _p in prefixes:
-                if isinstance(_p, str) and _p and plain.startswith(_p):
-                    return
-    except Exception:
-        pass
-
-    # 若没有文本且没有图片且没有被回复内容，则不处理
-    if not ((bundles.current and (bundles.current.text or bundles.current.images))
-            or (bundles.reply and (bundles.reply.text or bundles.reply.images or bundles.reply.forward_nodes))):
-        return
+    # 不回复前缀（数组）检查
+    message = event.get_plaintext()
+    cfg_now = get_config()
+    prefixes = list(getattr(getattr(cfg_now, "session", None), "ignore_prefixes", []) or [])
+    if prefixes:
+        plain = message.lstrip()
+        for _p in prefixes:
+            if isinstance(_p, str) and _p and plain.startswith(_p):
+                return
 
     session_type = "group" if isinstance(event, GroupMessageEvent) else "private"
-    session_id = get_session_id(event)
-    user_id = str(event.user_id)
+    number = str(getattr(event, "group_id", "")) if isinstance(event, GroupMessageEvent) else str(event.user_id)
     user_name = get_user_name(event)
-    group_id = str(getattr(event, "group_id", "")) if isinstance(event, GroupMessageEvent) else None
 
     try:
         response = await chat_manager.process_message(
-            session_id=session_id,
-            user_id=user_id,
-            user_name=user_name,
-            bundles=bundles,
+            platform="qq",
             session_type=session_type,
-            group_id=group_id,
-            active_reply=(isinstance(event, GroupMessageEvent) and bool(getattr(event, "_ai_active_reply", False))),
-            active_reply_suffix=(
-                getattr(
-                    event,
-                    "_ai_active_reply_suffix",
-                    "Now, a new message is coming: `{message}`. Please react to it. Only output your response and do not output any other information.",
-                )
-            ),
+            number=number,
+            user_name=user_name,
+            event=event,
         )
 
         if response:

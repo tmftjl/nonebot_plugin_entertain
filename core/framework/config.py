@@ -202,7 +202,6 @@ class NamespacedConfigProxy:
 
 # ========== 权限（permissions.json） ==========
 
-
 def _perm_entry_default(level: str = "member", scene: str = "all") -> Dict[str, Any]:
     return {
         "enabled": True,

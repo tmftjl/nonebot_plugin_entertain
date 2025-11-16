@@ -11,6 +11,13 @@ import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from collections import defaultdict
+from nonebot.adapters.onebot.v11 import (
+    GroupMessageEvent,
+    PrivateMessageEvent,
+    MessageEvent,
+    Message,
+    MessageSegment,
+)
 
 from nonebot.log import logger
 from openai import AsyncOpenAI
@@ -23,54 +30,19 @@ def _track_bg(task: asyncio.Task) -> None:
     _BG_TASKS.add(task)
     task.add_done_callback(lambda t: _BG_TASKS.discard(t))
 
-from .config import get_config, get_personas, CFG
+from .config import get_config, get_personas, CFG, get_api_by_name
 from .models import ChatSession
 from .tools import get_enabled_tools, execute_tool
 from .hooks import run_pre_ai_hooks, run_post_ai_hooks
+from ...core.image_utils import image_url_to_base64
 
-
-# ==================== Chatroom Memory (in-memory) ====================
-
-
-class ChatroomMemory:
-    """聊天室历史（轻量内存环形缓冲）
-
-    仅用于群聊上下文提示，不做持久化：
-    - 记录格式：[昵称/HH:MM:SS]: 文本
-    - get_history_str() 返回以 "\n---\n" 连接的历史串
-    """
-
-    def __init__(self, max_cnt: int = 200):
-        self.max_cnt = max_cnt
-        self.session_chats: Dict[str, List[str]] = defaultdict(list)
-
-    def record_user(self, session_id: str, user_name: str, text: str) -> None:
-        ts = datetime.now().strftime("%H:%M:%S")
-        self._append(session_id, f"[{user_name}/{ts}]: {text}")
-
-    def record_bot(self, session_id: str, text: str) -> None:
-        ts = datetime.now().strftime("%H:%M:%S")
-        self._append(session_id, f"[You/{ts}]: {text}")
-
-    def get_history_str(self, session_id: str) -> str:
-        chats = self.session_chats.get(session_id, [])
-        return "\n---\n".join(chats)
-
-    def clear(self, session_id: str) -> int:
-        cnt = len(self.session_chats.get(session_id, []))
-        if session_id in self.session_chats:
-            del self.session_chats[session_id]
-        return cnt
-
-    def _append(self, session_id: str, line: str) -> None:
-        arr = self.session_chats[session_id]
-        arr.append(line)
-        if len(arr) > self.max_cnt:
-            arr.pop(0)
-
-
-# ==================== ChatManager ====================
-
+class AiChat:
+    session: ChatManager
+    messages: List[Dict[str, Any]]
+    history: List[Dict[str, Any]]
+    system_prompt: str
+    tools: str
+    config: Dict[str, Any]
 
 class ChatManager:
     """AI 对话核心管理（去除好感度，加入前后钩子）"""
@@ -82,10 +54,6 @@ class ChatManager:
         self._session_locks: Dict[str, asyncio.Lock] = {}
         self._history_locks: Dict[str, asyncio.Lock] = {}
         self.reset_client()
-        try:
-            self.ltm = ChatroomMemory(max_cnt=max(1, int(get_config().session.chatroom_history_max_lines)))
-        except Exception:
-            self.ltm = ChatroomMemory(max_cnt=200)
 
     def reset_client(self) -> None:
         """清空客户端缓存，根据会话按需创建。"""
@@ -144,73 +112,26 @@ class ChatManager:
         except Exception:
             return True, True
 
-    # ==================== 数据加载 ====================
-
-    async def _get_session(
-        self,
-        session_id: str,
-        session_type: str,
-        group_id: Optional[str] = None,
-        user_id: Optional[str] = None,
-    ) -> ChatSession:
-        """获取或创建会话（直接查库）"""
-
-        chat_session = await ChatSession.get_by_session_id(session_id=session_id)
-
-        if not chat_session:
-            chat_session = await ChatSession.create_session(
-                session_id=session_id,
-                session_type=session_type,
-                group_id=group_id,
-                user_id=user_id,
-                persona_name="default",
-            )
-            logger.info(f"[AI Chat] 创建新会话 {session_id}")
-
-        return chat_session
-
-    async def _get_history(
-        self,
-        session_id: str,
-        session: Optional[ChatSession] = None,
-    ) -> List[Dict[str, Any]]:
+    # 对话历史
+    async def _get_history(self, session: Optional[ChatSession] = None, max_pairs: int = 20) -> List[Dict[str, Any]]:
         """获取历史消息（优先读会话 JSON）。返回元素为 dict"""
-
-        if session is None:
-            session = await self._get_session(session_id, session_type="group")
-
-        history_list: List[Dict[str, Any]] = []
-        try:
-            history_list = json.loads(session.history_json or "[]") if session and session.history_json else []
-            if not isinstance(history_list, list):
-                history_list = []
-        except Exception:
-            history_list = []
-
-        return history_list
-
-    def _trim_history_rounds(self, history: List[Dict[str, Any]], max_pairs: int) -> List[Dict[str, Any]]:
-        """按轮（user+assistant）裁剪历史，确保从第一个 user 开始"""
-
-        try:
-            if not history:
-                return []
-            if max_pairs <= 0:
-                return []
-            keep = max_pairs * 2
-            trimmed = history[-keep:] if len(history) > keep else list(history)
-            idx = next(
-                (i for i, m in enumerate(trimmed) if (isinstance(m, dict) and m.get("role") == "user") or getattr(m, "role", None) == "user"),
-                0,
-            )
-            if idx > 0:
-                trimmed = trimmed[idx:]
-            if len(trimmed) > keep:
-                trimmed = trimmed[-keep:]
-            return trimmed
-        except Exception:
-            return history
-
+        history: List[Dict[str, Any]] = []
+        history = json.loads(session.history_json or "[]") if session and session.history_json else []
+        if not isinstance(history, list):
+            history = []
+        if max_pairs <= 0:
+            return []
+        keep = max_pairs * 2
+        trimmed = history[-keep:] if len(history) > keep else list(history)
+        idx = next(
+            (i for i, m in enumerate(trimmed) if (isinstance(m, dict) and m.get("role") == "user") or getattr(m, "role", None) == "user"),
+            0,
+        )
+        if idx > 0:
+            trimmed = trimmed[idx:]
+        if len(trimmed) > keep:
+            trimmed = trimmed[-keep:]
+        return trimmed
     # ==================== 核心处理 ====================
 
     def _sanitize_response(self, text: str) -> str:
@@ -238,135 +159,53 @@ class ChatManager:
 
     async def process_message(
         self,
-        session_id: str,
-        user_id: str,
         user_name: str,
-        bundles: Any,
+        bot: Bot,
+        event: MessageEvent,
+        platform: str = "qq",
         session_type: str = "group",
-        group_id: Optional[str] = None,
-        *,
-        active_reply: bool = False,
-        active_reply_suffix: Optional[str] = None,
+        number: Optional[str] = None,
     ) -> Any:
         """处理用户消息（串行同会话，支持工具与前后钩子，多模态输出）。
 
         返回优先为 dict：{"text": str, "images": [str], "tts_path": Optional[str]}。
-        兼容纯文本返回 str。
         """
 
-        # 选择本会话服务商（若未设置则使用默认）
+        # 选择本会话服务商
         cfg_for_provider = get_config()
         current_provider = None
-        try:
-            # 会话为空则后面从配置与 providers 字典兜底
-            pass
-        except Exception:
-            pass
-
+        session_id = await ChatSession.get_session_id(platform, session_type, number)
         lock = self._get_session_lock(session_id)
         async with lock:
             try:
-                session = await self._get_session(session_id, session_type, group_id, user_id)
-                history = await self._get_history(session_id, session=session)
+                session = await ChatSession.get_by_session_id(session_id)
+                pairs_limit = max(1, int(get_config().session.max_rounds))
+                history = await self._get_history(session, pairs_limit)
+                personas = get_personas()
+                persona = personas.get(session.persona_name) or personas.get("default") or next(iter(personas.values()))
+                system_prompt = persona.details
 
-                # 从传入对象提取当前纯文本
-                try:
-                    plain_current_text = str((getattr(getattr(bundles, "current", None), "text", None) or "")).strip()
-                except Exception:
-                    plain_current_text = ""
-                if not session or not session.is_active:
-                    return ""
-
-                try:
-                    pairs_limit = max(1, int(get_config().session.max_rounds))
-                    history = self._trim_history_rounds(history, pairs_limit)
-                except Exception:
-                    pass
-
-                chatroom_history = ""
-                if session_type == "group":
-                    self.ltm.record_user(session_id, user_name, plain_current_text)
-                    chatroom_history = self.ltm.get_history_str(session_id)
-
-                if active_reply:
-                    history = []
-
-                try:
-                    await self._maybe_update_summary(session, history)
-                except Exception:
-                    pass
                 # 计算会话服务商与能力
                 current_provider = getattr(session, "provider_name", None) or getattr(get_config().session, "default_provider", "")
                 client = self._get_client_for(current_provider)
                 if not client:
                     return "AI 未配置或暂不可用"
-                # Capability-based input gating
                 support_tools, support_vision = self._get_active_api_flags(current_provider)
-                messages = self._build_messages(
-                    session,
-                    history,
-                    bundles,
-                    user_name,
-                    session_type,
-                    chatroom_history=chatroom_history,
-                    active_reply=active_reply,
-                    active_reply_suffix=active_reply_suffix,
-                )
+                messages = self._build_ai_content(bot=bot, event=event)
 
                 cfg = get_config()
+                config = cfg.session
+                config.set("provider",current_provider)
+                config.set("model",get_api_by_name(current_provider).model)
                 default_tools = None
-                if getattr(cfg, "tools", None) and cfg.tools.enabled and support_tools:
+                if getattr(cfg, "tools", None) and cfg.tools.enabled:
                     default_tools = get_enabled_tools(cfg.tools.builtin_tools)
-                from .config import get_api_by_name
-                default_model = get_api_by_name(current_provider).model or "gpt-4o-mini"
-                default_temperature = cfg.session.default_temperature
 
-                overrides = await run_pre_ai_hooks(
-                    session=session,
-                    messages=messages,
-                    model=default_model,
-                    temperature=default_temperature,
-                    tools=default_tools,
-                    session_type=session_type,
-                    group_id=group_id,
-                    user_id=user_id,
-                    user_name=user_name,
-                    request_text=plain_current_text,
-                    reply_text=(getattr(getattr(bundles, "reply", None), "text", None) or None),
-                    mentions=[{"user_id": getattr(m, "user_id", ""), "nickname": getattr(m, "nickname", None)} for m in (getattr(getattr(bundles, "current", None), "mentions", []) or [])],
-                )
-
-                model = overrides.get("model", default_model)
-                temperature = overrides.get("temperature", default_temperature)
-                tools = overrides.get("tools", default_tools)
-                messages = overrides.get("messages", messages)
-
-                response = await self._call_ai(
-                    session,
-                    messages,
-                    model=model,
-                    temperature=temperature,
-                    tools=tools,
-                    client=client,
-                )
-
-                response = await run_post_ai_hooks(
-                    session=session,
-                    messages=messages,
-                    response=response,
-                    model=model,
-                    temperature=temperature,
-                    tools=tools,
-                    session_type=session_type,
-                    group_id=group_id,
-                    user_id=user_id,
-                    user_name=user_name,
-                    request_text=plain_current_text,
-                    reply_text=(getattr(getattr(bundles, "reply", None), "text", None) or None),
-                    mentions=[{"user_id": getattr(m, "user_id", ""), "nickname": getattr(m, "nickname", None)} for m in (getattr(getattr(bundles, "current", None), "mentions", []) or [])],
-                )
-
-                response = self._sanitize_response_v2(response)
+                aiChat = AiChat(session, messages, history, system_prompt, default_tools, config)
+                aiChat = await run_pre_ai_hooks(event, aiChat)
+                response = await self._call_ai(aiChat, client)
+                response = await run_post_ai_hooks(event=event, response=response)
+                response = self._sanitize_response(response)
 
                 clean_text, out_images = self._extract_output_media(response)
                 tts_path: Optional[str] = None
@@ -394,238 +233,146 @@ class ChatManager:
             except Exception as e:
                 logger.exception(f"[AI Chat] 处理消息失败: {e}")
                 return "抱歉，我遇到了一点问题。"
-
-    def _build_messages(
-        self,
-        session: ChatSession,
-        history: List[Dict[str, Any]],
-        bundles: Any,
-        user_name: str,
-        session_type: str,
-        *,
-        chatroom_history: str = "",
-        active_reply: bool = False,
-        active_reply_suffix: Optional[str] = None,
+            
+    # 辅助函数：获取昵称
+    async def _get_nickname_for_at(bot: Bot, event: MessageEvent, user_id: int) -> str:
+        try:
+            if user_id == bot.self_id:
+                return "@AI助手"
+            if isinstance(event, GroupMessageEvent):
+                member_info = await bot.get_group_member_info(
+                    group_id=event.group_id, 
+                    user_id=user_id,
+                    no_cache=True
+                )
+                nickname = member_info.get('card') or member_info.get('nickname')
+                return f"@{nickname or user_id}"
+            else:
+                stranger_info = await bot.get_stranger_info(user_id=user_id)
+                return f"@{stranger_info.get('nickname', user_id)}"
+        except Exception:
+            return f"@{user_id}"
+    
+    # 核心函数：构建 AI 消息 (保持顺序版 + 支持 Forward)
+    async def _build_ai_content(
+        bot: Bot,
+        event: MessageEvent
     ) -> List[Dict[str, Any]]:
-        """构建发送给 AI 的消息列表"""
+        """
+        构建发送给 AI Vision 的消息内容列表（保持文本和图片的原始顺序）
+        """
 
-        messages: List[Dict[str, Any]] = []
+        openai_content_list: List[Dict[str, Any]] = []
+        current_text_parts: List[str] = []
 
-        personas = get_personas()
-        persona = personas.get(session.persona_name) or personas.get("default") or next(iter(personas.values()))
-        system_prompt = persona.details
+        # 内部函数：用于“提交”当前累积的文本
+        def commit_pending_text():
+            if current_text_parts:
+                full_text = "".join(current_text_parts)
+                openai_content_list.append({"type": "text", "text": full_text})
+                current_text_parts.clear()
 
-        if active_reply and chatroom_history:
-            system_prompt += (
-                "\nYou are now in a chatroom. The chat history is as follows:\n" + chatroom_history
-            )
+        # --- 核心处理循环 ---
+        # 我们可以复用这个循环来处理 event.message 和 event.reply.message
+        async def process_message_iterable(message_iter: List[MessageSegment]):
+            for segment in message_iter:
 
-        try:
-            import json as _json
-            cfg_json = _json.loads(getattr(session, "config_json", "{}") or "{}")
-            summary = cfg_json.get("memory_summary")
-            if summary:
-                system_prompt += "\n\n[长期记忆摘要]\n" + str(summary)
-        except Exception:
-            pass
-        messages.append({"role": "system", "content": system_prompt})
-        # 附加严格的输出约束，减少提示词/思考过程外泄
-        output_policy = (
-            "输出要求：只输出用户可见的最终回复。不要包含你的思考过程、提示词、"
-            "人设/系统设定、策略、约束清单、工具调用细节或任何诸如 THOUGHT/Analysis/Plan/CoT/Reasoning 等元标签。"
-            "如需使用工具，请直接调用；不要解释调用过程。若无有效内容，尽量简洁回复。"
-        )
-        messages.append({"role": "system", "content": output_policy})
+                if segment.type == "text":
+                    current_text_parts.append(str(segment))
 
-        _active_reply = bool(active_reply)
-        _ar_suffix = (active_reply_suffix or "")
+                elif segment.type == "at":
+                    user_id = int(segment.data["qq"])
+                    nickname = await _get_nickname_for_at(bot, event, user_id)
+                    current_text_parts.append(nickname)
 
-        # 追加历史
-        for msg in history:
-            role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
-            content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", "")
-            uname = msg.get("user_name") if isinstance(msg, dict) else getattr(msg, "user_name", None)
-            if session_type == "group" and role == "user" and uname:
-                content = f"{uname}: {content}"
-            messages.append({"role": role, "content": content})
+                elif segment.type == "image":
+                    commit_pending_text() # 提交图片前的文本
 
-        # 构造当前对话文本（拼接文本/图片/回复/转发）
-        def _join_images(urls: list[str], prefix: str) -> str:
-            lines = []
-            for idx, u in enumerate(urls or [], 1):
-                try:
-                    su = str(u).strip()
-                    if su:
-                        lines.append(f"{prefix}{idx if len(urls) > 1 else ''}: {su}")
-                except Exception:
-                    continue
-            return "\n".join(lines)
-
-        # mentions
-        mention_note = ""
-        try:
-            ms = getattr(getattr(bundles, "current", None), "mentions", []) or []
-            names = []
-            for m in ms:
-                nm = str(getattr(m, "nickname", None) or getattr(m, "user_id", "")).strip()
-                if nm:
-                    names.append(nm)
-            if names:
-                mention_note = f"[@提及: {', '.join(names)}]"
-        except Exception:
-            mention_note = ""
-
-        cur_text = str((getattr(getattr(bundles, "current", None), "text", None) or "")).strip()
-        cur_imgs = list(getattr(getattr(bundles, "current", None), "images", []) or [])
-        base_text = f"{user_name}: {cur_text}" if session_type == "group" else cur_text
-        current_block = "\n".join([s for s in [mention_note, base_text, _join_images(cur_imgs, "图片")] if s])
-
-        # reply part
-        reply_block = ""
-        rep = getattr(bundles, "reply", None)
-        if rep:
-            rep_text = str(getattr(rep, "text", "") or "").strip()
-            rep_imgs = list(getattr(rep, "images", []) or [])
-            parts = []
-            if rep_text:
-                parts.append(f"[回复] {rep_text}")
-            img_txt = _join_images(rep_imgs, "回复图片")
-            if img_txt:
-                parts.append(img_txt)
-            # 转发聊天记录
-            nodes = list(getattr(rep, "forward_nodes", []) or [])
-            if nodes:
-                logs = []
-                for node in nodes:
-                    try:
-                        c = node.get("content") if isinstance(node, dict) else {}
-                        sender = (c or {}).get("sender") or {}
-                        name = str(sender.get("nickname") or sender.get("card") or sender.get("user_id") or c.get("nickname") or "").strip()
-                        msg = (c or {}).get("message")
-                        txt = ""
-                        if isinstance(msg, list):
-                            # 提取文本段
-                            tparts = []
-                            for seg in msg:
-                                try:
-                                    if isinstance(seg, dict) and seg.get("type") == "text":
-                                        tparts.append(str((seg.get("data") or {}).get("text") or ""))
-                                except Exception:
-                                    pass
-                            txt = "".join(tparts).strip()
-                        elif isinstance(msg, str):
-                            txt = msg.strip()
-                        if name or txt:
-                            logs.append(f"- {name}: {txt}".strip())
-                    except Exception:
+                    image_url = segment.data.get("url")
+                    if not image_url:
                         continue
-                if logs:
-                    parts.append("[回复的转发聊天记录]\n" + "\n".join(logs))
-            reply_block = "\n".join([p for p in parts if p])
 
-        user_content = "\n".join([s for s in [reply_block, current_block] if s])
-        messages.append({"role": "user", "content": user_content})
+                    base64_data_url = await image_url_to_base64(image_url)
+                    if base64_data_url:
+                        openai_content_list.append({
+                            "type": "image_url",
+                            "image_url": {"url": base64_data_url}
+                        })
 
-        if active_reply and active_reply_suffix:
-            try:
-                suffix_use = active_reply_suffix.replace("{message}", cur_text).replace("{prompt}", cur_text)
-            except Exception:
-                suffix_use = active_reply_suffix
-            messages.append({"role": "user", "content": suffix_use})
+                elif segment.type == "forward":
+                    commit_pending_text() # 提交转发消息前的文本
 
-        return messages
+                    # --- 这是你需要的聊天记录处理逻辑 ---
+                    forward_content_list = segment.data.get("content")
+                    current_text_parts.append("\n--- 以下是合并转发的聊天记录 ---\n")
+                    if not forward_content_list:
+                        current_text_parts.append("[聊天记录内容为空或获取失败]\n")
+                        continue
 
-    # ==================== 长期记忆摘要 ====================
+                    for msg_dict in forward_content_list:
+                        sender_nickname = msg_dict.get("sender", {}).get("nickname", "未知")
+                        current_text_parts.append(f"[{sender_nickname}]: ")
 
-    def _count_rounds(self, history: List[Dict[str, Any]]) -> int:
-        u = sum(1 for h in history if (h.get("role") if isinstance(h, dict) else getattr(h, "role", "")) == "user")
-        a = sum(1 for h in history if (h.get("role") if isinstance(h, dict) else getattr(h, "role", "")) == "assistant")
-        return min(u, a)
+                        # 遍历这条消息中的所有片段 (注意：这些是字典，不是 MessageSegment 对象)
+                        inner_message_segments = msg_dict.get("message", [])
+                        for inner_seg in inner_message_segments:
+                            seg_type = inner_seg.get("type")
+                            if seg_type == "text":
+                                current_text_parts.append(inner_seg.get("data", {}).get("text", ""))
+                            elif seg_type == "at":
+                                current_text_parts.append("@(某人)") # 在这里再次解析@太复杂，简化处理
+                            elif seg_type == "image":
+                                current_text_parts.append("[图片]") # 同上，简化处理
+                            # 忽略 reply, face 等
 
-    async def _maybe_update_summary(self, session: ChatSession, history: List[Dict[str, Any]]) -> None:
-        cfg = get_config()
-        mem = getattr(cfg, "memory", None)
-        if not mem or not mem.enable_summarize:
-            return
-        rounds = self._count_rounds(history)
-        if rounds < int(mem.summarize_min_rounds):
-            return
-        try:
-            import json as _json
-            cfg_json = _json.loads(getattr(session, "config_json", "{}") or "{}")
-        except Exception:
-            cfg_json = {}
-        last_rounds = int(cfg_json.get("summary_rounds", 0) or 0)
-        if rounds - last_rounds < int(mem.summarize_interval_rounds):
-            return
-        try:
-            max_pairs = max(8, int(get_config().session.max_rounds) * 2)
-            context = []
-            for msg in history[-max_pairs * 2:]:
-                role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", "")
-                content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", "")
-                context.append({"role": role, "content": content})
-            sys_prompt = "请用中文将以下对话要点进行简洁摘要，50-150 字，突出人物、事件、事实，不要赘述。"
-            msgs = [{"role": "system", "content": sys_prompt}] + context
-            # 使用该会话服务商进行摘要
-            from .config import get_api_by_name
-            provider_for_session = getattr(session, "provider_name", None)
-            model_s = get_api_by_name(provider_for_session).model or "gpt-4o-mini"
-            temp_s = get_config().session.default_temperature
-            client_s = self._get_client_for(provider_for_session)
-            if not client_s:
-                return
-            resp = await client_s.chat.completions.create(model=model_s, messages=msgs, temperature=temp_s)
-            summary = resp.choices[0].message.content or ""
-            import json as _json2
-            cfg_json["memory_summary"] = summary
-            cfg_json["summary_rounds"] = rounds
-            _track_bg(asyncio.create_task(ChatSession.set_config_json(session_id=session.session_id, data=cfg_json)))
-        except Exception:
-            pass
+                        current_text_parts.append("\n") # 每条消息后换行
 
-    async def _call_ai(
-        self,
-        session: ChatSession,
-        messages: List[Dict[str, Any]],
-        *,
-        model: Optional[str] = None,
-        temperature: Optional[float] = None,
-        tools: Optional[List[Dict[str, Any]]] = None,
-        client: Optional[AsyncOpenAI] = None,
-    ) -> str:
+                    current_text_parts.append("--- 聊天记录结束 ---\n")
+
+                elif segment.type in ["reply", "face", "record", "video"]:
+                    # 忽略这些，它们不应提交给 AI
+                    pass
+                
+        # --- 执行 ---
+
+        # 1. 处理当前消息
+        await process_message_iterable(event.message)
+
+        # 2. 处理被回复的消息
+        if event.reply:
+            commit_pending_text() # 提交正文和回复之间的文本
+            current_text_parts.append("\n--- 以下为用户发消息时引用的回复信息 ---\n")
+            await process_message_iterable(event.reply.message)
+            current_text_parts.append("--- 回复信息结束 ---\n")
+
+        # 3. 提交最后剩余的文本
+        commit_pending_text()
+
+        return openai_content_list
+
+    async def _call_ai(self, aichat: AiChat, client: Optional[AsyncOpenAI] = None) -> str:
         """调用 OpenAI 聊天接口，包含工具调用处理"""
 
         if not client:
             return "AI 未配置或暂不可用"
+        support_tools, support_vision = self._get_active_api_flags(aichat.config.get("provider"))
+        system_message = {
+            "role": "system",
+            "content": aichat.system_prompt
+        }
+        current_user_message = {
+            "role": "user",
+            "content": aichat.messages
+        }
+        messages = [system_message] + aichat.history + [current_user_message]
 
-        cfg = get_config()
-        # Determine capability gating
-        support_tools, _ = self._get_active_api_flags(getattr(session, "provider_name", None))
-        if tools is None:
-            if getattr(cfg, "tools", None) and cfg.tools.enabled and support_tools:
-                tools = get_enabled_tools(cfg.tools.builtin_tools)
-            else:
-                tools = None
-        if model is None:
-            from .config import get_api_by_name
-            model = get_api_by_name(getattr(session, "provider_name", None)).model or "gpt-4o-mini"
-        if temperature is None:
-            temperature = cfg.session.default_temperature
-
-        # Build kwargs and avoid passing unsupported params
-        _kwargs: Dict[str, Any] = {"model": model, "messages": messages, "temperature": temperature}
-        if tools and getattr(cfg, "tools", None) and cfg.tools.enabled and support_tools:
-            _kwargs["tools"] = tools
+        _kwargs: Dict[str, Any] = {"model": aichat.config.get("model"), "messages": messages, "temperature": aichat.config.get("temperature")}
+        if support_tools:
+            _kwargs["tools"] = aichat.config.get("tools")
         current_response = await client.chat.completions.create(**_kwargs)
 
-        max_iterations = (
-            cfg.tools.max_iterations
-            if (getattr(cfg, "tools", None) and cfg.tools.enabled and support_tools)
-            else 0
-        )
         iteration = 0
-        while iteration < max_iterations:
+        while iteration < 3:
             choice = current_response.choices[0]
             tool_calls = choice.message.tool_calls or []
             if not tool_calls:
@@ -662,9 +409,9 @@ class ChatManager:
                 content = str(res) if not isinstance(res, Exception) else f"工具执行异常: {res}"
                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
 
-            _kwargs2: Dict[str, Any] = {"model": model, "messages": messages, "temperature": temperature}
-            if tools and getattr(cfg, "tools", None) and cfg.tools.enabled and support_tools:
-                _kwargs2["tools"] = tools
+            _kwargs2: Dict[str, Any] = {"model": aichat.config.get("model"), "messages": messages, "temperature": aichat.config.get("temperature")}
+            if support_tools:
+                _kwargs2["tools"] = aichat.config.get("tools")
             current_response = await client.chat.completions.create(**_kwargs2)
 
             iteration += 1
@@ -672,7 +419,6 @@ class ChatManager:
         return current_response.choices[0].message.content or ""
 
     # ==================== 输出多模态处理 ====================
-
     def _extract_output_media(self, text: str) -> tuple[str, List[str]]:
         """从模型输出文本中提取图片 URL，并返回（清洗后文本, 图片URL列表）"""
 
@@ -706,7 +452,7 @@ class ChatManager:
         except Exception:
             return text, []
 
-    def _sanitize_response_v2(self, text: str) -> str:
+    def _sanitize_response(self, text: str) -> str:
         """尽量清理“思考过程/提示词泄漏”，保留对用户可见的最终回答。
 
         - 清除标签块与代码围栏中的思考/提示内容
@@ -813,9 +559,4 @@ class ChatManager:
 
 
 # ==================== 全局实例 ====================
-
 chat_manager = ChatManager()
-
-
-
-
