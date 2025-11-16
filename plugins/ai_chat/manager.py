@@ -18,7 +18,7 @@ from nonebot.adapters.onebot.v11 import (
     Message,
     MessageSegment,
 )
-
+from dataclasses import dataclass
 from nonebot.log import logger
 from openai import AsyncOpenAI
 
@@ -36,8 +36,9 @@ from .tools import get_enabled_tools, execute_tool
 from .hooks import run_pre_ai_hooks, run_post_ai_hooks
 from ...core.image_utils import image_url_to_base64
 
+@dataclass
 class AiChat:
-    session: ChatManager
+    session: ChatSession
     messages: List[Dict[str, Any]]
     history: List[Dict[str, Any]]
     system_prompt: str
@@ -134,29 +135,6 @@ class ChatManager:
         return trimmed
     # ==================== 核心处理 ====================
 
-    def _sanitize_response(self, text: str) -> str:
-        """移除模型返回中的思考/内部标签块，避免泄露思考过程。
-
-        会清理以下块及其内容（大小写不敏感）：
-        <thinking>、<analysis>、<reflection>、<chain_of_thought>、<cot>
-        <reasoning>、<plan>、<instructions>、<internal>、<scratchpad>
-        <tool>、<tool_call>、<function_call>
-        """
-        if not text:
-            return text
-        try:
-            tags = (
-                "thinking|analysis|reflection|chain_of_thought|cot|reasoning|"
-                "plan|instructions|internal|scratchpad|tool|tool_call|function_call"
-            )
-            cleaned = re.sub(rf"(?is)<(?:{tags})[^>]*>.*?</(?:{tags})\s*>", "", text)
-            cleaned = re.sub(rf"(?is)</?(?:{tags})[^>]*>", "", cleaned)
-            cleaned = re.sub(rf"(?is)\[(?:{tags})[^\]]*\].*?\[/(?:{tags})\s*\]", "", cleaned)
-            cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
-            return cleaned
-        except Exception:
-            return text
-
     async def process_message(
         self,
         user_name: str,
@@ -235,7 +213,7 @@ class ChatManager:
                 return "抱歉，我遇到了一点问题。"
             
     # 辅助函数：获取昵称
-    async def _get_nickname_for_at(bot: Bot, event: MessageEvent, user_id: int) -> str:
+    async def _get_nickname_for_at(self, bot: Bot, event: MessageEvent, user_id: int) -> str:
         try:
             if user_id == bot.self_id:
                 return "@AI助手"
@@ -254,10 +232,7 @@ class ChatManager:
             return f"@{user_id}"
     
     # 核心函数：构建 AI 消息 (保持顺序版 + 支持 Forward)
-    async def _build_ai_content(
-        bot: Bot,
-        event: MessageEvent
-    ) -> List[Dict[str, Any]]:
+    async def _build_ai_content(self, bot: Bot, event: MessageEvent) -> List[Dict[str, Any]]:
         """
         构建发送给 AI Vision 的消息内容列表（保持文本和图片的原始顺序）
         """
