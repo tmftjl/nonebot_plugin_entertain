@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 from collections import defaultdict
 from nonebot.adapters.onebot.v11 import (
     GroupMessageEvent,
-    PrivateMessageEvent,
+    Bot,
     MessageEvent,
     Message,
     MessageSegment,
@@ -42,7 +42,7 @@ class AiChat:
     messages: List[Dict[str, Any]]
     history: List[Dict[str, Any]]
     system_prompt: str
-    tools: str
+    tools: Optional[List[Dict[str, Any]]]
     config: Dict[str, Any]
 
 class ChatManager:
@@ -60,19 +60,9 @@ class ChatManager:
         """清空客户端缓存，根据会话按需创建。"""
 
         cfg = get_config()
-        try:
-            self.client = None
-            self.clients = {}
-            logger.debug("[AI Chat] 已清空 OpenAI 客户端缓存")
-            try:
-                if hasattr(self, "ltm") and self.ltm:
-                    self.ltm.max_cnt = max(1, int(cfg.session.chatroom_history_max_lines))
-            except Exception:
-                pass
-        except Exception as e:
-            self.client = None
-            self.clients = {}
-            logger.error(f"[AI Chat] 客户端缓存重置失败: {e}")
+        self.client = None
+        self.clients = {}
+        logger.debug("[AI Chat] 已清空 OpenAI 客户端缓存")
 
     def _get_client_for(self, provider_name: Optional[str]) -> Optional[AsyncOpenAI]:
         from .config import get_api_by_name
@@ -182,7 +172,7 @@ class ChatManager:
                 aiChat = AiChat(session, messages, history, system_prompt, default_tools, config)
                 aiChat = await run_pre_ai_hooks(event, aiChat)
                 response = await self._call_ai(aiChat, client)
-                response = await run_post_ai_hooks(event=event, response=response)
+                response = await run_post_ai_hooks(event, aiChat, response)
                 response = self._sanitize_response(response)
 
                 clean_text, out_images = self._extract_output_media(response)
@@ -196,15 +186,10 @@ class ChatManager:
                     tts_path = None
 
                 max_msgs = max(0, 2 * int(get_config().session.max_rounds))
+                plain_current_text = event.get_plaintext()
                 _track_bg(asyncio.create_task(
                     self._save_conversation(session_id, user_name, plain_current_text, clean_text, max_msgs)
                 ))
-
-                if session_type == "group" and clean_text:
-                    try:
-                        self.ltm.record_bot(session_id, clean_text)
-                    except Exception:
-                        pass
 
                 return {"text": clean_text, "images": out_images, "tts_path": tts_path}
 
@@ -428,18 +413,20 @@ class ChatManager:
             return text, []
 
     def _sanitize_response(self, text: str) -> str:
-        """尽量清理“思考过程/提示词泄漏”，保留对用户可见的最终回答。
-
-        - 清除标签块与代码围栏中的思考/提示内容
-        - 移除以 THOUGHT/思考/Analysis/Plan/Constraint 等开头的段落
-        - 进一步按段落过滤元信息，只保留正常回答
+        """
+        综合清洗函数：
+        1. 先基于关键词、标签和段落结构，清理标准的思考过程。
+        2. 再基于【英文标点+中文】的边界，暴力截断剩余的英文残留。
         """
         if not text:
             return text
         try:
+            # ============================================================
+            # 第一阶段：基于规则和关键词的标准清洗
+            # ============================================================
             cleaned = text
 
-            # 标签样式内容（如 <thinking>...）
+            # 1. 清除标签样式内容（如 <thinking>...）
             tags = (
                 "thinking|analysis|reflection|chain_of_thought|cot|reasoning|"
                 "plan|instructions|internal|scratchpad|tool|tool_call|function_call|"
@@ -449,11 +436,11 @@ class ChatManager:
             cleaned = re.sub(rf"(?is)</?(?:{tags})[^>]*>", "", cleaned)
             cleaned = re.sub(rf"(?is)\[(?:{tags})[^\]]*\].*?\[/(?:{tags})\s*\]", "", cleaned)
 
-            # 思考/提示相关代码围栏
+            # 2. 清除思考/提示相关的代码围栏
             fence_kw = r"thought|thinking|analysis|reasoning|plan|prompt|system|constraints?"
             cleaned = re.sub(rf"(?is)```\s*(?:{fence_kw})?\s*[\s\S]*?```", "", cleaned)
 
-            # 标题式的思考段落（直到空行）
+            # 3. 清除标题式的思考段落（直到空行）
             head_kw = (
                 r"THOUGHT|Thoughts?|Analysis|Reasoning|Plan|Constraints?|Constraint\s+Checklist|"
                 r"Confidence\s*Score|Strategizing\s*complete|System\s*Prompt|Internal|Scratchpad|"
@@ -461,10 +448,10 @@ class ChatManager:
             )
             cleaned = re.sub(rf"(?ims)^\s*(?:{head_kw})\b[\s\S]*?(?:\n\s*\n|\Z)", "", cleaned)
 
-            # 常见“开始回答”提示句
+            # 4. 清除常见“开始回答”提示句
             cleaned = re.sub(r"(?i)^\s*(?:I\s+will\s+now\s+generate\s+the\s+response\.|开始回答|现在生成回答).*\n?", "", cleaned)
 
-            # 按段落过滤元信息
+            # 5. 按段落过滤残留的元信息关键词
             meta_kw = re.compile(
                 r"(?i)\b(THOUGHT|Thoughts?|Analysis|Reasoning|Plan|Constraint|Checklist|Confidence|System\s*Prompt|Internal|Scratchpad|web_search)\b|[思想析理约束人设工具联网]"
             )
@@ -473,9 +460,32 @@ class ChatManager:
                 keep = [p for p in paras if not meta_kw.search(p)]
                 if keep:
                     cleaned = "\n\n".join(keep)
+                elif paras:
+                    # 如果所有段落都被命中关键词（可能是误伤），保底只取最后一段
+                    cleaned = paras[-1]
 
-            cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
-            return cleaned or ""
+            # ============================================================
+            # 第二阶段：基于边界的终极清洗 (解决粘连问题)
+            # ============================================================
+            
+            # 1. 定义英文结束符集合 (句号, 冒号, 引号, 感叹号, 问号, 换行, 右括号等)
+            separators = r'[.:;"\'!?\n\r\)\]\}]+'
+            
+            # 2. 寻找 [英文标点] + [紧跟的中文] 的交界线
+            matches = list(re.finditer(rf"({separators})\s*(?=[\u4e00-\u9fa5])", cleaned))
+            
+            if matches:
+                # 如果找到了交界线，取最后一个匹配点的后半部分
+                last_match = matches[-1]
+                cleaned = cleaned[last_match.end():].strip()
+            else:
+                # 3. 如果没找到明显的标点交界，尝试用“长段ASCII字符”切割保底
+                parts = re.split(r"(?s)[\x00-\x7f]{20,}", cleaned)
+                if parts and parts[-1].strip():
+                    cleaned = parts[-1].strip()
+
+            return re.sub(r"\n{3,}", "\n\n", cleaned).strip() or ""
+            
         except Exception:
             return text
 
@@ -509,10 +519,6 @@ class ChatManager:
         """清空会话历史"""
 
         await ChatSession.clear_history_json(session_id=session_id)
-        try:
-            _ = self.ltm.clear(session_id)
-        except Exception:
-            pass
         logger.info(f"[AI Chat] 清空会话历史: {session_id}")
 
     async def set_persona(self, session_id: str, persona_name: str):
