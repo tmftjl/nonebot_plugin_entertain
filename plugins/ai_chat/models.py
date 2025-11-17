@@ -10,7 +10,7 @@ import secrets
 import string
 import time
 import asyncio
-from ...core.framework.local_cache import locks
+from ...core.framework.local_cache import cache
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import Field, select
 
@@ -59,8 +59,10 @@ class ChatSession(BaseIDModel, table=True):
         start_time = time.time()
         try:
             while time.time() - start_time < lock_timeout:
-                token = locks.acquire(lock_key, ex=10, block=False)
-                if token:
+                tok = secrets.token_hex(16)
+                got = await cache.try_lock(lock_key, tok, ex=10)
+                if got:
+                    token = tok
                     break
                 await asyncio.sleep(retry_interval)
             
@@ -93,7 +95,7 @@ class ChatSession(BaseIDModel, table=True):
             return session_id
         finally:
             if token:
-                locks.release(lock_key, token)
+                await cache.unlock(lock_key, token)
     
     @classmethod
     @with_session

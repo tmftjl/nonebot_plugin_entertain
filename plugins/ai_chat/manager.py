@@ -1,7 +1,4 @@
-﻿"""AI 对话核心管理（去除好感度，加入前后钩子）
-
-- 去除了所有好感度逻辑与持久化
-- 新增 pre/post 钩子，便于在调用 AI 前后自定义修改
+﻿"""AI 对话核心管理
 """
 from __future__ import annotations
 
@@ -15,21 +12,13 @@ from nonebot.adapters.onebot.v11 import (
     GroupMessageEvent,
     Bot,
     MessageEvent,
-    Message,
     MessageSegment,
 )
 from dataclasses import dataclass
 from nonebot.log import logger
 from openai import AsyncOpenAI
 
-# Track background tasks to prevent unbounded growth
-_BG_TASKS: set[asyncio.Task] = set()
-
-
-def _track_bg(task: asyncio.Task) -> None:
-    _BG_TASKS.add(task)
-    task.add_done_callback(lambda t: _BG_TASKS.discard(t))
-
+from ...core.framework.local_cache import cache
 from .config import get_config, get_personas, CFG, get_api_by_name
 from .models import ChatSession
 from .tools import get_enabled_tools, execute_tool
@@ -50,17 +39,11 @@ class ChatManager:
 
     def __init__(self):
         # 多服务商客户端缓存：{ provider_name: AsyncOpenAI }
-        self.client: Optional[AsyncOpenAI] = None
         self.clients: Dict[str, AsyncOpenAI] = {}
-        self._session_locks: Dict[str, asyncio.Lock] = {}
-        self._history_locks: Dict[str, asyncio.Lock] = {}
         self.reset_client()
 
     def reset_client(self) -> None:
         """清空客户端缓存，根据会话按需创建。"""
-
-        cfg = get_config()
-        self.client = None
         self.clients = {}
         logger.debug("[AI Chat] 已清空 OpenAI 客户端缓存")
 
@@ -78,11 +61,6 @@ class ChatManager:
             return cli
         except Exception:
             return None
-
-    def _get_session_lock(self, session_id: str) -> asyncio.Lock:
-        if session_id not in self._session_locks:
-            self._session_locks[session_id] = asyncio.Lock()
-        return self._session_locks[session_id]
 
     def _get_active_api_flags(self, provider_name: Optional[str]) -> tuple[bool, bool]:
         """Return (support_tools, support_vision) for given provider.
@@ -130,9 +108,7 @@ class ChatManager:
         user_name: str,
         bot: Bot,
         event: MessageEvent,
-        platform: str = "qq",
-        session_type: str = "group",
-        number: Optional[str] = None,
+        session_id: str,
     ) -> Any:
         """处理用户消息（串行同会话，支持工具与前后钩子，多模态输出）。
 
@@ -140,62 +116,74 @@ class ChatManager:
         """
 
         # 选择本会话服务商
-        cfg_for_provider = get_config()
         current_provider = None
-        session_id = await ChatSession.get_session_id(platform, session_type, number)
-        lock = self._get_session_lock(session_id)
-        async with lock:
-            try:
-                session = await ChatSession.get_by_session_id(session_id)
-                pairs_limit = max(1, int(get_config().session.max_rounds))
-                history = await self._get_history(session, pairs_limit)
-                personas = get_personas()
-                persona = personas.get(session.persona_name) or personas.get("default") or next(iter(personas.values()))
-                system_prompt = persona.details
 
-                # 计算会话服务商与能力
-                current_provider = getattr(session, "provider_name", None) or getattr(get_config().session, "default_provider", "")
-                client = self._get_client_for(current_provider)
-                if not client:
-                    return "AI 未配置或暂不可用"
-                support_tools, support_vision = self._get_active_api_flags(current_provider)
-                messages = self._build_ai_content(bot=bot, event=event)
-
-                cfg = get_config()
-                config = cfg.session
-                config.set("provider",current_provider)
-                config.set("model",get_api_by_name(current_provider).model)
-                default_tools = None
-                if getattr(cfg, "tools", None) and cfg.tools.enabled:
-                    default_tools = get_enabled_tools(cfg.tools.builtin_tools)
-
-                aiChat = AiChat(session, messages, history, system_prompt, default_tools, config)
-                aiChat = await run_pre_ai_hooks(event, aiChat)
-                response = await self._call_ai(aiChat, client)
-                response = await run_post_ai_hooks(event, aiChat, response)
-                response = self._sanitize_response(response)
-
-                clean_text, out_images = self._extract_output_media(response)
-                tts_path: Optional[str] = None
+        lock_key = f"ai_chat:session_lock:{session_id}"
+        
+        # ex=60: 锁最长持有60秒，防止死锁
+        # timeout=45: 获取锁最长等待45秒，超时则放弃此次处理
+        try:
+            async with cache.lock(lock_key, ex=60, block=True, timeout=45):
+                # try...except 块现在移动到 *内部*
                 try:
-                    cfg2 = get_config()
-                    if getattr(cfg2, "output", None) and cfg2.output.tts_enable and clean_text:
-                        from .tts import run_tts
-                        tts_path = await run_tts(session_id=session_id, text=clean_text, manager=self)
-                except Exception:
-                    tts_path = None
+                    session = await ChatSession.get_by_session_id(session_id)
+                    pairs_limit = max(1, int(get_config().session.max_rounds))
+                    
+                    # 1. 读取历史
+                    history = await self._get_history(session, pairs_limit)
+                    
+                    personas = get_personas()
+                    persona = personas.get(session.persona_name) or personas.get("default") or next(iter(personas.values()))
+                    system_prompt = persona.details
 
-                max_msgs = max(0, 2 * int(get_config().session.max_rounds))
-                plain_current_text = event.get_plaintext()
-                _track_bg(asyncio.create_task(
-                    self._save_conversation(session_id, user_name, plain_current_text, clean_text, max_msgs)
-                ))
+                    # 计算会话服务商与能力
+                    current_provider = getattr(session, "provider_name", None) or getattr(get_config().session, "default_provider", "")
+                    client = self._get_client_for(current_provider)
+                    if not client:
+                        return "AI 未配置或暂不可用"
+                    support_tools, support_vision = self._get_active_api_flags(current_provider)
+                    messages = self._build_ai_content(bot=bot, event=event)
 
-                return {"text": clean_text, "images": out_images, "tts_path": tts_path}
+                    cfg = get_config()
+                    config = cfg.session
+                    config.set("provider",current_provider)
+                    config.set("model",get_api_by_name(current_provider).model)
+                    default_tools = None
+                    if getattr(cfg, "tools", None) and cfg.tools.enabled:
+                        default_tools = get_enabled_tools(cfg.tools.builtin_tools)
 
-            except Exception as e:
-                logger.exception(f"[AI Chat] 处理消息失败: {e}")
-                return "抱歉，我遇到了一点问题。"
+                    # 2. 处理和调用 AI
+                    aiChat = AiChat(session, messages, history, system_prompt, default_tools, config)
+                    aiChat = await run_pre_ai_hooks(event, aiChat)
+                    response = await self._call_ai(aiChat, client)
+                    response = await run_post_ai_hooks(event, aiChat, response)
+                    response = self._sanitize_response(response)
+
+                    clean_text, out_images = self._extract_output_media(response)
+                    tts_path: Optional[str] = None
+                    try:
+                        cfg2 = get_config()
+                        if getattr(cfg2, "output", None) and cfg2.output.tts_enable and clean_text:
+                            from .tts import run_tts
+                            tts_path = await run_tts(session_id=session_id, text=clean_text, manager=self)
+                    except Exception:
+                        tts_path = None
+
+                    max_msgs = max(0, 2 * int(get_config().session.max_rounds))
+                    await self._save_conversation(session_id, user_name, messages, clean_text, max_msgs)
+
+                    return {"text": clean_text, "images": out_images, "tts_path": tts_path}
+
+                except Exception as e:
+                    logger.exception(f"[AI Chat] 处理消息失败: {e}")
+                    return "抱歉，我遇到了一点问题。"
+        
+        except TimeoutError:
+            # -----------------
+            # [新增] 这是 cache.lock(timeout=...) 带来的好处
+            # -----------------
+            logger.warning(f"[AI Chat] 会话 {session_id} 获取锁超时，上一条消息可能仍在处理中")
+            return None # 或返回一个提示，如 "请稍等，我还在处理上一条消息..."
             
     # 辅助函数：获取昵称
     async def _get_nickname_for_at(self, bot: Bot, event: MessageEvent, user_id: int) -> str:
@@ -242,7 +230,7 @@ class ChatManager:
 
                 elif segment.type == "at":
                     user_id = int(segment.data["qq"])
-                    nickname = await _get_nickname_for_at(bot, event, user_id)
+                    nickname = await self._get_nickname_for_at(bot, event, user_id)
                     current_text_parts.append(nickname)
 
                 elif segment.type == "image":
@@ -328,7 +316,7 @@ class ChatManager:
 
         _kwargs: Dict[str, Any] = {"model": aichat.config.get("model"), "messages": messages, "temperature": aichat.config.get("temperature")}
         if support_tools:
-            _kwargs["tools"] = aichat.config.get("tools")
+            _kwargs["tools"] = aichat.tools
         current_response = await client.chat.completions.create(**_kwargs)
 
         iteration = 0
@@ -371,7 +359,7 @@ class ChatManager:
 
             _kwargs2: Dict[str, Any] = {"model": aichat.config.get("model"), "messages": messages, "temperature": aichat.config.get("temperature")}
             if support_tools:
-                _kwargs2["tools"] = aichat.config.get("tools")
+                _kwargs2["tools"] = aichat.tools
             current_response = await client.chat.completions.create(**_kwargs2)
 
             iteration += 1
@@ -469,7 +457,7 @@ class ChatManager:
             # ============================================================
             
             # 1. 定义英文结束符集合 (句号, 冒号, 引号, 感叹号, 问号, 换行, 右括号等)
-            separators = r'[.:;"\'!?\n\r\)\]\}]+'
+            separators = r'(?:[:;"\'!?\n\r\)\]\}]|(?<!\.)\.(?!\.))+'
             
             # 2. 寻找 [英文标点] + [紧跟的中文] 的交界线
             matches = list(re.finditer(rf"({separators})\s*(?=[\u4e00-\u9fa5])", cleaned))
@@ -493,23 +481,24 @@ class ChatManager:
         self,
         session_id: str,
         user_name: str,
-        message: str,
+        message_content: Any,
         response: str,
         max_history: int,
     ) -> None:
-        """异步保存对话历史（仅维护会话 JSON 历史）"""
+        """
+        异步保存对话历史。
+        注意：此函数现在被 process_message 中的 cache.lock 保护。
+        """
 
         try:
-            lock = self._history_locks.setdefault(session_id, asyncio.Lock())
-            async with lock:
-                now = datetime.now().isoformat()
-                items = [
-                    {"role": "user", "content": message, "user_name": user_name, "created_at": now},
-                    {"role": "assistant", "content": response, "created_at": now},
-                ]
-                _ = await ChatSession.append_history_items(
-                    session_id=session_id, items=items, max_history=max_history
-                )
+            now = datetime.now().isoformat()
+            items = [
+                {"role": "user", "content": message_content, "user_name": user_name, "created_at": now},
+                {"role": "assistant", "content": response, "created_at": now},
+            ]
+            _ = await ChatSession.append_history_items(
+                session_id=session_id, items=items, max_history=max_history
+            )
         except Exception as e:
             logger.error(f"[AI Chat] 保存对话失败: {e}")
 

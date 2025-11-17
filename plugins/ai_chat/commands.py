@@ -33,104 +33,21 @@ from .manager import chat_manager
 from .models import ChatSession
 from .config import get_config, get_personas, reload_all, save_config, CFG
 from .tools import list_tools as ai_list_tools
-from ...core.framework.message_utils import get_enhance_message
 
 
 
 P = Plugin(name="ai_chat", display_name="AI 对话", enabled=True, level=PermLevel.LOW, scene=PermScene.ALL)
 
-
-def get_session_id(event: MessageEvent) -> str:
-    alphabet = string.ascii_letters + string.digits
-    return ''.join(secrets.choice(alphabet) for i in range(6))
+async def get_session_id(event: MessageEvent) -> str:
+    session_type = "group" if isinstance(event, GroupMessageEvent) else "private"
+    number = str(getattr(event, "group_id", "")) if isinstance(event, GroupMessageEvent) else str(event.user_id)
+    return await ChatSession.get_session_id("qq", session_type, number)
 
 def get_user_name(event: MessageEvent) -> str:
     sender = getattr(event, "sender", None)
     if sender:
         return getattr(sender, "card", None) or getattr(sender, "nickname", None) or str(event.user_id)
     return str(event.user_id)
-
-def _is_at_bot_robust(bot: Bot, event: MessageEvent) -> bool:
-    if not isinstance(event, GroupMessageEvent):
-        return False
-    for seg in event.message:
-        if seg.type == "at" and seg.data.get("qq") == bot.self_id:
-            return True
-    raw = str(event.message)
-    if f"[CQ:at,qq={bot.self_id}]" in raw or f"[at:qq={bot.self_id}]" in raw:
-        return True
-
-def extract_plain_text(message: Message) -> str:
-    # 使用共享工具以获得更鲁棒的纯文本提取
-    try:
-        return mu_extract_plain_text(message)
-    except Exception:
-        text_parts = []
-        for seg in message:
-            if getattr(seg, "type", None) == "text":
-                text_parts.append((getattr(seg, "data", None) or {}).get("text", "").strip())
-        return " ".join(text_parts).strip()
-
-async def extract_image_data_uris(bot: Bot, message: Message) -> List[str]:
-    images: List[str] = []
-    for seg in message:
-        try:
-            if seg.type != "image":
-                continue
-            data = seg.data or {}
-            url = data.get("url")
-            if isinstance(url, str) and (url.startswith("http://") or url.startswith("https://") or url.startswith("data:")):
-                images.append(url)
-                continue
-            file_id = data.get("file") or data.get("image")
-            if file_id:
-                try:
-                    info = await bot.call_api("get_image", file=file_id)
-                    path = (info.get("file") or info.get("path") or "").strip()
-                    if path:
-                        try:
-                            # 可选压缩：根据配置缩放到最长边限定，并以 JPEG 输出
-                            from .config import get_config as _gc
-                            cfg = _gc()
-                            max_side = int(getattr(getattr(cfg, "input", None), "image_max_side", 0) or 0)
-                            quality = int(getattr(getattr(cfg, "input", None), "image_jpeg_quality", 85) or 85)
-                            if max_side > 0:
-                                try:
-                                    from PIL import Image
-                                    import io
-                                    with Image.open(path) as im:
-                                        w, h = im.size
-                                        scale = 1.0
-                                        m = max(w, h)
-                                        if m > max_side:
-                                            scale = max_side / float(m)
-                                        if scale < 1.0:
-                                            nw, nh = int(w * scale), int(h * scale)
-                                            im = im.convert("RGB")
-                                            im = im.resize((nw, nh))
-                                        else:
-                                            im = im.convert("RGB")
-                                        buf = io.BytesIO()
-                                        im.save(buf, format="JPEG", quality=max(1, min(95, quality)))
-                                        b = buf.getvalue()
-                                        mime = "image/jpeg"
-                                except Exception:
-                                    with open(path, "rb") as f:
-                                        b = f.read()
-                                    mime = mimetypes.guess_type(path)[0] or "image/jpeg"
-                            else:
-                                with open(path, "rb") as f:
-                                    b = f.read()
-                                mime = mimetypes.guess_type(path)[0] or "image/jpeg"
-                            b64 = base64.b64encode(b).decode("ascii")
-                            images.append(f"data:{mime};base64,{b64}")
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-        except Exception:
-            continue
-    return images
 
 # ==================== 对话入口 ====================
 # 群聊需 @ 机器人或命中主动回复；私聊直接处理
@@ -155,17 +72,15 @@ async def handle_chat_auto(bot: Bot, event: MessageEvent):
             if isinstance(_p, str) and _p and plain.startswith(_p):
                 return
 
-    session_type = "group" if isinstance(event, GroupMessageEvent) else "private"
-    number = str(getattr(event, "group_id", "")) if isinstance(event, GroupMessageEvent) else str(event.user_id)
     user_name = get_user_name(event)
+    session_id = await get_session_id(event)
 
     try:
         response = await chat_manager.process_message(
-            platform="qq",
-            session_type=session_type,
-            number=number,
             user_name=user_name,
+            bot=bot,
             event=event,
+            session_id=session_id
         )
 
         if response:
@@ -173,20 +88,19 @@ async def handle_chat_auto(bot: Bot, event: MessageEvent):
                 text = str(response.get("text") or "").lstrip("\r\n")
                 imgs = list(response.get("images") or [])
                 tts_path = response.get("tts_path")
-                if text:
-                    await at_cmd.send(MessageSegment.text(text))
-                for img in imgs:
-                    try:
-                        await at_cmd.send(MessageSegment.image(img))
-                    except Exception:
-                        pass
+                msg_to_send = Message()
+            if text:
+                msg_to_send.append(MessageSegment.text(text))
+            for img in imgs:
+                msg_to_send.append(MessageSegment.image(img))
+
+            # 仅当有内容时才发送
+            if msg_to_send:
+                await at_cmd.send(msg_to_send)
                 if tts_path:
-                    try:
-                        await at_cmd.send(MessageSegment.record(file=str(tts_path)))
-                    except Exception:
-                        pass
-            else:
-                response = str(response).lstrip("\r\n")
+                    await at_cmd.send(MessageSegment.record(file=str(tts_path)))
+                else:
+                    response = str(response).lstrip("\r\n")
                 await at_cmd.send(response)
     except Exception as e:
         logger.exception(f"[AI Chat] 对话处理失败: {e}")
@@ -199,7 +113,7 @@ clear_cmd = P.on_regex(r"^#清空会话$", name="ai_clear_session", display_name
 
 @clear_cmd.handle()
 async def handle_clear(event: MessageEvent):
-    session_id = get_session_id(event)
+    session_id = await get_session_id(event)
     try:
         await chat_manager.clear_history(session_id)
     except Exception as e:
@@ -214,7 +128,7 @@ info_cmd = P.on_regex(r"^#会话信息$", name="ai_session_info", display_name="
 
 @info_cmd.handle()
 async def handle_info(event: MessageEvent):
-    session_id = get_session_id(event)
+    session_id = await get_session_id(event)
     session = await chat_manager.get_session_info(session_id)
     if not session:
         await info_cmd.finish("未找到当前会话")
@@ -246,11 +160,11 @@ enable_cmd = P.on_regex(r"^#(开启|关闭)AI$", name="ai_enable", display_name=
 async def handle_enable(event: MessageEvent):
     msg_text = event.get_plaintext().strip()
     if "开启" in msg_text:
-        session_id = get_session_id(event)
+        session_id = await get_session_id(event)
         await chat_manager.set_session_active(session_id, True)
         await enable_cmd.finish("✓ 已开启 AI")
     else:
-        session_id = get_session_id(event)
+        session_id = await get_session_id(event)
         await chat_manager.set_session_active(session_id, False)
         await enable_cmd.finish("✓ 已关闭 AI")
 
@@ -266,7 +180,7 @@ async def handle_persona_list(event: MessageEvent):
     if not personas:
         await persona_list_cmd.finish("暂无可用人格")
 
-    session_id = get_session_id(event)
+    session_id = await get_session_id(event)
     session = await chat_manager.get_session_info(session_id)
     if not session:
         await persona_list_cmd.finish("未找到当前会话")
@@ -306,7 +220,7 @@ async def handle_switch_persona(event: MessageEvent):
         available = ", ".join(personas.keys())
         await switch_persona_cmd.finish(f"人格不存在\n可用人格: {available}")
 
-    session_id = get_session_id(event)
+    session_id = await get_session_id(event)
     await chat_manager.set_persona(session_id, persona_name)
     await switch_persona_cmd.finish(f"✓ 已切换人格: {personas[persona_name].name}")
 
@@ -334,7 +248,7 @@ async def handle_api_list(event: MessageEvent):
     active_default = getattr(getattr(cfg, "session", None), "default_provider", "") or ""
     # 当前会话设置
     try:
-        session_id = get_session_id(event)
+        session_id = await get_session_id(event)
         sess = await chat_manager.get_session_info(session_id)
         active_session = getattr(sess, "provider_name", None) or "(默认)"
     except Exception:
@@ -381,7 +295,7 @@ async def handle_switch_api(event: MessageEvent):
         await switch_api_cmd.finish(f"服务商不存在\n可用: {available}")
 
     # 仅切换本会话
-    session_id = get_session_id(event)
+    session_id = await get_session_id(event)
     ok = await ChatSession.update_provider(session_id=session_id, provider_name=target)
     if ok:
         await switch_api_cmd.finish(f"✓ 已将本会话切换到服务商 {target}")
@@ -445,7 +359,7 @@ async def handle_switch_api_group(event: MessageEvent):
     if target not in names:
         available = ", ".join(names) if names else ""
         await switch_api_group_cmd.finish(f"服务商不存在\n可用: {available}")
-    sid = f"group_{gid}"
+    sid = await get_session_id(event)
     ok = await ChatSession.update_provider(session_id=sid, provider_name=target)
     await switch_api_group_cmd.finish("✓ 已切换" + (f"群{gid}" if gid else "该群") + f"服务商为 {target}")
 
@@ -474,7 +388,7 @@ async def handle_switch_api_private(event: MessageEvent):
     if target not in names:
         available = ", ".join(names) if names else ""
         await switch_api_private_cmd.finish(f"服务商不存在\n可用: {available}")
-    sid = f"private_{uid}"
+    sid = await get_session_id(event)
     ok = await ChatSession.update_provider(session_id=sid, provider_name=target)
     await switch_api_private_cmd.finish(f"✓ 已切换私{uid}服务商为 {target}")
 
@@ -489,8 +403,6 @@ reload_cmd = P.on_regex(
     block=True,
     level=PermLevel.SUPERUSER,
 )
-
-
 @reload_cmd.handle()
 async def handle_reload(event: MessageEvent):
     reload_all()
@@ -501,8 +413,6 @@ async def handle_reload(event: MessageEvent):
 # ==================== 工具管理 ====================
 # 工具列表
 tool_list_cmd = P.on_regex(r"^#工具列表$", name="ai_tools_list", display_name="工具列表", priority=5, block=True, level=PermLevel.SUPERUSER)
-
-
 @tool_list_cmd.handle()
 async def handle_tool_list(event: MessageEvent):
     cfg = get_config()
@@ -526,8 +436,6 @@ async def handle_tool_list(event: MessageEvent):
 
 # 工具开关
 tool_on_cmd = P.on_regex(r"^#(开启|关闭)工具\s*(\S+)$", name="ai_tool_on", display_name="工具开关", priority=5, block=True, level=PermLevel.SUPERUSER)
-
-
 @tool_on_cmd.handle()
 async def handle_tool_on(event: MessageEvent):
     plain_text = event.get_plaintext()
@@ -559,8 +467,6 @@ async def handle_tool_on(event: MessageEvent):
 
 # TTS 开关
 tts_on_cmd = P.on_regex(r"^#(开启|关闭)TTS$", name="ai_tts_on", display_name="TTS 开关", priority=5, block=True, level=PermLevel.SUPERUSER)
-
-
 @tts_on_cmd.handle()
 async def handle_tts_on(event: MessageEvent):
     cfg = get_config()

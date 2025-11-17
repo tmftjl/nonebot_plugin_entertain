@@ -1,13 +1,13 @@
-"""类 Redis 的统一内存缓存与锁工具 (All-in-One)
+"""类 Redis 的统一内存缓存与锁工具 (All-in-One) - 纯异步版
 
-- 核心：单进程内的线程安全 Key-Value 存储
+- 核心：单进程内的异步安全 Key-Value 存储
 - 功能：支持 String/List/Set/Hash/Counter 等数据结构
-- 锁机制：内置类似 Redis 的分布式锁实现 (set nx)，支持阻塞获取与自动续期
-- 维护：后台线程自动清理过期键 (Janitor)
+- 锁机制：内置类 Redis 的异步锁实现 (set nx)，支持阻塞获取
+- 维护：后台异步任务自动清理过期键 (Janitor)
 """
 from __future__ import annotations
 
-import threading
+import asyncio
 import time
 import uuid
 from dataclasses import dataclass
@@ -22,7 +22,7 @@ class _Entry:
 
 class RedisLikeCache:
     """
-    线程安全的类 Redis 内存缓存（单进程内）。
+    异步安全的类 Redis 内存缓存（单进程内）。
     集成缓存操作、数据结构操作与锁机制。
     """
 
@@ -32,19 +32,13 @@ class RedisLikeCache:
         cleanup_interval: Optional[float] = 30.0,
     ) -> None:
         self._store: Dict[str, _Entry] = {}
-        self._lock = threading.RLock()
-        self._stop_event = threading.Event()
-        self._janitor: Optional[threading.Thread] = None
-
-        # 启动后台清理线程
-        if cleanup_interval and cleanup_interval > 0:
-            self._janitor = threading.Thread(
-                target=self._janitor_loop,
-                args=(cleanup_interval,),
-                name="RedisLikeCacheJanitor",
-                daemon=True,
-            )
-            self._janitor.start()
+        # 简化：标准 asyncio.Lock 足够，因为没有锁重入
+        self._lock = asyncio.Lock()
+        self._stop_event = asyncio.Event()
+        self._janitor_task: Optional[asyncio.Task] = None
+        self._cleanup_interval: Optional[float] = cleanup_interval
+        # 优化：添加一个专用锁来防止 Janitor 启动时出现并发竞争
+        self._janitor_start_lock = asyncio.Lock()
 
     # --------------- Internal Helpers ---------------
     def _now(self) -> float:
@@ -57,6 +51,10 @@ class RedisLikeCache:
         return t >= entry.expire_at
 
     def _get_entry(self, key: str) -> Optional[_Entry]:
+        """
+        内部辅助函数：获取条目，假定锁已被持有。
+        包含惰性删除逻辑。
+        """
         e = self._store.get(key)
         if e is None:
             return None
@@ -72,25 +70,55 @@ class RedisLikeCache:
                 f"WRONGTYPE Operation against a key holding the wrong kind of value: {key}"
             )
 
-    def _janitor_loop(self, interval: float) -> None:
-        """后台定期清理任务"""
-        while not self._stop_event.wait(interval):
-            now = self._now()
-            with self._lock:
-                expired = [
-                    k for k, e in self._store.items() if e.expire_at is not None and now >= e.expire_at
-                ]
-                for k in expired:
-                    self._store.pop(k, None)
+    async def _ensure_janitor_started(self) -> None:
+        """在有事件循环时启动后台清理任务（优化：防止并发竞争）。"""
+        
+        # 优化：快速路径检查，避免不必要的锁获取
+        if self._janitor_task or not self._cleanup_interval or self._cleanup_interval <= 0:
+            return
+        
+        # 优化：使用专用锁确保只有一个任务可以创建 Janitor
+        async with self._janitor_start_lock:
+            # 双重检查，防止等待锁期间其他任务已完成创建
+            if self._janitor_task:
+                return
+            
+            try:
+                loop = asyncio.get_running_loop()
+                self._janitor_task = loop.create_task(self._janitor_loop(self._cleanup_interval))
+            except RuntimeError:
+                # 尚未进入事件循环，延迟启动 (下次调用时会重试)
+                pass
 
-    def close(self) -> None:
-        """关闭后台清理线程"""
+    async def _janitor_loop(self, interval: float) -> None:
+        """异步后台定期清理任务"""
+        try:
+            while not self._stop_event.is_set():
+                await asyncio.sleep(interval)
+                now = self._now()
+                async with self._lock:
+                    expired = [
+                        k
+                        for k, e in self._store.items()
+                        if e.expire_at is not None and now >= e.expire_at
+                    ]
+                    for k in expired:
+                        self._store.pop(k, None)
+        except asyncio.CancelledError:
+            pass
+
+    async def aclose(self) -> None:
+        """关闭后台清理任务。"""
         self._stop_event.set()
-        if self._janitor and self._janitor.is_alive():
-            self._janitor.join(timeout=1.0)
+        if self._janitor_task:
+            self._janitor_task.cancel()
+            try:
+                await self._janitor_task
+            except Exception:
+                pass
 
     # --------------- Basic KV ---------------
-    def set(
+    async def set(
         self,
         key: str,
         value: Any,
@@ -116,7 +144,8 @@ class RedisLikeCache:
         elif ex is not None:
             ttl_seconds = max(0.0, float(ex))
 
-        with self._lock:
+        await self._ensure_janitor_started()
+        async with self._lock:
             exists = self._get_entry(key) is not None
             if nx and exists:
                 return False
@@ -127,52 +156,75 @@ class RedisLikeCache:
             self._store[key] = _Entry(value=value, expire_at=expire_at)
             return True
 
-    def get(self, key: str, default: Any = None) -> Any:
-        with self._lock:
+    async def get(self, key: str, default: Any = None) -> Any:
+        await self._ensure_janitor_started()
+        async with self._lock:
             e = self._get_entry(key)
             return default if e is None else e.value
 
-    def getset(self, key: str, value: Any) -> Any:
-        with self._lock:
-            old = self.get(key)
-            # 尝试保留原有的 TTL
-            ttl = None
-            e = self._store.get(key)
-            if e is not None and not self._is_expired(e):
-                if e.expire_at is not None:
-                    ttl = max(0.0, e.expire_at - self._now())
-            self.set(key, value, ex=ttl)
-            return old
+    async def getset(self, key: str, value: Any) -> Any:
+        await self._ensure_janitor_started()
+        async with self._lock:
+            # 1. 获取旧值和旧的 TTL
+            old_val = None
+            ttl_seconds: Optional[float] = None
+            old_entry = self._get_entry(key)
+            
+            if old_entry is not None:
+                old_val = old_entry.value
+                if old_entry.expire_at is not None:
+                    ttl_seconds = max(0.0, old_entry.expire_at - self._now())
+            
+            # 2. 设置新值，并保留旧的 TTL
+            expire_at = None if ttl_seconds is None else (self._now() + ttl_seconds)
+            self._store[key] = _Entry(value=value, expire_at=expire_at)
+            return old_val
 
-    def mset(self, mapping: Dict[str, Any]) -> None:
-        with self._lock:
+    async def mset(self, mapping: Dict[str, Any]) -> None:
+        await self._ensure_janitor_started()
+        async with self._lock:
             for k, v in mapping.items():
                 self._store[k] = _Entry(value=v, expire_at=None)
 
-    def mget(self, keys: Iterable[str]) -> List[Any]:
-        return [self.get(k) for k in keys]
-
-    def delete(self, *keys: str) -> int:
-        removed = 0
-        with self._lock:
+    async def mget(self, keys: Iterable[str]) -> List[Any]:
+        await self._ensure_janitor_started()
+        async with self._lock:
+            res: List[Any] = []
             for k in keys:
+                e = self._get_entry(k)
+                res.append(None if e is None else e.value)
+            return res
+
+    async def delete(self, *keys: str) -> int:
+        removed = 0
+        await self._ensure_janitor_started()
+        async with self._lock:
+            for k in keys:
+                # 使用 _get_entry 来正确处理已过期的键
                 if self._get_entry(k) is not None:
                     self._store.pop(k, None)
                     removed += 1
-        return removed
+                # 也处理一下 _get_entry 可能没清理的（比如刚过期）
+                elif k in self._store:
+                     self._store.pop(k, None)
+                     removed += 1
+            return removed
 
-    def exists(self, *keys: str) -> int:
-        with self._lock:
+    async def exists(self, *keys: str) -> int:
+        await self._ensure_janitor_started()
+        async with self._lock:
             return sum(1 for k in keys if self._get_entry(k) is not None)
 
-    def keys(self, pattern: Optional[str] = None) -> List[str]:
+    async def keys(self, pattern: Optional[str] = None) -> List[str]:
         """Simple keys implementation supporting prefix/suffix/contains wildcards (*)."""
-        with self._lock:
+        await self._ensure_janitor_started()
+        async with self._lock:
             all_keys = [k for k in list(self._store.keys()) if self._get_entry(k) is not None]
         
         if not pattern or pattern == "*":
             return all_keys
         
+        # 简化通配符匹配
         if pattern.startswith("*") and pattern.endswith("*"):
             mid = pattern.strip("*")
             return [k for k in all_keys if mid in k]
@@ -185,34 +237,38 @@ class RedisLikeCache:
         return [k for k in all_keys if k == pattern]
 
     # --------------- Expiration ---------------
-    def expire(self, key: str, seconds: float) -> bool:
-        return self.pexpire(key, int(seconds * 1000))
+    async def expire(self, key: str, seconds: float) -> bool:
+        return await self.pexpire(key, int(seconds * 1000))
 
-    def pexpire(self, key: str, milliseconds: int) -> bool:
-        with self._lock:
+    async def pexpire(self, key: str, milliseconds: int) -> bool:
+        await self._ensure_janitor_started()
+        async with self._lock:
             e = self._get_entry(key)
             if e is None:
                 return False
             e.expire_at = self._now() + max(0.0, milliseconds / 1000.0)
             return True
 
-    def persist(self, key: str) -> bool:
-        with self._lock:
+    async def persist(self, key: str) -> bool:
+        await self._ensure_janitor_started()
+        async with self._lock:
             e = self._get_entry(key)
             if e is None:
                 return False
             e.expire_at = None
             return True
 
-    def ttl(self, key: str) -> int:
-        with self._lock:
+    async def ttl(self, key: str) -> int:
+        await self._ensure_janitor_started()
+        async with self._lock:
             e = self._get_entry(key)
-            if e is None: return -2
-            if e.expire_at is None: return -1
+            if e is None: return -2 # 键不存在或已过期
+            if e.expire_at is None: return -1 # 键存在但无过期
             return int(round(max(0.0, e.expire_at - self._now())))
 
-    def pttl(self, key: str) -> int:
-        with self._lock:
+    async def pttl(self, key: str) -> int:
+        await self._ensure_janitor_started()
+        async with self._lock:
             e = self._get_entry(key)
             if e is None: return -2
             if e.expire_at is None: return -1
@@ -220,28 +276,32 @@ class RedisLikeCache:
 
     # --------------- Locking (Unified) ---------------
     
-    def try_lock(self, key: str, token: str, ex: float = 10.0) -> bool:
+    async def try_lock(self, key: str, token: str, ex: float = 10.0) -> bool:
         """尝试非阻塞获取锁。底层使用 SET key token EX ex NX。"""
-        return self.set(key, token, ex=ex, nx=True)
+        return await self.set(key, token, ex=ex, nx=True)
 
-    def unlock(self, key: str, token: str) -> bool:
+    async def unlock(self, key: str, token: str) -> bool:
         """安全释放锁：仅当 token 匹配时删除 key。"""
-        with self._lock:
-            val = self.get(key)
-            if val == token:
-                self.delete(key)
+        async with self._lock:
+            # 必须用 _get_entry 检查，以尊重锁的过期
+            e = self._get_entry(key)
+            cur = None if e is None else e.value
+            if cur == token:
+                self._store.pop(key, None)
                 return True
             return False
 
-    def extend_lock(self, key: str, token: str, ex: float) -> bool:
+    async def extend_lock(self, key: str, token: str, ex: float) -> bool:
         """锁续期：仅当 token 匹配时更新过期时间。"""
-        with self._lock:
-            val = self.get(key)
-            if val == token:
-                return self.expire(key, ex)
+        async with self._lock:
+            e = self._get_entry(key)
+            cur = None if e is None else e.value
+            if cur == token:
+                e.expire_at = self._now() + max(0.0, float(ex))
+                return True
             return False
 
-    class _LockContext:
+    class _AsyncLockContext:
         """锁的上下文管理器"""
         def __init__(
             self, 
@@ -260,13 +320,14 @@ class RedisLikeCache:
             self._retry_interval = retry_interval
             self._token = uuid.uuid4().hex
 
-        def __enter__(self) -> str:
+        async def __aenter__(self) -> str:
             deadline = None
             if self._block and self._timeout is not None:
                 deadline = time.time() + self._timeout
 
             while True:
-                if self._cache.try_lock(self._key, self._token, ex=self._ex):
+                got = await self._cache.try_lock(self._key, self._token, ex=self._ex)
+                if got:
                     return self._token
                 
                 if not self._block:
@@ -275,10 +336,13 @@ class RedisLikeCache:
                 if deadline is not None and time.time() >= deadline:
                     raise TimeoutError(f"Acquire lock timeout for key: {self._key}")
                 
-                time.sleep(self._retry_interval)
+                await asyncio.sleep(self._retry_interval)
 
-        def __exit__(self, exc_type, exc, tb):
-            self._cache.unlock(self._key, self._token)
+        async def __aexit__(self, exc_type, exc, tb):
+            try:
+                await self._cache.unlock(self._key, self._token)
+            except Exception:
+                pass
 
     def lock(
         self, 
@@ -287,20 +351,21 @@ class RedisLikeCache:
         block: bool = True, 
         timeout: Optional[float] = None,
         retry_interval: float = 0.05
-    ) -> _LockContext:
+    ) -> _AsyncLockContext:
         """
-        获取锁的上下文管理器。
+        获取锁的上下文管理器 (async with)。
         
         Usage:
-            with cache.lock("my_resource", ex=5) as token:
+            async with cache.lock("my_resource", ex=5) as token:
                 # Critical section
                 pass
         """
-        return self._LockContext(self, key, ex, block, timeout, retry_interval)
+        return self._AsyncLockContext(self, key, ex, block, timeout, retry_interval)
 
     # --------------- Counters ---------------
-    def incr(self, key: str, amount: int = 1) -> int:
-        with self._lock:
+    async def incr(self, key: str, amount: int = 1) -> int:
+        await self._ensure_janitor_started()
+        async with self._lock:
             e = self._get_entry(key)
             if e is None:
                 new_val = int(amount)
@@ -314,11 +379,12 @@ class RedisLikeCache:
             e.value = cur
             return cur
 
-    def decr(self, key: str, amount: int = 1) -> int:
-        return self.incr(key, -int(amount))
+    async def decr(self, key: str, amount: int = 1) -> int:
+        return await self.incr(key, -int(amount))
 
-    # --------------- Lists ---------------
+    # --------------- Lists (Internal Helpers) ---------------
     def _ensure_list(self, key: str) -> _Entry:
+        """内部辅助，假定锁已被持有"""
         e = self._get_entry(key)
         if e is None:
             e = _Entry(value=[], expire_at=None)
@@ -326,44 +392,54 @@ class RedisLikeCache:
         self._require_type(key, e.value, (list,))
         return e
 
-    def lpush(self, key: str, *values: Any) -> int:
-        with self._lock:
+    # --------------- Lists (Public API) ---------------
+    async def lpush(self, key: str, *values: Any) -> int:
+        await self._ensure_janitor_started()
+        async with self._lock:
             e = self._ensure_list(key)
-            for v in values:
-                e.value.insert(0, v) # type: ignore
+            e.value.reverse() # 保持插入顺序
+            e.value.extend(values)
+            e.value.reverse()
+            # for v in values:
+            #     e.value.insert(0, v) # type: ignore
             return len(e.value)
 
-    def rpush(self, key: str, *values: Any) -> int:
-        with self._lock:
+    async def rpush(self, key: str, *values: Any) -> int:
+        await self._ensure_janitor_started()
+        async with self._lock:
             e = self._ensure_list(key)
             e.value.extend(values) # type: ignore
             return len(e.value)
 
-    def lpop(self, key: str) -> Any:
-        with self._lock:
+    async def lpop(self, key: str) -> Any:
+        await self._ensure_janitor_started()
+        async with self._lock:
             e = self._get_entry(key)
             if e is None: return None
             self._require_type(key, e.value, (list,))
             if not e.value: return None
             return e.value.pop(0)
 
-    def rpop(self, key: str) -> Any:
-        with self._lock:
+    async def rpop(self, key: str) -> Any:
+        await self._ensure_janitor_started()
+        async with self._lock:
             e = self._get_entry(key)
             if e is None: return None
             self._require_type(key, e.value, (list,))
             if not e.value: return None
             return e.value.pop()
 
-    def llen(self, key: str) -> int:
-        with self._lock:
+    async def llen(self, key: str) -> int:
+        await self._ensure_janitor_started()
+        async with self._lock:
             e = self._get_entry(key)
             if e is None: return 0
             self._require_type(key, e.value, (list,))
             return len(e.value)
 
-    def lrange(self, key: str, start: int, stop: int) -> List[Any]:
-        with self._lock:
+    async def lrange(self, key: str, start: int, stop: int) -> List[Any]:
+        await self._ensure_janitor_started()
+        async with self._lock:
             e = self._get_entry(key)
             if e is None: return []
             self._require_type(key, e.value, (list,))
@@ -373,8 +449,9 @@ class RedisLikeCache:
                 s = e.value[start : stop + 1]
             return list(s)
 
-    # --------------- Sets ---------------
+    # --------------- Sets (Internal Helpers) ---------------
     def _ensure_set(self, key: str) -> _Entry:
+        """内部辅助，假定锁已被持有"""
         e = self._get_entry(key)
         if e is None:
             e = _Entry(value=set(), expire_at=None)
@@ -382,15 +459,18 @@ class RedisLikeCache:
         self._require_type(key, e.value, (set,))
         return e
 
-    def sadd(self, key: str, *members: Any) -> int:
-        with self._lock:
+    # --------------- Sets (Public API) ---------------
+    async def sadd(self, key: str, *members: Any) -> int:
+        await self._ensure_janitor_started()
+        async with self._lock:
             e = self._ensure_set(key)
             before = len(e.value)
             e.value.update(members) # type: ignore
             return len(e.value) - before
 
-    def srem(self, key: str, *members: Any) -> int:
-        with self._lock:
+    async def srem(self, key: str, *members: Any) -> int:
+        await self._ensure_janitor_started()
+        async with self._lock:
             e = self._get_entry(key)
             if e is None: return 0
             self._require_type(key, e.value, (set,))
@@ -401,29 +481,33 @@ class RedisLikeCache:
                     removed += 1
             return removed
 
-    def sismember(self, key: str, member: Any) -> bool:
-        with self._lock:
+    async def sismember(self, key: str, member: Any) -> bool:
+        await self._ensure_janitor_started()
+        async with self._lock:
             e = self._get_entry(key)
             if e is None: return False
             self._require_type(key, e.value, (set,))
             return member in e.value
 
-    def smembers(self, key: str) -> set:
-        with self._lock:
+    async def smembers(self, key: str) -> set:
+        await self._ensure_janitor_started()
+        async with self._lock:
             e = self._get_entry(key)
             if e is None: return set()
             self._require_type(key, e.value, (set,))
             return set(e.value)
 
-    def scard(self, key: str) -> int:
-        with self._lock:
+    async def scard(self, key: str) -> int:
+        await self._ensure_janitor_started()
+        async with self._lock:
             e = self._get_entry(key)
             if e is None: return 0
             self._require_type(key, e.value, (set,))
             return len(e.value)
 
-    # --------------- Hashes ---------------
+    # --------------- Hashes (Internal Helpers) ---------------
     def _ensure_hash(self, key: str) -> _Entry:
+        """内部辅助，假定锁已被持有"""
         e = self._get_entry(key)
         if e is None:
             e = _Entry(value={}, expire_at=None)
@@ -431,29 +515,34 @@ class RedisLikeCache:
         self._require_type(key, e.value, (dict,))
         return e
 
-    def hset(self, key: str, field: str, value: Any) -> int:
-        with self._lock:
+    # --------------- Hashes (Public API) ---------------
+    async def hset(self, key: str, field: str, value: Any) -> int:
+        await self._ensure_janitor_started()
+        async with self._lock:
             e = self._ensure_hash(key)
             added = 0 if field in e.value else 1
             e.value[field] = value # type: ignore
             return added
 
-    def hget(self, key: str, field: str, default: Any = None) -> Any:
-        with self._lock:
+    async def hget(self, key: str, field: str, default: Any = None) -> Any:
+        await self._ensure_janitor_started()
+        async with self._lock:
             e = self._get_entry(key)
             if e is None: return default
             self._require_type(key, e.value, (dict,))
             return e.value.get(field, default)
 
-    def hgetall(self, key: str) -> Dict[str, Any]:
-        with self._lock:
+    async def hgetall(self, key: str) -> Dict[str, Any]:
+        await self._ensure_janitor_started()
+        async with self._lock:
             e = self._get_entry(key)
             if e is None: return {}
             self._require_type(key, e.value, (dict,))
             return dict(e.value)
 
-    def hdel(self, key: str, *fields: str) -> int:
-        with self._lock:
+    async def hdel(self, key: str, *fields: str) -> int:
+        await self._ensure_janitor_started()
+        async with self._lock:
             e = self._get_entry(key)
             if e is None: return 0
             self._require_type(key, e.value, (dict,))
@@ -464,30 +553,34 @@ class RedisLikeCache:
                     removed += 1
             return removed
 
-    def hlen(self, key: str) -> int:
-        with self._lock:
+    async def hlen(self, key: str) -> int:
+        await self._ensure_janitor_started()
+        async with self._lock:
             e = self._get_entry(key)
             if e is None: return 0
             self._require_type(key, e.value, (dict,))
             return len(e.value)
 
-    def hkeys(self, key: str) -> List[str]:
-        with self._lock:
+    async def hkeys(self, key: str) -> List[str]:
+        await self._ensure_janitor_started()
+        async with self._lock:
             e = self._get_entry(key)
             if e is None: return []
             self._require_type(key, e.value, (dict,))
             return list(e.value.keys())
 
-    def hvals(self, key: str) -> List[Any]:
-        with self._lock:
+    async def hvals(self, key: str) -> List[Any]:
+        await self._ensure_janitor_started()
+        async with self._lock:
             e = self._get_entry(key)
             if e is None: return []
             self._require_type(key, e.value, (dict,))
             return list(e.value.values())
 
     # --------------- Admin ---------------
-    def flushall(self) -> None:
-        with self._lock:
+    async def flushall(self) -> None:
+        await self._ensure_janitor_started()
+        async with self._lock:
             self._store.clear()
 
 
