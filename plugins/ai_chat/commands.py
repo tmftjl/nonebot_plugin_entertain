@@ -359,7 +359,7 @@ async def handle_switch_api_group(event: MessageEvent):
     if target not in names:
         available = ", ".join(names) if names else ""
         await switch_api_group_cmd.finish(f"服务商不存在\n可用: {available}")
-    sid = await get_session_id(event)
+    sid = await ChatSession.get_session_id("qq", "group", gid)
     ok = await ChatSession.update_provider(session_id=sid, provider_name=target)
     await switch_api_group_cmd.finish("✓ 已切换" + (f"群{gid}" if gid else "该群") + f"服务商为 {target}")
 
@@ -388,7 +388,7 @@ async def handle_switch_api_private(event: MessageEvent):
     if target not in names:
         available = ", ".join(names) if names else ""
         await switch_api_private_cmd.finish(f"服务商不存在\n可用: {available}")
-    sid = await get_session_id(event)
+    sid = await ChatSession.get_session_id("qq", "private", uid)
     ok = await ChatSession.update_provider(session_id=sid, provider_name=target)
     await switch_api_private_cmd.finish(f"✓ 已切换私{uid}服务商为 {target}")
 
