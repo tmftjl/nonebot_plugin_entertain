@@ -89,19 +89,19 @@ async def handle_chat_auto(bot: Bot, event: MessageEvent):
                 imgs = list(response.get("images") or [])
                 tts_path = response.get("tts_path")
                 msg_to_send = Message()
-            if text:
-                msg_to_send.append(MessageSegment.text(text))
-            for img in imgs:
-                msg_to_send.append(MessageSegment.image(img))
-
-            # 仅当有内容时才发送
-            if msg_to_send:
-                await at_cmd.send(msg_to_send)
-                if tts_path:
-                    await at_cmd.send(MessageSegment.record(file=str(tts_path)))
-                else:
-                    response = str(response).lstrip("\r\n")
-                await at_cmd.send(response)
+                if text:
+                    msg_to_send.append(MessageSegment.text(text))
+                for img in imgs:
+                    msg_to_send.append(MessageSegment.image(img))
+    
+                # 仅当有内容时才发送
+                if msg_to_send:
+                    await at_cmd.send(msg_to_send)
+                    if tts_path:
+                        await at_cmd.send(MessageSegment.record(file=str(tts_path)))
+                    else:
+                        response = str(response).lstrip("\r\n")
+                    await at_cmd.send(response)
     except Exception as e:
         logger.exception(f"[AI Chat] 对话处理失败: {e}")
 
