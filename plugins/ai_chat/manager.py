@@ -48,7 +48,6 @@ class ChatManager:
         logger.debug("[AI Chat] 已清空 OpenAI 客户端缓存")
 
     def _get_client_for(self, provider_name: Optional[str]) -> Optional[AsyncOpenAI]:
-        from .config import get_api_by_name
         try:
             key = (provider_name or "").strip() or "__default__"
             if key in self.clients:
@@ -63,23 +62,11 @@ class ChatManager:
             return None
 
     def _get_active_api_flags(self, provider_name: Optional[str]) -> tuple[bool, bool]:
-        """Return (support_tools, support_vision) for given provider.
-
-        Falls back to (True, True) when not configured.
-        """
-        try:
-            raw = CFG.load() or {}
-            apis = dict(raw.get("api") or {})
-            key = (provider_name or "").strip()
-            if not key or key not in apis:
-                if apis:
-                    key = next(iter(apis.keys()))
-            provider = dict(apis.get(key) or {})
-            support_tools = bool(provider.get("support_tools", True))
-            support_vision = bool(provider.get("support_vision", True))
-            return support_tools, support_vision
-        except Exception:
-            return True, True
+        """可以直接从缓存的配置对象中读取，无需重新 load 文件"""
+        api_item = get_api_by_name(provider_name)
+        support_tools = getattr(api_item, "support_tools", True)
+        support_vision = getattr(api_item, "support_vision", True)
+        return support_tools, support_vision
 
     # 对话历史
     async def _get_history(self, session: Optional[ChatSession] = None, max_pairs: int = 20) -> List[Dict[str, Any]]:
@@ -121,12 +108,14 @@ class ChatManager:
         lock_key = f"ai_chat:session_lock:{session_id}"
         
         # ex=60: 锁最长持有60秒，防止死锁
-        # timeout=45: 获取锁最长等待45秒，超时则放弃此次处理
         try:
             async with cache.lock(lock_key, ex=60, block=True, timeout=45):
                 # try...except 块现在移动到 *内部*
                 try:
                     session = await ChatSession.get_by_session_id(session_id)
+                    if not session:
+                        logger.error(f"[AI Chat] 无法找到或创建会话: {session_id}")
+                        return "系统错误：会话加载失败。"
                     pairs_limit = max(1, int(get_config().session.max_rounds))
                     
                     # 1. 读取历史
@@ -145,15 +134,19 @@ class ChatManager:
                     messages = self._build_ai_content(bot=bot, event=event)
 
                     cfg = get_config()
-                    config = cfg.session
-                    config.set("provider",current_provider)
-                    config.set("model",get_api_by_name(current_provider).model)
+                    session_config_dict = cfg.session.model_dump()
+                    api_item = get_api_by_name(current_provider)
+                    session_config_dict["provider"] = current_provider
+                    session_config_dict["model"] = api_item.model
+                    session_config_dict["temperature"] = session_config_dict.get("default_temperature", 0.7)
                     default_tools = None
                     if getattr(cfg, "tools", None) and cfg.tools.enabled:
-                        default_tools = get_enabled_tools(cfg.tools.builtin_tools)
+                        _tools_list = get_enabled_tools(cfg.tools.builtin_tools)
+                        if _tools_list:
+                            default_tools = _tools_list
 
                     # 2. 处理和调用 AI
-                    aiChat = AiChat(session, messages, history, system_prompt, default_tools, config)
+                    aiChat = AiChat(session, messages, history, system_prompt, default_tools, session_config_dict)
                     aiChat = await run_pre_ai_hooks(event, aiChat)
                     response = await self._call_ai(aiChat, client)
                     response = await run_post_ai_hooks(event, aiChat, response)
@@ -179,11 +172,12 @@ class ChatManager:
                     return "抱歉，我遇到了一点问题。"
         
         except TimeoutError:
-            # -----------------
-            # [新增] 这是 cache.lock(timeout=...) 带来的好处
-            # -----------------
             logger.warning(f"[AI Chat] 会话 {session_id} 获取锁超时，上一条消息可能仍在处理中")
             return None # 或返回一个提示，如 "请稍等，我还在处理上一条消息..."
+        except Exception as e:
+            # [新增] 捕获 Redis 连接失败、lock 实现错误或其他未知系统异常
+            logger.exception(f"[AI Chat] 系统级异常 (Redis/Lock): {e}")
+            return "叫妈妈"
             
     # 辅助函数：获取昵称
     async def _get_nickname_for_at(self, bot: Bot, event: MessageEvent, user_id: int) -> str:
@@ -221,7 +215,6 @@ class ChatManager:
                 current_text_parts.clear()
 
         # --- 核心处理循环 ---
-        # 我们可以复用这个循环来处理 event.message 和 event.reply.message
         async def process_message_iterable(message_iter: List[MessageSegment]):
             for segment in message_iter:
 
@@ -268,10 +261,9 @@ class ChatManager:
                             if seg_type == "text":
                                 current_text_parts.append(inner_seg.get("data", {}).get("text", ""))
                             elif seg_type == "at":
-                                current_text_parts.append("@(某人)") # 在这里再次解析@太复杂，简化处理
+                                current_text_parts.append("@(某人)")
                             elif seg_type == "image":
                                 current_text_parts.append("[图片]") # 同上，简化处理
-                            # 忽略 reply, face 等
 
                         current_text_parts.append("\n") # 每条消息后换行
 
@@ -315,7 +307,7 @@ class ChatManager:
         messages = [system_message] + aichat.history + [current_user_message]
 
         _kwargs: Dict[str, Any] = {"model": aichat.config.get("model"), "messages": messages, "temperature": aichat.config.get("temperature")}
-        if support_tools:
+        if support_tools and aichat.tools:
             _kwargs["tools"] = aichat.tools
         current_response = await client.chat.completions.create(**_kwargs)
 

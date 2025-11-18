@@ -27,7 +27,8 @@ class APIItem(BaseModel):
     api_key: str = Field(default="", description="API Key")
     model: str = Field(default="gpt-4o-mini", description="默认模型")
     timeout: int = Field(default=60, description="超时（秒）")
-
+    support_tools: bool = Field(default=True, description="是否支持工具调用")
+    support_vision: bool = Field(default=True, description="是否支持视觉识别")
 
 class SessionConfig(BaseModel):
     default_provider: str = Field(default="", description="默认服务商（名称）")
@@ -174,6 +175,8 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
                     "api_key": {"type": "string", "title": "API Key", "x-order": 2},
                     "model": {"type": "string", "title": "模型", "x-order": 3},
                     "timeout": {"type": "integer", "title": "超时（秒）", "x-order": 4},
+                    "support_tools": {"type": "boolean", "title": "支持工具调用", "default": True, "x-order": 5},
+                    "support_vision": {"type": "boolean", "title": "支持识别图片", "default": True, "x-order": 6},
                 },
             },
         },
@@ -260,20 +263,6 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
         },
     },
 }
-
-try:
-    _api_props = AI_CHAT_SCHEMA["properties"]["api"]["additionalProperties"]["properties"]
-    _api_props.setdefault(
-        "support_tools",
-        {"type": "boolean", "title": "支持工具调用", "default": True, "x-order": 5},
-    )
-    _api_props.setdefault(
-        "support_vision",
-        {"type": "boolean", "title": "支持识别图片", "default": True, "x-order": 6},
-    )
-except Exception:
-    # Schema 扩展失败不影响功能
-    pass
 
 register_plugin_schema("ai_chat", AI_CHAT_SCHEMA)
 
@@ -434,24 +423,20 @@ def load_config() -> AIChatConfig:
 
 def save_config(config: AIChatConfig) -> None:
     try:
-        # Preserve unknown provider fields (e.g., capability flags) on save
-        try:
-            existing = CFG.load() or {}
-        except Exception:
-            existing = {}
         new_data = config.model_dump()
-        try:
-            raw_apis = dict((existing or {}).get("api") or {})
-            new_apis = dict((new_data or {}).get("api") or {})
-            for name, raw in raw_apis.items():
-                if name in new_apis and isinstance(raw, dict) and isinstance(new_apis[name], dict):
-                    # Known capability flags to preserve even if schema doesn't include them
-                    for k in ("support_tools", "support_vision"):
-                        if k in raw and k not in new_apis[name]:
-                            new_apis[name][k] = raw[k]
-            new_data["api"] = new_apis
-        except Exception:
-            pass
+        existing = CFG.load() or {}
+        raw_apis = dict((existing or {}).get("api") or {})
+        new_apis = dict((new_data or {}).get("api") or {})
+        
+        for name, raw in raw_apis.items():
+            if name in new_apis and isinstance(raw, dict) and isinstance(new_apis[name], dict):
+                # 遍历旧配置的所有字段，如果新配置里没有（说明是未知字段），则保留
+                for k, v in raw.items():
+                    if k not in new_apis[name]:
+                        new_apis[name][k] = v
+        
+        new_data["api"] = new_apis
+
         CFG.save(new_data)
         logger.info("[AI Chat] 配置保存成功")
     except Exception as e:
