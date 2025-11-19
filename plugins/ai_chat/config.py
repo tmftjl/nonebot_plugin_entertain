@@ -463,25 +463,15 @@ def get_active_api() -> APIItem:
 
 
 def get_api_by_name(name: Optional[str]) -> APIItem:
-    """按名称获取服务商配置；为空或不存在时，返回第一个有效服务商并记录日志。"""
+    """按名称获取服务商配置；名称为空或不存在时返回第一个可用服务商。"""
     cfg = get_config()
     apis: Dict[str, APIItem] = dict(getattr(cfg, "api", {}) or {})
     if not apis:
-        logger.warning("[AI Chat] API 列表为空，返回默认 APIItem()")
         return APIItem()
     key = (name or "").strip()
     if key and key in apis:
-        api = apis[key]
-        try:
-            logger.debug(f"[AI Chat] 命中服务商 provider={key} base_url={getattr(api, 'base_url', '')} model={getattr(api, 'model', '')}")
-        except Exception:
-            pass
-        return api
+        return apis[key]
     first_key = next(iter(apis.keys()))
-    try:
-        logger.debug(f"[AI Chat] 未找到服务商 '{key}'，回退至第一个: {first_key}")
-    except Exception:
-        pass
     return apis[first_key]
 
 
