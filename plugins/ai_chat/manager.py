@@ -130,8 +130,7 @@ class ChatManager:
                     client = self._get_client_for(current_provider)
                     if not client:
                         return "AI 未配置或暂不可用"
-                    support_tools, support_vision = self._get_active_api_flags(current_provider)
-                    messages = self._build_ai_content(bot=bot, event=event)
+                    messages = await self._build_ai_content(bot=bot, event=event)
 
                     cfg = get_config()
                     session_config_dict = cfg.session.model_dump()
