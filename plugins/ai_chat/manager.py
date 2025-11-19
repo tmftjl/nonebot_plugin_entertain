@@ -233,7 +233,7 @@ class ChatManager:
                     if not image_url:
                         continue
 
-                    base64_data_url = await image_url_to_base64(image_url)
+                    base64_data_url = await image_url_to_base64(image_url, include_data_url=True)
                     if base64_data_url:
                         openai_content_list.append({
                             "type": "image_url",
