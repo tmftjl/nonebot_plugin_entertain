@@ -175,7 +175,7 @@ class ChatManager:
                     if not client:
                         logger.warning(f"[AI Chat] 无法创建客户端: provider={current_provider}; api.base_url={get_api_by_name(current_provider).base_url if current_provider else ''} model={get_api_by_name(current_provider).model if current_provider else ''}")
                         return "AI 未配置或暂不可用"
-                    messages = self._build_ai_content(bot=bot, event=event)
+                    messages = await self._build_ai_content(bot=bot, event=event)
                     try:
                         _t = sum(1 for x in messages if isinstance(x, dict) and x.get('type') == 'text')
                         _i = sum(1 for x in messages if isinstance(x, dict) and x.get('type') == 'image_url')
