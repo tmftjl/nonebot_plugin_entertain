@@ -443,26 +443,6 @@ class ChatManager:
                     # 如果所有段落都被命中关键词（可能是误伤），保底只取最后一段
                     cleaned = paras[-1]
 
-            # ============================================================
-            # 第二阶段：基于边界的终极清洗 (解决粘连问题)
-            # ============================================================
-            
-            # 1. 定义英文结束符集合 (句号, 冒号, 引号, 感叹号, 问号, 换行, 右括号等)
-            separators = r'(?:[:;"\'!?\n\r\)\]\}]|(?<!\.)\.(?!\.))+'
-            
-            # 2. 寻找 [英文标点] + [紧跟的中文] 的交界线
-            matches = list(re.finditer(rf"({separators})\s*(?=[\u4e00-\u9fa5])", cleaned))
-            
-            if matches:
-                # 如果找到了交界线，取最后一个匹配点的后半部分
-                last_match = matches[-1]
-                cleaned = cleaned[last_match.end():].strip()
-            else:
-                # 3. 如果没找到明显的标点交界，尝试用“长段ASCII字符”切割保底
-                parts = re.split(r"(?s)[\x00-\x7f]{20,}", cleaned)
-                if parts and parts[-1].strip():
-                    cleaned = parts[-1].strip()
-
             return re.sub(r"\n{3,}", "\n\n", cleaned).strip() or ""
             
         except Exception:
