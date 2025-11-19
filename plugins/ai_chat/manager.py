@@ -48,24 +48,59 @@ class ChatManager:
         logger.debug("[AI Chat] 已清空 OpenAI 客户端缓存")
 
     def _get_client_for(self, provider_name: Optional[str]) -> Optional[AsyncOpenAI]:
+        """按服务商名返回/创建 AsyncOpenAI 客户端，并做详细日志"""
         try:
-            key = (provider_name or "").strip() or "__default__"
+            key_raw = (provider_name or "").strip()
+            key = key_raw or "__default__"
             if key in self.clients:
+                logger.debug(f"[AI Chat] 复用已缓存客户端 provider={key_raw or '(default)'}")
                 return self.clients[key]
+
             api = get_api_by_name(provider_name)
-            if not api or not api.api_key:
+            if not api:
+                logger.warning(f"[AI Chat] 未找到服务商配置 provider={key_raw}")
                 return None
-            cli = AsyncOpenAI(api_key=api.api_key, base_url=api.base_url, timeout=api.timeout)
+            def _mask(s: str) -> str:
+                try:
+                    if not s:
+                        return ""
+                    s = str(s)
+                    if len(s) <= 10:
+                        return s[:2] + "..." + s[-2:]
+                    return s[:6] + "..." + s[-4:]
+                except Exception:
+                    return "(mask_error)"
+            logger.debug(
+                f"[AI Chat] 创建客户端 provider={key_raw or '(default)'} base_url={getattr(api, 'base_url', '')} "
+                f"model={getattr(api, 'model', '')} timeout={getattr(api, 'timeout', '')} key={_mask(getattr(api, 'api_key', ''))}"
+            )
+            if not api.api_key:
+                logger.warning(
+                    f"[AI Chat] 服务商 API Key 为空，无法创建客户端 provider={key_raw or '(default)'} base_url={getattr(api, 'base_url', '')}"
+                )
+                return None
+            try:
+                cli = AsyncOpenAI(api_key=api.api_key, base_url=api.base_url, timeout=api.timeout)
+            except Exception as e:
+                logger.exception(
+                    f"[AI Chat] 创建 AsyncOpenAI 客户端异常 provider={key_raw or '(default)'} base_url={getattr(api, 'base_url', '')}: {e}"
+                )
+                return None
             self.clients[key] = cli
+            logger.info(
+                f"[AI Chat] 客户端创建成功 provider={key_raw or '(default)'} base_url={getattr(api, 'base_url', '')} model={getattr(api, 'model', '')}"
+            )
             return cli
-        except Exception:
+        except Exception as e:
+            logger.exception(f"[AI Chat] _get_client_for 未知异常: {e}")
             return None
 
     def _get_active_api_flags(self, provider_name: Optional[str]) -> tuple[bool, bool]:
-        """可以直接从缓存的配置对象中读取，无需重新 load 文件"""
+        """直接从配置读取能力标记（避免重复 load 文件）"""
         api_item = get_api_by_name(provider_name)
         support_tools = getattr(api_item, "support_tools", True)
         support_vision = getattr(api_item, "support_vision", True)
+        logger.debug(f"[AI Chat] 能力标记 provider={provider_name or '(default)'} tools={support_tools} vision={support_vision}")
         return support_tools, support_vision
 
     # 对话历史
@@ -125,17 +160,33 @@ class ChatManager:
                     persona = personas.get(session.persona_name) or personas.get("default") or next(iter(personas.values()))
                     system_prompt = persona.details
 
+                    # 调试：会话与配置概要
+                    try:
+                        evt_type = 'group' if isinstance(event, GroupMessageEvent) else 'private'
+                        logger.debug(f"[AI Chat] 输入摘要 session_id={session_id} evt_type={evt_type} user={user_name} reply={bool(event.reply)}")
+                        logger.debug(f"[AI Chat] 会话信息 provider_name={getattr(session, 'provider_name', None)} persona={getattr(session, 'persona_name', None)} is_active={getattr(session, 'is_active', None)}")
+                        logger.debug(f"[AI Chat] 历史条目数={len(history)} 上限对数={pairs_limit}")
+                    except Exception:
+                        pass
+
                     # 计算会话服务商与能力
                     current_provider = getattr(session, "provider_name", None) or getattr(get_config().session, "default_provider", "")
                     client = self._get_client_for(current_provider)
                     if not client:
+                        logger.warning(f"[AI Chat] 无法创建客户端: provider={current_provider}; api.base_url={get_api_by_name(current_provider).base_url if current_provider else ''} model={get_api_by_name(current_provider).model if current_provider else ''}")
                         return "AI 未配置或暂不可用"
-                    support_tools, support_vision = self._get_active_api_flags(current_provider)
                     messages = self._build_ai_content(bot=bot, event=event)
+                    try:
+                        _t = sum(1 for x in messages if isinstance(x, dict) and x.get('type') == 'text')
+                        _i = sum(1 for x in messages if isinstance(x, dict) and x.get('type') == 'image_url')
+                        logger.debug(f"[AI Chat] 构造消息完成 text={_t} images={_i} total={len(messages)}")
+                    except Exception:
+                        pass
 
                     cfg = get_config()
                     session_config_dict = cfg.session.model_dump()
                     api_item = get_api_by_name(current_provider)
+                    logger.debug(f"[AI Chat] 选用服务商 provider={current_provider} base_url={getattr(api_item, 'base_url', '')} model={getattr(api_item, 'model', '')} timeout={getattr(api_item, 'timeout', '')}")
                     session_config_dict["provider"] = current_provider
                     session_config_dict["model"] = api_item.model
                     session_config_dict["temperature"] = session_config_dict.get("default_temperature", 0.7)
@@ -148,6 +199,10 @@ class ChatManager:
                     # 2. 处理和调用 AI
                     aiChat = AiChat(session, messages, history, system_prompt, default_tools, session_config_dict)
                     aiChat = await run_pre_ai_hooks(event, aiChat)
+                    try:
+                        logger.debug(f"[AI Chat] 调用参数 model={session_config_dict.get('model')} temp={session_config_dict.get('temperature')} tools_enabled={bool(default_tools)} tools_count={len(default_tools or [])}")
+                    except Exception:
+                        pass
                     response = await self._call_ai(aiChat, client)
                     response = await run_post_ai_hooks(event, aiChat, response)
                     response = self._sanitize_response(response)
@@ -169,7 +224,7 @@ class ChatManager:
 
                 except Exception as e:
                     logger.exception(f"[AI Chat] 处理消息失败: {e}")
-                    return "抱歉，我遇到了一点问题。"
+                    return "叫妈妈"
         
         except TimeoutError:
             logger.warning(f"[AI Chat] 会话 {session_id} 获取锁超时，上一条消息可能仍在处理中")
@@ -291,9 +346,10 @@ class ChatManager:
         return openai_content_list
 
     async def _call_ai(self, aichat: AiChat, client: Optional[AsyncOpenAI] = None) -> str:
-        """调用 OpenAI 聊天接口，包含工具调用处理"""
+        """调用 OpenAI 接口，支持工具调用"""
 
         if not client:
+            logger.error("[AI Chat] _call_ai 被调用时 client 为空")
             return "AI 未配置或暂不可用"
         support_tools, support_vision = self._get_active_api_flags(aichat.config.get("provider"))
         system_message = {
@@ -305,11 +361,23 @@ class ChatManager:
             "content": aichat.messages
         }
         messages = [system_message] + aichat.history + [current_user_message]
+        try:
+            logger.debug(f"[AI Chat] _call_ai provider={aichat.config.get('provider')} model={aichat.config.get('model')} temp={aichat.config.get('temperature')} history={len(aichat.history)} content_items={len(aichat.messages)} tools={bool(aichat.tools)}")
+        except Exception:
+            pass
 
         _kwargs: Dict[str, Any] = {"model": aichat.config.get("model"), "messages": messages, "temperature": aichat.config.get("temperature")}
         if support_tools and aichat.tools:
             _kwargs["tools"] = aichat.tools
         current_response = await client.chat.completions.create(**_kwargs)
+        try:
+            _ch = current_response.choices[0] if getattr(current_response, 'choices', None) else None
+            _tc = len(_ch.message.tool_calls or []) if (_ch and _ch.message) else 0
+            _fr = getattr(_ch, 'finish_reason', None)
+            _cl = len(_ch.message.content or '') if (_ch and _ch.message and _ch.message.content) else 0
+            logger.debug(f"[AI Chat] 首轮响应 tool_calls={_tc} finish_reason={_fr} content_len={_cl}")
+        except Exception:
+            pass
 
         iteration = 0
         while iteration < 3:
@@ -338,13 +406,18 @@ class ChatManager:
             tasks = []
             for tc in tool_calls:
                 try:
+                    logger.debug(f"[AI Chat] 工具调用: name={tc.function.name} args_len={len(tc.function.arguments or '{}')}")
                     args = json.loads(tc.function.arguments or "{}")
                 except Exception:
                     args = {}
                 tasks.append(execute_tool(tc.function.name, args))
             results = []
             if tasks:
-                results = await asyncio.gather(*tasks, return_exceptions=True)
+                try:
+                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    logger.debug(f"[AI Chat] 工具返回 {len(results)} 项")
+                except Exception as e:
+                    logger.exception(f"[AI Chat] 执行工具异常: {e}")
             for tc, res in zip(tool_calls, results or []):
                 content = str(res) if not isinstance(res, Exception) else f"工具执行异常: {res}"
                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})

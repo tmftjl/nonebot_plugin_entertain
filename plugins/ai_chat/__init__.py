@@ -9,7 +9,7 @@ from nonebot.log import logger
 require("nonebot_plugin_entertain")
 
 # 注册并加载配置与人格
-from .config import get_config_path, get_active_api
+from .config import get_config_path, get_active_api, get_config
 # 导入命令（注册所有命令处理器）
 from . import commands
 
@@ -33,6 +33,9 @@ __plugin_usage__ = (
 
 try:
     # 检查 API 密钥（按当前启用服务商）
+    cfg = get_config()
+    names = list((getattr(cfg, "api", {}) or {}).keys())
+    logger.debug(f"[AI Chat] 已加载服务商: {', '.join(names) if names else '(none)'}; 默认 default_provider={getattr(cfg.session, 'default_provider', '')}")
     active_api = get_active_api()
     if not active_api.api_key:
         logger.warning(
