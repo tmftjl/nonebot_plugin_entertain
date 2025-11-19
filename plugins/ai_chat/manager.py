@@ -168,7 +168,7 @@ class ChatManager:
 
                 except Exception as e:
                     logger.exception(f"[AI Chat] 处理消息失败: {e}")
-                    return "抱歉，我遇到了一点问题。"
+                    return "叫妈妈"
         
         except TimeoutError:
             logger.warning(f"[AI Chat] 会话 {session_id} 获取锁超时，上一条消息可能仍在处理中")
