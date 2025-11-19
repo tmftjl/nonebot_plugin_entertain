@@ -15,9 +15,7 @@ from nonebot.adapters.onebot.v11 import (
 from nonebot.log import logger
 from ...core.api import Plugin
 from ...core.http import get_shared_async_client
-from ...core.framework.message_utils import (
-    get_target_message_id,
-)
+from ...core.image_utils import image_url_to_base64
 
 
 # 参照 temp/wutheringwaves_custom 的实现
@@ -98,66 +96,29 @@ async def _post_score(images_b64: List[str], command_str: str) -> Tuple[Optional
         return None, f"结果图片解析失败: {e}"
 
 
-async def _extract_sources_with_bot(bot: Bot, msg: Message) -> List[str]:
-    """从消息段提取图片来源（url 或经 get_image 解析后的本地路径）。"""
-    out: List[str] = []
-    try:
-        for seg in msg:
-            if isinstance(seg, dict):
-                seg_dict = seg
-            elif hasattr(seg, "dict") and callable(getattr(seg, "dict")):
-                try:
-                    seg_dict = seg.dict()
-                except Exception as e:
-                    logger.warning(f"调用 seg.dict() 失败: {e}")
-                    continue
-            elif hasattr(seg, "__dict__"):
-                seg_dict = vars(seg)
-            else:
-                logger.warning(f"无法处理的消息段类型: {type(seg)}")
+# --- 核心处理循环 ---
+async def process_message_iterable(message_iter: List[MessageSegment]) -> List[str]:
+    img_list = []
+    for segment in message_iter:
+        if segment.type == "image":
+            image_url = segment.data.get("url")
+            if not image_url:
                 continue
-            if seg_dict.get("type") != "image":
-                continue
-            data = seg_dict.get("data") or {}
-            url = str((data.get("url") or "")).strip()
-            if url:
-                out.append(url)
-                continue
-            file_ = str((data.get("file") or "")).strip()
-            if file_:
-                # 使用 OneBot get_image API 将文件 id 转换为实际路径
-                try:
-                    resp = await bot.get_image(file=file_)  # type: ignore[arg-type]
-                    path = resp.get("file") if isinstance(resp, dict) else None
-                    if path:
-                        out.append(str(path))
-                        continue
-                except Exception:
-                    # 兜底：直接当成本地路径尝试
-                    out.append(file_)
-    except Exception as e:
-        logger.error(f"消息解析失败: {e}")
-        pass
-    return out
+            img_list.append(image_url)
+    return img_list
+                
 
 
 async def _get_images_from_event_or_reply(bot: Bot, event: MessageEvent) -> List[str]:
-    """优先从当前消息取图；没有则尝试从被引用的消息中取图。"""
-    # 1) 当前消息
-    current = await _extract_sources_with_bot(bot, event.get_message())
-    if current:
-        return current
+    """从当前消息和被引用的消息中取图。"""
+    img_list = []
+    # 1. 处理当前消息
+    img_list.extend(await process_message_iterable(event.message))
+    # 2. 处理被回复的消息
+    if event.reply:
+        img_list.extend(await process_message_iterable(event.reply.message))
+    return img_list
 
-    # 2) 被回复/引用的消息
-    try:
-        mid = event.reply.message_id
-        if not mid:
-            return []
-        data = await bot.get_msg(message_id=mid)  # type: ignore[arg-type]
-        raw = data.get("message") if isinstance(data, dict) else None
-        return await _extract_sources_with_bot(bot, raw)
-    except Exception:
-        return []
 
 
 @waves_analyze_cmd.handle()
