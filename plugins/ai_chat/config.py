@@ -38,6 +38,7 @@ class SessionConfig(BaseModel):
     active_reply_enable: bool = Field(default=False, description="是否开启主动回复（群聊）")
     active_reply_probability: float = Field(default=0.1, description="主动回复概率 0~1")
     ignore_prefixes: List[str] = Field(default_factory=list, description="消息以这些前缀之一开头时不触发AI回复（忽略前导空白）")
+    tavily_api_key: str = Field(default="", description="Tavily 密钥（用于联网搜索）")
     active_reply_prompt_suffix: str = Field(
         default=(
             "请根据以下消息进行自然回复：`{message}`，并保持简洁清晰。\n"
@@ -122,7 +123,8 @@ DEFAULTS: Dict[str, Any] = {
             "只需回复结果，不要解释过程。\n"
         ),
         "active_reply_probability": 0.1,
-        "ignore_prefixes": [],
+        "ignore_prefixes": [],        "tavily_api_key": "",
+
     },
     "tools": {
         "enabled": False,
@@ -194,6 +196,7 @@ AI_CHAT_SCHEMA: Dict[str, Any] = {
                 "active_reply_probability": {"type": "number", "title": "主动回复概率（0~1）", "minimum": 0, "maximum": 1, "x-order": 6},
                 "active_reply_prompt_suffix": {"type": "string", "title": "主动回复提示后缀", "x-order": 7},
                 "ignore_prefixes": {"type": "array", "title": "不回复前缀（全局）", "description": "消息以这些前缀之一开头时不触发AI；忽略前导空白。", "items": {"type": "string"}, "x-order": 8},
+                "tavily_api_key": {"type": "string", "title": "Tavily 密钥", "x-order": 9},
             },
         },
         "tools": {
