@@ -309,7 +309,7 @@ class ChatManager:
         user_tools = aichat.tools if (support_tools and aichat.tools) else []
         
         if is_gemini:
-            gemini_tools_payload = [{"google_search": {}}] # 启用原生搜索
+            gemini_tools_payload = [{"googleSearch": {}}] # 启用原生搜索
             if user_tools:
                 gemini_tools_payload.extend(user_tools)
             _kwargs["extra_body"] = {
