@@ -304,10 +304,22 @@ class ChatManager:
             "content": aichat.messages
         }
         messages = [system_message] + aichat.history + [current_user_message]
+        provider_name = (aichat.config.get("provider") or "").lower()
+        is_gemini = "gemini" in provider_name
 
         _kwargs: Dict[str, Any] = {"model": aichat.config.get("model"), "messages": messages, "temperature": aichat.config.get("temperature")}
-        if support_tools and aichat.tools:
-            _kwargs["tools"] = aichat.tools
+        user_tools = aichat.tools if (support_tools and aichat.tools) else []
+        
+        if is_gemini:
+            gemini_tools_payload = [{"google_search": {}}] # 启用原生搜索
+            if user_tools:
+                gemini_tools_payload.extend(user_tools)
+            _kwargs["extra_body"] = {
+                "tools": gemini_tools_payload
+            }
+        else:
+            if user_tools:
+                _kwargs["tools"] = user_tools
         current_response = await client.chat.completions.create(**_kwargs)
 
         iteration = 0
@@ -348,10 +360,8 @@ class ChatManager:
                 content = str(res) if not isinstance(res, Exception) else f"工具执行异常: {res}"
                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": content})
 
-            _kwargs2: Dict[str, Any] = {"model": aichat.config.get("model"), "messages": messages, "temperature": aichat.config.get("temperature")}
-            if support_tools:
-                _kwargs2["tools"] = aichat.tools
-            current_response = await client.chat.completions.create(**_kwargs2)
+            _kwargs["messages"] = messages
+            current_response = await client.chat.completions.create(**_kwargs)
 
             iteration += 1
 
