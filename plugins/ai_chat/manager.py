@@ -117,6 +117,7 @@ class ChatManager:
                         logger.error(f"[AI Chat] 无法找到或创建会话: {session_id}")
                         return "系统错误：会话加载失败。"
                     pairs_limit = max(1, int(get_config().session.max_rounds))
+                    logger.info(f"[AI Chat] 最大对话轮数: {pairs_limit}")
                     
                     # 1. 读取历史
                     history = await self._get_history(session, pairs_limit)
@@ -161,7 +162,8 @@ class ChatManager:
                     except Exception:
                         tts_path = None
 
-                    max_msgs = max(0, 2 * int(get_config().session.max_rounds))
+                    max_msgs = max(0, int(get_config().session.max_rounds))
+                    logger.info(f"[AI Chat] 最大对话轮数: {max_msgs}")
                     await self._save_conversation(session_id, user_name, messages, clean_text, max_msgs)
 
                     return {"text": clean_text, "images": out_images, "tts_path": tts_path}
@@ -172,11 +174,7 @@ class ChatManager:
         
         except TimeoutError:
             logger.warning(f"[AI Chat] 会话 {session_id} 获取锁超时，上一条消息可能仍在处理中")
-            return None # 或返回一个提示，如 "请稍等，我还在处理上一条消息..."
-        except Exception as e:
-            # [新增] 捕获 Redis 连接失败、lock 实现错误或其他未知系统异常
-            logger.exception(f"[AI Chat] 系统级异常 (Redis/Lock): {e}")
-            return "叫妈妈"
+            return "说太快了，我处理不过来啦..." # 或返回一个提示，如 "请稍等，我还在处理上一条消息..."
             
     # 辅助函数：获取昵称
     async def _get_nickname_for_at(self, bot: Bot, event: MessageEvent, user_id: int) -> str:
