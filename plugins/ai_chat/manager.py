@@ -162,7 +162,7 @@ class ChatManager:
                     except Exception:
                         tts_path = None
 
-                    max_msgs = max(0, 2 * int(get_config().session.max_rounds))
+                    max_msgs = max(0, int(get_config().session.max_rounds))
                     logger.info(f"[AI Chat] 最大对话轮数: {max_msgs}")
                     await self._save_conversation(session_id, user_name, messages, clean_text, max_msgs)
 

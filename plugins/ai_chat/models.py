@@ -319,10 +319,9 @@ class ChatSession(BaseIDModel, table=True):
             except Exception:
                 lst = []
             lst.extend(items)
-            if max_history > 0 and len(lst) > max_history:
-                lst = lst[-max_history:]
             row.history_json = json.dumps(lst, ensure_ascii=False)
             row.updated_at = datetime.now().isoformat()
+            row.max_history = max_history
             session.add(row)
             await session.flush()
             await session.refresh(row)
