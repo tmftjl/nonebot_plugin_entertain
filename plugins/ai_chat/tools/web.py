@@ -19,6 +19,13 @@ except Exception:  # pragma: no cover
     aiohttp = None  # type: ignore
 
 
+try:
+    from duckduckgo_search import AsyncDDGS  # type: ignore
+except Exception:  # pragma: no cover
+    AsyncDDGS = None  # type: ignore
+
+
+
 _USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
@@ -78,6 +85,32 @@ async def _search_tavily(query: str, max_results: int = 5, depth: str = "basic")
     return results
 
 
+
+async def _search_ddg(query: str, max_results: int = 5) -> List[dict]:
+    if AsyncDDGS is None:
+        raise RuntimeError("缺少 duckduckgo-search 依赖")
+    # 尝试中国区，失败则使用通用区
+    async def _do(region: str):
+        async with AsyncDDGS() as ddgs:
+            try:
+                return await ddgs.atext(query, region=region, safesearch="moderate", timelimit=None, max_results=max_results)
+            except TypeError:
+                # 兼容旧版本：返回异步生成器
+                return [r async for r in ddgs.atext(query, region=region, safesearch="moderate", timelimit=None)]
+    try:
+        items = await _do("cn-zh")
+    except Exception:
+        items = await _do("wt-wt")
+    results: List[dict] = []
+    take = max(1, min(int(max_results or 5), 10))
+    for i, it in enumerate((items or [])[:take], start=1):
+        title = (it.get("title") or "").strip()
+        url = (it.get("href") or it.get("url") or "").strip()
+        snippet = (it.get("body") or it.get("description") or "").strip()
+        if not title and not url:
+            continue
+        results.append({"idx": i, "title": title, "url": url, "snippet": snippet})
+    return results
 async def _search_bing_html(query: str, max_results: int = 5) -> List[dict]:
     q = quote_plus(query)
     url = f"https://cn.bing.com/search?q={q}&setlang=zh-CN&FORM=QBLH"
@@ -111,13 +144,13 @@ async def _search_bing_html(query: str, max_results: int = 5) -> List[dict]:
 
 @register_tool(
     name="web_search",
-    description="联网搜索（Tavily 密钥从 session.tavily_api_key 读取；否则使用 Bing HTML 抓取）",
+    description="联网搜索（按顺序回退：Tavily -> DuckDuckGo -> Bing）",
     parameters={
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "搜索关键词"},
             "max_results": {"type": "integer", "description": "结果条数(1-10)", "default": 5},
-            "provider": {"type": "string", "description": "搜索提供方: tavily|bing"},
+            "provider": {"type": "string", "description": "搜索提供方: auto|tavily|ddg|bing"},
             "link": {"type": "boolean", "description": "是否包含链接", "default": True},
             "search_depth": {"type": "string", "description": "Tavily 搜索深度: basic|advanced", "default": "basic"}
         },
@@ -125,23 +158,41 @@ async def _search_bing_html(query: str, max_results: int = 5) -> List[dict]:
     }
 )
 async def tool_web_search(query: str, max_results: int = 5, provider: str | None = None, link: bool = True, search_depth: str = "basic") -> str:
-    """联网搜索：优先使用 Tavily（需 TAVILY_API_KEY），否则回退到 Bing HTML 抓取"""
+    """联网搜索：默认按 Tavily -> DuckDuckGo -> Bing 顺序回退"""
     try:
         max_results = max(1, min(int(max_results or 5), 10))
     except Exception:
         max_results = 5
 
-    # 选择 provider
-    if provider:
-        provider = provider.lower().strip()
-    else:
-        provider = 'tavily' if (getattr(getattr(get_config(), 'session', None), 'tavily_api_key', '') or '').strip() else 'bing'
+    # provider 逻辑：
+    # - provider=tavily/ddg/bing 则强制使用
+    # - 未指定或 auto：按 Tavily -> DDG -> Bing 顺序尝试
+    pro = (provider or "auto").lower().strip()
+    results: List[dict] = []
+
+    def _have_tavily() -> bool:
+        return bool((getattr(getattr(get_config(), "session", None), "tavily_api_key", "") or "").strip())
 
     try:
-        if provider == "tavily":
+        if pro == "tavily":
             results = await _search_tavily(query, max_results=max_results, depth=search_depth)
-        else:
+        elif pro == "ddg":
+            results = await _search_ddg(query, max_results=max_results)
+        elif pro == "bing":
             results = await _search_bing_html(query, max_results=max_results)
+        else:
+            if _have_tavily():
+                try:
+                    results = await _search_tavily(query, max_results=max_results, depth=search_depth)
+                except Exception:
+                    results = []
+            if not results:
+                try:
+                    results = await _search_ddg(query, max_results=max_results)
+                except Exception:
+                    results = []
+            if not results:
+                results = await _search_bing_html(query, max_results=max_results)
     except Exception as e:
         logger.error(f"[AI Chat] web_search 失败: {e}")
         return f"Error: web_search failed: {e}"
