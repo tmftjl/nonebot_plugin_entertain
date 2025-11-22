@@ -1,14 +1,8 @@
-﻿from __future__ import annotations
-from ...core.constants import DEFAULT_HTTP_TIMEOUT
-
+from __future__ import annotations
 
 import base64
 import io
-import os
 from dataclasses import dataclass
-import asyncio
-import shutil
-from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple
 from urllib.parse import quote_plus
 
@@ -17,516 +11,357 @@ from nonebot.log import logger
 from nonebot.matcher import Matcher
 from nonebot.params import RegexGroup
 from nonebot.exception import FinishedException
-from ...core.api import Plugin, KeyValueCache
-from .config import cfg_music
+from PIL import Image, ImageDraw, ImageFont
 
+from ...core.api import Plugin, KeyValueCache
+from ...core.http import get_shared_async_client
+from ...core.constants import DEFAULT_HTTP_TIMEOUT
+from .config import cfg_music
 
 try:
     from nonebot.adapters.onebot.v11 import MessageEvent, MessageSegment
-except Exception:  # pragma: no cover - allow import without adapter during static analysis
+except Exception:
     MessageEvent = object  # type: ignore
-
-    class _Dummy:  # type: ignore
+    class _Dummy:
         @staticmethod
-        def image(_: str):
-            return None
-
+        def image(_): return None
         @staticmethod
-        def record(_: str):
-            return None
-
+        def record(_): return None
     MessageSegment = _Dummy  # type: ignore
 
-from PIL import Image, ImageDraw, ImageFont
-from ...core.http import get_shared_async_client
-
-# Limit ffmpeg conversions to avoid resource contention
-_FFMPEG_SEM = asyncio.Semaphore(2)
-
-
-Platform = Literal["qq", "kugou", "wangyiyun"]
-Provider = Literal["tencent", "netease"]
-
+Platform = Literal["qq", "netease"]
 
 @dataclass
 class Song:
-    id: str
-    name: str
-    artist: str
-    cover: Optional[str] = None
+    id: int
+    mid: Optional[str]
+    vid: str
+    song: str
+    subtitle: str
+    album: str
+    singer: str
+    cover: str
+    pay: str
+    time: str
+    type: int
+    bpm: int
+    quality: str
+    grp: List['Song']
     link: Optional[str] = None
-    # platform specific
-    mid: Optional[str] = None  # qq
+    interval: Optional[str] = None
+    size: Optional[str] = None
+    kbps: Optional[str] = None
+    url: Optional[str] = None
 
+USER_RESULTS = KeyValueCache(ttl=600)
 
-# In-memory search cache per user
-# Cache recent search results per user with TTL to avoid unbounded growth
-USER_RESULTS = KeyValueCache(ttl=600)  # 10 minutes
-
-
-# Regex definitions
 P = Plugin(name="entertain", display_name="娱乐")
+
 search_matcher = P.on_regex(
-    r"^#点歌(?:(qq|酷狗|网易云|wyy|kugou|netease))?\s*(.*)$",
+    r"^#点歌(?:(qq|网易云|netease))?\s*(.*)$",
     name="search",
     display_name="点歌",
     priority=5,
-    block=True,
-    flags=0,
+    block=True
 )
 
-select_matcher = P.on_regex(r"^#(\d+)$", name="select",display_name="选择歌", flags=0)
+select_matcher = P.on_regex(
+    r"^#(\d+)$",
+    name="select",
+    display_name="选择歌"
+)
 
-
-def _platform_alias_to_key(alias: Optional[str]) -> Platform:
+def _normalize_platform(alias: Optional[str]) -> Platform:
     if not alias:
-        return "wangyiyun"
+        return "netease"
     a = alias.lower()
     if a in {"qq"}:
         return "qq"
-    if a in {"酷狗", "kugou"}:
-        return "kugou"
-    if a in {"网易云", "wyy", "netease"}:
-        return "wangyiyun"
-    return "wangyiyun"
+    return "netease"
 
+def _platform_name_cn(p: Platform) -> str:
+    return {"qq": "QQ音乐", "netease": "网易云音乐"}[p]
 
-def _platform_name_human(p: Platform) -> str:
-    return {"qq": "QQ音乐", "kugou": "酷狗音乐", "wangyiyun": "网易云音乐"}[p]
-
-
-async def _search_songs(platform: Platform, keyword: str) -> List[Song]:
-    return await _lv_search_songs(platform, keyword)
-
-
-def _lv_provider_from_platform(platform: Platform) -> Provider:
-    if platform == "qq":
-        return "tencent"
-    if platform == "wangyiyun":
-        return "netease"
-    mcfg = cfg_music()
-    pd = str(mcfg.get("provider_default") or "tencent").lower()
-    return "netease" if pd == "netease" else "tencent"
-
-
-async def _lv_search_songs(platform: Platform, keyword: str) -> List[Song]:
+async def _search_songs_api(platform: Platform, keyword: str) -> List[Song]:
     mcfg = cfg_music()
     api_base = str(mcfg.get("api_base") or "https://api.vkeys.cn").rstrip("/")
-    num = int(mcfg.get("search_num") or 20)
-    prov = _lv_provider_from_platform(platform)
+    num = int(mcfg.get("search_num") or 10)
+
+    if platform == "qq":
+        url = f"{api_base}/v2/music/tencent/search/song"
+    else:
+        url = f"{api_base}/v2/music/netease"
+
+    params = {
+        "word": keyword,
+        "num": num
+    }
+
     client = await get_shared_async_client()
-    url = f"{api_base}/v2/music/{prov}?word={quote_plus(keyword)}&num={num}"
-    r = await client.get(url, timeout=DEFAULT_HTTP_TIMEOUT)
-    r.raise_for_status()
-    data = r.json()
-    items = data.get("data")
+    resp = await client.get(url, params=params, timeout=DEFAULT_HTTP_TIMEOUT)
+    resp.raise_for_status()
+
+    data = resp.json()
+
+    if data.get("code") != 200:
+        error_msg = data.get("message", "API返回错误")
+        logger.error(f"API错误 - 平台: {platform}, URL: {url}, 参数: {params}, 响应码: {data.get('code')}, 消息: {error_msg}")
+        raise Exception(f"{error_msg}（{platform}音乐服务可能暂时不可用）")
+
+    items = data.get("data", [])
     if isinstance(items, dict):
         items = [items]
-    items = items or []
-    results: List[Song] = []
+
+    results = []
     for item in items:
-        name = item.get("song") or "未知歌曲"
-        artist = item.get("singer") or "未知歌手"
+        song_id = item.get("id", 0)
         mid = item.get("mid")
-        sid = item.get("id")
-        cover = item.get("cover")
+        vid = item.get("vid", "")
+        song_name = item.get("song", "未知歌曲")
+        subtitle = item.get("subtitle", "")
+        album = item.get("album", "")
+        singer = item.get("singer", "未知歌手")
+        cover = item.get("cover", "")
+        pay = item.get("pay", "")
+        song_time = item.get("time", "")
+        song_type = item.get("type", 0)
+        bpm = item.get("bpm", 0)
+        quality = item.get("quality", "")
+
         link = item.get("link")
         if not link:
-            if prov == "tencent" and mid:
-                link = f"https://i.y.qq.com/v8/playsong.html?songmid={mid}"
-            elif prov == "netease" and sid:
-                link = f"https://music.163.com/#/song?id={sid}"
-        results.append(Song(id=str(sid or mid or name), name=str(name), artist=str(artist), cover=cover, link=link, mid=mid))
+            if platform == "qq" and mid:
+                link = f"https://i.y.qq.com/v8/playsong.html?songmid={mid}&type={song_type}"
+            elif platform == "netease" and song_id:
+                link = f"https://music.163.com/#/song?id={song_id}"
+
+        grp_list = []
+        for grp_item in item.get("grp", []):
+            grp_song = Song(
+                id=grp_item.get("id", 0),
+                mid=grp_item.get("mid"),
+                vid=grp_item.get("vid", ""),
+                song=grp_item.get("song", ""),
+                subtitle=grp_item.get("subtitle", ""),
+                album=grp_item.get("album", ""),
+                singer=grp_item.get("singer", ""),
+                cover=grp_item.get("cover", ""),
+                pay=grp_item.get("pay", ""),
+                time=grp_item.get("time", ""),
+                type=grp_item.get("type", 0),
+                bpm=grp_item.get("bpm", 0),
+                quality=grp_item.get("quality", ""),
+                grp=[]
+            )
+            grp_list.append(grp_song)
+
+        results.append(Song(
+            id=song_id,
+            mid=mid,
+            vid=vid,
+            song=song_name,
+            subtitle=subtitle,
+            album=album,
+            singer=singer,
+            cover=cover,
+            pay=pay,
+            time=song_time,
+            type=song_type,
+            bpm=bpm,
+            quality=quality,
+            grp=grp_list,
+            link=link
+        ))
+
     return results
 
-
-async def _lv_resolve_audio_url(platform: Platform, song: Song) -> Optional[str]:
+async def _get_song_url_api(platform: Platform, song: Song) -> Optional[str]:
     mcfg = cfg_music()
     api_base = str(mcfg.get("api_base") or "https://api.vkeys.cn").rstrip("/")
-    prov = _lv_provider_from_platform(platform)
-    quality = int(mcfg.get("quality") or 4)
-    if prov == "netease":
-        quality = max(1, min(9, quality))
+    quality = int(mcfg.get("quality") or 14)
+
+    if platform == "qq":
+        url = f"{api_base}/v2/music/tencent/geturl"
+        params = {"quality": quality, "type": song.type}
+        if song.mid:
+            params["mid"] = song.mid
+        else:
+            params["id"] = song.id
     else:
-        quality = max(0, min(16, quality))
+        url = f"{api_base}/v2/music/netease"
+        params = {"id": song.id, "quality": quality}
+
     client = await get_shared_async_client()
     try:
-        params = f"quality={quality}"
-        if prov == "tencent":
-            if song.mid:
-                url = f"{api_base}/v2/music/{prov}?mid={quote_plus(song.mid)}&{params}"
-            else:
-                url = f"{api_base}/v2/music/{prov}?id={quote_plus(song.id)}&{params}"
-        else:
-            url = f"{api_base}/v2/music/{prov}?id={quote_plus(song.id)}&{params}"
-        r = await client.get(url, timeout=DEFAULT_HTTP_TIMEOUT)
-        r.raise_for_status()
-        j = r.json()
-        data = j.get("data") or {}
-        audio_url = data.get("url")
-        if audio_url:
-            return audio_url
-        return data.get("link")
-    except Exception:
-        logger.exception("resolve audio url failed")
-        return None
+        resp = await client.get(url, params=params, timeout=DEFAULT_HTTP_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
 
-async def _resolve_audio_url(platform: Platform, song: Song) -> Optional[str]:
-    return await _lv_resolve_audio_url(platform, song)
-
-
-def _ffmpeg_path() -> Optional[str]:
-    """Locate ffmpeg executable via env var or PATH."""
-    env_bin = os.getenv("FFMPEG_BIN")
-    if env_bin and os.path.exists(env_bin):
-        return env_bin
-    which = shutil.which("ffmpeg") or shutil.which("ffmpeg.exe")
-    return which
-
-
-async def _download_audio_via_ffmpeg(url: str, name_hint: str) -> Optional[Path]:
-    """
-    下载音频/转码为 mp3，并返回 NapCat 容器内可用的路径
-    """
-    ffmpeg = _ffmpeg_path()
-    if not ffmpeg:
-        logger.error("FFmpeg not found in PATH and FFMPEG_BIN not set; cannot download locally.")
-        return None
-    logger.info(f"Found ffmpeg executable at: {ffmpeg}")
-    # 通用化的输出目录：默认使用项目下 data/temp/musicshare，可通过环境变量覆盖
-    host_base_path = Path(os.getenv("NPE_MUSIC_VOICE_DIR") or (Path.cwd() / "data" / "temp" / "musicshare"))
-    container_base_env = os.getenv("NPE_CONTAINER_VOICE_DIR")
-    container_base_path: Optional[Path] = Path(container_base_env) if container_base_env else None
-
-    try:
-        # 确保主机上的临时目录存在
-        host_base_path.mkdir(parents=True, exist_ok=True)
-    except Exception as e:
-        logger.error(f"Failed to create temp directory on host {host_base_path}: {e}")
-        return None
-
-    safe = "".join(ch for ch in name_hint if ch.isalnum() or ch in (" ", "-", "_", "."))
-    safe = safe.strip() or "audio"
-
-    host_out_path = host_base_path / f"{safe}.mp3"
-
-    if host_out_path.exists():
-        try:
-            host_out_path.unlink()
-        except Exception:
-            pass
-
-    ua = (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
-    )
-    cmd = [
-        ffmpeg,
-        "-y",
-        "-loglevel",
-        "error",
-        "-hide_banner",
-        "-user_agent",
-        ua,
-        "-i",
-        url,
-        # 输出 MP3 并设置采样率/码率
-        "-vn",
-        "-acodec",
-        "libmp3lame",
-        "-ar",
-        "44100",
-        "-b:a",
-        "192k",
-        str(host_out_path),
-    ]
-
-    logger.debug(f"Executing ffmpeg command to create file at: {host_out_path}")
-
-    try:
-        async with _FFMPEG_SEM:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120.0)
-        if (
-            proc.returncode == 0
-            and host_out_path.exists()
-            and host_out_path.stat().st_size > 1024
-        ):
-            if container_base_path:
-                container_return_path = container_base_path / host_out_path.name
-                logger.success(
-                    f"FFmpeg created file {host_out_path}, returning container path {container_return_path}"
-                )
-                return container_return_path
-            else:
-                logger.success(
-                    f"FFmpeg created file {host_out_path}, returning host path"
-                )
-                return host_out_path
-        else:
-            error_message = stderr.decode(errors="ignore").strip()
-            logger.error(f"FFmpeg process failed with exit code {proc.returncode}.")
-            if error_message:
-                logger.error(f"FFmpeg stderr: {error_message}")
-            if not host_out_path.exists():
-                logger.error("Output file was not created on host.")
-            elif host_out_path.stat().st_size <= 1024:
-                logger.error(
-                    f"Output file on host is too small ({host_out_path.stat().st_size} bytes)."
-                )
+        if data.get("code") != 200:
+            logger.error(f"获取播放链接失败 - 平台: {platform}, 歌曲: {song.song}, 响应码: {data.get('code')}, 消息: {data.get('message')}")
             return None
 
-    except asyncio.TimeoutError:
-        logger.error("FFmpeg process timed out after 120 seconds.")
-        try:
-            proc.kill()
-        except Exception:
-            pass
-        try:
-            await proc.wait()
-        except Exception:
-            pass
-        try:
-            if proc.stdout:
-                proc.stdout.close()
-            if proc.stderr:
-                proc.stderr.close()
-        except Exception:
-            pass
-        return None
-    except FileNotFoundError:
-        logger.error("FFmpeg executable not found when trying to run the process.")
-        return None
+        result = data.get("data", {})
+        return result.get("url")
     except Exception as e:
-        logger.error(f"An unexpected error occurred during ffmpeg execution: {e}")
+        logger.error(f"获取音乐链接失败: {e}")
         return None
 
-
-def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    """Load only the bundled `font.ttf` from this plugin's resources.
-
-    No fallback. If loading fails, raises an error explicitly.
-    """
-    res_dir = Path(__file__).parent / "resource"
-    font_path = res_dir / "font.ttf"
+def _load_font(size: int):
+    from pathlib import Path
     try:
+        font_path = Path(__file__).parent / "resource" / "font.ttf"
         return ImageFont.truetype(str(font_path), size)
-    except Exception as e:
-        raise RuntimeError(
-            f"Failed to load bundled font at {font_path}. Ensure 'font.ttf' exists and is valid. Error: {e}"
-        )
+    except Exception:
+        return ImageFont.load_default()
 
+def _draw_music_list(platform: Platform, keyword: str, songs: List[Song]) -> bytes:
+    BG_COLOR = (240, 242, 245)
+    HEADER_COLOR = (64, 84, 180)
+    CARD_BG = (255, 255, 255)
+    TEXT_MAIN = (30, 30, 30)
+    TEXT_SUB = (100, 100, 100)
+    ACCENT = (64, 84, 180)
 
-def _make_song_list_image_grid(platform: Platform, keyword: str, songs: List[Song]) -> bytes:
-    """A cleaner two-column song list image without covers."""
-    title = f"为你在{_platform_name_human(platform)}找到以下歌曲"
-    subtitle = f"关键词: {keyword}"
+    PADDING = 30
+    COLUMNS = 2
+    GAP_X = 20
+    GAP_Y = 15
+    CARD_H = 70
+    COL_W = 400
 
-    # Layout settings
-    pad_x, pad_y = 28, 24
-    grid_gap_x, grid_gap_y = 18, 12
-    bg_color = (246, 248, 251)
-    fg_color = (34, 34, 34)
-    accent_color = (80, 120, 200)
-    card_bg = (255, 255, 255)
-    card_border = (230, 234, 240)
-
-    font_title = _load_font(30)
-    font_subtitle = _load_font(20)
-    font_item = _load_font(22)
+    font_title = _load_font(36)
+    font_sub = _load_font(22)
+    font_song = _load_font(26)
+    font_artist = _load_font(20)
+    font_badge = _load_font(20)
     font_footer = _load_font(18)
 
-    max_items = min(20, len(songs))
+    count = min(len(songs), 20)
+    rows = (count + COLUMNS - 1) // COLUMNS
 
-    # Measurement helpers
-    dummy = Image.new("RGB", (1, 1))
-    draw = ImageDraw.Draw(dummy)
+    header_h = 120
+    list_h = rows * CARD_H + (rows - 1) * GAP_Y
+    footer_h = 50
 
-    def text_size(text: str, font: ImageFont.ImageFont) -> Tuple[int, int]:
-        bbox = draw.textbbox((0, 0), text, font=font)
-        return bbox[2] - bbox[0], bbox[3] - bbox[1]
+    w = PADDING * 2 + COL_W * COLUMNS + GAP_X * (COLUMNS - 1)
+    h = header_h + list_h + footer_h + PADDING
 
-    title_w, title_h = text_size(title, font_title)
-    sub_w, sub_h = text_size(subtitle, font_subtitle)
+    im = Image.new("RGB", (w, h), BG_COLOR)
+    draw = ImageDraw.Draw(im)
 
-    columns = 2
-    col_min_width = 420
-    grid_width = max(columns * col_min_width + (columns - 1) * grid_gap_x, title_w, sub_w)
-    footer_text = "回复序号点歌，例如：1 或 #1"
-    footer_w, footer_h = text_size(footer_text, font_footer)
-    grid_width = max(grid_width, footer_w)
+    draw.rectangle([(0, 0), (w, header_h)], fill=HEADER_COLOR)
+    draw.text((PADDING, 25), f"搜索结果: {keyword}", font=font_title, fill=(255, 255, 255))
 
-    # Wrap to fit column
-    def wrap_to_width(text: str, font: ImageFont.ImageFont, max_w: int) -> str:
-        if text_size(text, font)[0] <= max_w:
-            return text
-        ell = "…"
-        lo, hi = 0, len(text)
-        while lo < hi:
-            mid = (lo + hi) // 2
-            t = text[:mid] + ell
-            if text_size(t, font)[0] <= max_w:
-                lo = mid + 1
-            else:
-                hi = mid
-        mid = max(1, lo - 1)
-        return text[:mid] + ell
+    plat_name = _platform_name_cn(platform)
+    draw.text((PADDING, 75), f"来源: {plat_name} | 共找到 {len(songs)} 首歌曲", font=font_sub, fill=(220, 220, 255))
 
-    card_inner_pad = 12
-    badge_r = 12
-    text_left_offset = badge_r * 2 + 10
-    col_width = (grid_width - (columns - 1) * grid_gap_x) // columns
+    start_y = header_h + 20
 
-    # pre-measure cards
-    card_height = 48
-    rendered = []
-    for i in range(max_items):
-        line = f"{i+1}. {songs[i].name} - {songs[i].artist}"
-        wrapped = wrap_to_width(line, font_item, col_width - card_inner_pad * 2 - text_left_offset)
-        w, h = text_size(wrapped, font_item)
-        card_height = max(card_height, h + card_inner_pad * 2)
-        rendered.append((wrapped, w, h))
+    for i in range(count):
+        song = songs[i]
+        row = i // COLUMNS
+        col = i % COLUMNS
 
-    rows = (max_items + columns - 1) // columns
-    width = pad_x * 2 + grid_width
-    height = (
-        pad_y * 2
-        + title_h
-        + 8
-        + sub_h
-        + 16
-        + rows * card_height
-        + (rows - 1) * grid_gap_y
-        + 10
-        + footer_h
-    )
+        x = PADDING + col * (COL_W + GAP_X)
+        y = start_y + row * (CARD_H + GAP_Y)
 
-    im = Image.new("RGB", (width, height), color=bg_color)
-    d = ImageDraw.Draw(im)
+        draw.rounded_rectangle([(x, y), (x + COL_W, y + CARD_H)], radius=8, fill=CARD_BG)
 
-    cur_y = pad_y
-    d.text((pad_x, cur_y), title, fill=accent_color, font=font_title)
-    cur_y += title_h + 8
-    d.text((pad_x, cur_y), subtitle, fill=fg_color, font=font_subtitle)
-    cur_y += sub_h + 16
+        badge_size = 36
+        bx = x + 15
+        by = y + (CARD_H - badge_size) // 2
+        draw.ellipse([(bx, by), (bx + badge_size, by + badge_size)], fill=BG_COLOR)
 
-    for idx in range(max_items):
-        row = idx // columns
-        col = idx % columns
-        x0 = pad_x + col * (col_width + grid_gap_x)
-        y0 = cur_y + row * (card_height + grid_gap_y)
-        x1 = x0 + col_width
-        y1 = y0 + card_height
+        idx_str = str(i + 1)
+        bbox = draw.textbbox((0, 0), idx_str, font=font_badge)
+        tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
+        draw.text((bx + (badge_size - tw) / 2, by + (badge_size - th) / 2 - 2), idx_str, fill=ACCENT, font=font_badge)
 
-        # card
-        d.rounded_rectangle([(x0, y0), (x1, y1)], radius=10, fill=card_bg, outline=card_border)
+        text_x = bx + badge_size + 15
+        content_w = COL_W - (text_x - x) - 10
 
-        # badge
-        cx = x0 + card_inner_pad + badge_r
-        cy = y0 + card_height // 2
-        d.ellipse([(cx - badge_r, cy - badge_r), (cx + badge_r, cy + badge_r)], fill=accent_color)
-        num_text = str(idx + 1)
-        tw, th = text_size(num_text, font_footer)
-        d.text((cx - tw / 2, cy - th / 2), num_text, fill=(255, 255, 255), font=font_footer)
+        song_name = song.song
+        while draw.textlength(song_name, font=font_song) > content_w and len(song_name) > 1:
+            song_name = song_name[:-2] + "…"
 
-        # text
-        text_x = x0 + card_inner_pad + text_left_offset
-        text_y = y0 + (card_height - rendered[idx][2]) // 2
-        d.text((text_x, text_y), rendered[idx][0], fill=fg_color, font=font_item)
+        draw.text((text_x, y + 12), song_name, fill=TEXT_MAIN, font=font_song)
+        draw.text((text_x, y + 42), f"{song.singer}", fill=TEXT_SUB, font=font_artist)
 
-    # footer
-    d.text((pad_x, cur_y + rows * (card_height + grid_gap_y) - grid_gap_y + 10), footer_text, fill=(120, 120, 120), font=font_footer)
+    footer_text = "发送 #序号 (如 #1) 即可播放"
+    bbox = draw.textbbox((0, 0), footer_text, font=font_footer)
+    fw = bbox[2] - bbox[0]
+    draw.text(((w - fw) / 2, h - 30), footer_text, fill=(150, 150, 150), font=font_footer)
 
     buf = io.BytesIO()
     im.save(buf, format="PNG")
     return buf.getvalue()
-
 
 @search_matcher.handle()
 async def _(matcher: Matcher, event: MessageEvent, groups: Tuple[Optional[str], str] = RegexGroup()) -> None:
     alias, keyword = groups
     keyword = (keyword or "").strip()
     if not keyword:
-        await matcher.finish("请输入要搜索的歌曲名，例如：#点歌 晴天")
+        await matcher.finish("请提供关键词，例如：#点歌 晴天")
 
-    platform = _platform_alias_to_key(alias)
+    platform = _normalize_platform(alias)
+
     try:
-        songs = await _lv_search_songs(platform, keyword)
-    except Exception:
-        logger.exception("search songs failed")
-        await matcher.finish("搜索歌曲时发生错误，请稍后再试。")
+        songs = await _search_songs_api(platform, keyword)
+    except Exception as e:
+        logger.exception("搜索失败")
+        await matcher.finish(f"搜索出错: {e}")
         return
 
     if not songs:
-        await matcher.finish(
-            f"在“{_platform_name_human(platform)}”未找到“{keyword}”相关的歌曲"
-        )
-        return
+        await matcher.finish(f"在 {_platform_name_cn(platform)} 未找到相关歌曲。")
 
     USER_RESULTS.set(event.get_user_id(), (platform, songs))
-    prov = _lv_provider_from_platform(platform)
-    platform_for_display: Platform = "qq" if prov == "tencent" else "wangyiyun"
-    img_bytes = _make_song_list_image_grid(platform_for_display, keyword, songs)
-    b64 = base64.b64encode(img_bytes).decode()
-    await matcher.finish(MessageSegment.image(f"base64://{b64}"))
 
+    try:
+        img_bytes = _draw_music_list(platform, keyword, songs)
+        b64 = base64.b64encode(img_bytes).decode()
+        await matcher.finish(MessageSegment.image(f"base64://{b64}"))
+    except FinishedException:
+        raise
+    except Exception as e:
+        logger.exception("图片生成失败")
+        await matcher.finish("图片生成失败，请查看后台日志。")
 
 @select_matcher.handle()
 async def _(matcher: Matcher, event: MessageEvent, groups: Tuple[str] = RegexGroup()) -> None:
     user_id = event.get_user_id()
-    if not USER_RESULTS.get(user_id):
-        await matcher.finish("您的点歌记录已过期，请先搜索歌曲。例如：#点歌 晴天")
+    cached = USER_RESULTS.get(user_id)
+    if not cached:
+        await matcher.finish("点歌会话已过期，请重新搜索。")
         return
 
-    index_str = groups[0]
+    platform, songs = cached
     try:
-        index = int(index_str) - 1
-    except Exception:
-        await matcher.finish("无效的歌曲序号，请检查后重试。")
+        index = int(groups[0]) - 1
+    except ValueError:
+        await matcher.finish("序号无效。")
         return
 
-    res = USER_RESULTS.get(user_id); platform, songs = res
-    if index < 0 or index >= len(songs):
-        await matcher.finish("无效的歌曲序号，请检查后重试。")
+    if not (0 <= index < len(songs)):
+        await matcher.finish("序号超出范围。")
         return
 
     song = songs[index]
-    await matcher.send(f"正在获取：{song.name} - {song.artist}，请稍等...")
+    await matcher.send(f"正在解析：{song.song} - {song.singer}...")
 
-    # 先尝试返回直链（若失败则后续返回跳转链接）
-    audio_url = await _lv_resolve_audio_url(platform, song)
+    audio_url = await _get_song_url_api(platform, song)
 
-    # 若已转码并生成可用文件，直接 finish 发送，终止后续流程
     if audio_url:
-        # 优先尝试通过远程直链发送语音（由适配器下载处理）
         try:
-            await matcher.finish(MessageSegment.record(str(audio_url)))
+            await matcher.finish(MessageSegment.record(audio_url))
         except FinishedException:
             raise
         except Exception as e:
-            logger.warning(f"远程语音发送失败，尝试本地转码: {e}")
-        try:
-            local_path = await _download_audio_via_ffmpeg(
-                audio_url, f"{song.name}-{song.artist}"
-            )
-            if local_path:
-                await matcher.finish(
-                    MessageSegment.record(local_path.resolve().as_uri())
-                )
-        except FinishedException:
-            # 上层已经 finish，继续抛出
-            raise
-        except Exception as ee:
-            logger.warning(f"本地转码发送失败: {ee}")
+            logger.warning(f"语音发送失败: {e}")
 
-    # 最后返回 URL（平台直链或平台页）
-    fallback = audio_url or song.link
-    if fallback:
-        await matcher.finish(f"{song.name} - {song.artist}\n{fallback}")
+    fallback_link = audio_url or song.link
+    if fallback_link:
+        await matcher.finish(f"播放失败，请点击链接收听：\n{song.song}\n{fallback_link}")
     else:
-        await matcher.finish("播放失败：未能获取歌曲播放地址。")
-
-
-
+        await matcher.finish("无法获取该歌曲的播放地址。")
